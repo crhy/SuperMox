@@ -1,0 +1,28 @@
+Source: supermox-ve
+Section: admin
+Priority: optional
+Maintainer: SuperMox <noreply@supermox.me>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: supermox-ve
+Architecture: all
+Depends: apt,
+         openssh-client,
+         openssh-server,
+         proxmox-archive-keyring,
+         pve-manager (>= 8.0.4),
+         pve-qemu-kvm,
+         qemu-server (>= 9.0~),
+         sysvinit-core,
+         linux-image-amd64 | linux-image-arm64,
+         ${misc:Depends}
+Conflicts: systemd-sysv, systemd
+Provides: proxmox-ve
+Description: SuperMox virtualization stack
+ Meta package that pulls in the SuperMox virtualization stack: the
+ manager, QEMU-based virtual machine support, and the clustering and
+ storage services. It is designed to run under sysvinit on Devuan, so
+ it installs sysvinit-core and a Debian kernel package instead of a
+ systemd-based init and the upstream kernel helper packages.

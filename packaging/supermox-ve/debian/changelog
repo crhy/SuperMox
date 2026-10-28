@@ -1,0 +1,9 @@
+supermox-ve (0.1.0) unstable; urgency=medium
+
+  * Initial release.
+  * Metapackage replacing the upstream virtualization metapackage:
+    depends on sysvinit-core and a Debian kernel package, conflicts
+    with systemd-sysv and systemd, and provides the upstream package
+    name so it can stand in for it.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 28 Oct 2026 08:41:47 -0700

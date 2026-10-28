@@ -1,0 +1,19 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: supermox-ve
+
+Files: *
+Copyright: SuperMox
+License: AGPL-3.0-or-later
+ This package is derived from the upstream proxmox-ve metapackage,
+ which is licensed under the GNU Affero General Public License, version
+ 3 (or later). SuperMox keeps that license for this derived metapackage.
+ .
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU Affero General Public License as published
+ by the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+ .
+ This package is distributed in the hope that it will be useful, but
+ WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ Affero General Public License for a full copy of the license.
