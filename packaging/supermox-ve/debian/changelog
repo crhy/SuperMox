@@ -1,3 +1,10 @@
+supermox-ve (0.1.3) unstable; urgency=medium
+
+  * Drop Conflicts: ifupdown. ifupdown2 provides ifupdown, so it made ifupdown2
+    uninstallable; ifupdown2 already conflicts with the real ifupdown.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 28 Oct 2026 16:08:16 -0700
+
 supermox-ve (0.1.2) unstable; urgency=medium
 
   * Ship the networking init script (debian/supermox-ve.networking.init,

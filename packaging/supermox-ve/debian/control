@@ -20,7 +20,7 @@ Depends: apt,
          sysvinit-core,
          linux-image-amd64 | linux-image-arm64 | linux-image-armmp-lpae | linux-image-riscv64 | linux-image-loong64,
          ${misc:Depends}
-Conflicts: systemd-sysv, systemd, ifupdown
+Conflicts: systemd-sysv, systemd
 Replaces: ifupdown
 Provides: proxmox-ve
 Description: SuperMox virtualization stack

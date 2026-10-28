@@ -1,0 +1,16 @@
+diff -ruN orig/src/PVE/Daemon.pm new/src/PVE/Daemon.pm
+--- a/src/PVE/Daemon.pm	2026-10-28 16:24:56.410089009 -0700
++++ b/src/PVE/Daemon.pm	2026-10-28 16:25:24.662423669 -0700
+@@ -570,8 +570,11 @@
+ };
+ 
+ # checks if the process was started by systemd
++# SuperMox: our sysvinit scripts set PVE_SYSV_INIT=1 when they run the daemon's start/stop/restart.
++# Treat that like being started by init, so the command acts directly instead of handing off to
++# /etc/init.d/<name> again (which would loop).
+ my $init_ppid = sub {
+-    if (getppid() == 1) {
++    if (getppid() == 1 || $ENV{PVE_SYSV_INIT}) {
+         return 1;
+     } else {
+         return 0;
