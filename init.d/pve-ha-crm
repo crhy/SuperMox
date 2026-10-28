@@ -1,0 +1,56 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          pve-ha-crm
+# Required-Start:    corosync pve-cluster pvedaemon watchdog-mux syslog
+# Required-Stop:     corosync pve-cluster pvedaemon watchdog-mux syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: PVE Cluster HA Resource Manager Daemon
+### END INIT INFO
+
+# Sysvinit service script translated from
+# upstream/pxvirt/packages/pve-ha-manager/pve-ha-manager/debian/pve-ha-crm.service
+# ExecStart=/usr/sbin/pve-ha-crm start  ExecStop=/usr/sbin/pve-ha-crm stop
+# Type=forking  PIDFile=/run/pve-ha-crm.pid  TimeoutStopSec=65
+
+. /lib/lsb/init-functions
+
+DAEMON=/usr/sbin/pve-ha-crm
+PIDFILE=/run/pve-ha-crm.pid
+NAME=pve-ha-crm
+
+case "$1" in
+  start)
+    log_begin_msg "Starting $NAME"
+    "$DAEMON" start
+    log_end_msg $?
+    ;;
+  stop)
+    log_begin_msg "Stopping $NAME"
+    "$DAEMON" stop
+    log_end_msg $?
+    ;;
+  restart)
+    "$0" stop
+    "$0" start
+    ;;
+  reload|force-reload)
+    "$0" restart
+    ;;
+  status)
+    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      log_success_msg "$NAME is running"
+    else
+      log_failure_msg "$NAME is not running"
+    fi
+    exit "$rc"
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
+    exit 2
+    ;;
+esac
+
+exit 0
