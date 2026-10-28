@@ -49,7 +49,7 @@ Pin-Priority: 100
 
 Package: *
 Pin: origin ""
-Pin-Priority: 900
+Pin-Priority: 999
 PIN
 
 printf 'deb http://deb.devuan.org/merged excalibur main\n' > /etc/apt/sources.list.d/excalibur-rust.list
