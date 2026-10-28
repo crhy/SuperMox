@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Architecture mapping: SUPERMOX_ARCH (Debian arch name) plus the kernel/QEMU/console
+# helpers. The build host's arch is only the first test target; this script works for any arch.
+source "$(dirname "$0")/arch.sh"
+
 VM_DIR="${SUPERMOX_VM_DIR:-/media/rhy/data/supermox-vm}"
 MIRROR="${SUPERMOX_MIRROR:-http://deb.devuan.org/merged}"
 SUITE="${SUPERMOX_SUITE:-ceres}"
@@ -13,7 +17,9 @@ export TMPDIR="${SUPERMOX_TMPDIR:-$(cd "$(dirname "$0")/.." && pwd)/build/tmp}"
 KEYRING=/usr/share/keyrings/devuan-archive-keyring.gpg
 COMPONENTS=main,contrib,non-free-firmware
 
-BASE_PKGS=sysvinit-core,sysv-rc,init-system-helpers,linux-image-amd64,openssh-server,ifupdown,dhcpcd-base,opensysusers,util-linux-extra,devuan-keyring,rsyslog,cron,ca-certificates,less
+BASE_PKGS=sysvinit-core,sysv-rc,init-system-helpers,openssh-server,ifupdown,dhcpcd-base,opensysusers,util-linux-extra,devuan-keyring,rsyslog,cron,ca-certificates,less
+KERNEL_PKG="$(supermox_kernel_pkg)"
+BASE_PKGS="$KERNEL_PKG,$BASE_PKGS"
 EXTRA_PKGS="${SUPERMOX_EXTRA_PKGS:-lsb-base}"
 if [ -n "$EXTRA_PKGS" ]; then
   INCLUDE="$BASE_PKGS,$EXTRA_PKGS"
@@ -33,6 +39,17 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+# A foreign-arch rootfs needs the host kernel to run foreign binaries via binfmt_misc.
+# Do not install anything: tell the operator what is missing and stop. Skipped for --dry-run.
+if [ "$dry_run" -ne 1 ]; then
+  host_arch="$(dpkg --print-architecture)"
+  if [ "$SUPERMOX_ARCH" != "$host_arch" ] && [ ! -e "/proc/sys/fs/binfmt_misc/qemu-$SUPERMOX_ARCH" ]; then
+    printf 'ERROR: building a %s rootfs on a %s host needs foreign-arch execution via binfmt_misc.\n' "$SUPERMOX_ARCH" "$host_arch" >&2
+    printf 'Install the qemu-user-binfmt package on the build host (apt install qemu-user-binfmt), then re-run.\n' >&2
+    exit 2
+  fi
+fi
 
 tarball="$VM_DIR/rootfs.tar"
 img="$VM_DIR/rootfs.img"
@@ -56,6 +73,7 @@ cmd=(
   --mode=unshare
   --variant=apt
   --format=tar
+  --architectures="$SUPERMOX_ARCH"
   --keyring="$KEYRING"
   --components="$COMPONENTS"
   --include="$INCLUDE"

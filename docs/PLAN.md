@@ -5,7 +5,8 @@ Bring up a Devuan Ceres amd64 KVM VM and get the core PVE services (pve-cluster,
 pve-manager, pve-http-server and friends) running under sysvinit with ZERO systemd. This means
 replacing every upstream systemd unit, `systemctl` call, `sd_notify` and libsystemd dependency with
 `init.d/` service scripts and plain sysv tooling. This milestone is the foundation everything else
-builds on.
+builds on. SuperMox targets all architectures (arm64, armhf, amd64, riscv64, loong64, ...); amd64 is
+only the first test target. The single architecture setting is `SUPERMOX_ARCH`, mapped in `scripts/arch.sh`.
 
 ### Milestone 1 VM
 Operate the amd64 KVM VM built by the scripts in `scripts/`. All paths default to

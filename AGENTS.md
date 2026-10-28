@@ -3,8 +3,9 @@
 ## Purpose
 SuperMox forks PXVIRT (an arm64-capable fork of Proxmox VE, AGPLv3) onto Devuan Ceres
 running under sysvinit. ZERO systemd is a hard requirement: no systemd packages, units,
-`systemctl` calls, `sd_notify`, or libsystemd in anything we ship. Target devices, in order:
-amd64 KVM VM first, then arm64, then a Samsung Galaxy S9 (Exynos, LineageOS device "starlte")
+`systemctl` calls, `sd_notify`, or libsystemd in anything we ship. SuperMox is architecture-neutral
+(arm64, armhf, amd64, riscv64, loong64, ...); amd64 is only the first test target. Target devices,
+in order: amd64 KVM VM first, then arm64, then a Samsung Galaxy S9 (Exynos, LineageOS device "starlte")
 as the first phone.
 
 ## Layout

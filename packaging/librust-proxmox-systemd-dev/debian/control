@@ -7,7 +7,7 @@ Standards-Version: 4.6.2
 Rules-Requires-Root: no
 
 Package: librust-proxmox-systemd-dev
-Architecture: amd64
+Architecture: any
 Multi-Arch: same
 Depends: librust-libc-0.2+default-dev (>= 0.2.107-~~)
 Provides: librust-proxmox-systemd+default-dev (= 1.0.1-1+supermox1),

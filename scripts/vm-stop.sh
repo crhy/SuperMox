@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Architecture mapping: the expected QEMU process comm depends on SUPERMOX_ARCH.
+source "$(dirname "$0")/arch.sh"
+
 VM_DIR="${SUPERMOX_VM_DIR:-/media/rhy/data/supermox-vm}"
 pidfile="$VM_DIR/qemu.pid"
 
@@ -22,8 +25,9 @@ if [ ! -r "$comm_file" ]; then
 fi
 
 comm="$(tr -d '\n' < "$comm_file")"
-if [ "$comm" != "qemu-system-x86" ]; then
-  printf 'ERROR: pid %s is %s, not qemu-system-x86; refusing to kill\n' "$pid" "$comm" >&2
+expected_comm="$(supermox_qemu_comm)"
+if [ "$comm" != "$expected_comm" ]; then
+  printf 'ERROR: pid %s is %s, not %s; refusing to kill\n' "$pid" "$comm" "$expected_comm" >&2
   exit 1
 fi
 
