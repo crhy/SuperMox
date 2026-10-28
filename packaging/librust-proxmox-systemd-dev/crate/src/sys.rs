@@ -17,7 +17,7 @@ pub unsafe fn sd_journal_stream_fd(
     let _ = identifier;
     let _ = priority;
     let _ = level_prefix;
-    libc::dup(2)
+    unsafe { libc::dup(2) }
 }
 
 pub unsafe fn sd_notify(unset_environment: c_int, state: *const c_char) -> c_int {
@@ -53,7 +53,7 @@ pub unsafe fn sd_listen_fds_with_names(
 ) -> c_int {
     let _ = unset_environment;
     if !names.is_null() {
-        *names = std::ptr::null();
+        unsafe { *names = std::ptr::null::<*mut *mut c_char>() as *mut *mut c_char };
     }
     0
 }
@@ -73,7 +73,7 @@ pub unsafe fn sd_id128_get_machine_app_specific(
         return -libc::ENOENT;
     }
 
-    let digest = sha256::hmac_sha256(app_id.bytes, machine_id);
+    let digest = sha256::hmac_sha256(app_id.bytes, &machine_id);
     let mut result = [0u8; 16];
     for i in 0..16 {
         result[i] = digest[i];
@@ -84,15 +84,15 @@ pub unsafe fn sd_id128_get_machine_app_specific(
     if ret.is_null() {
         return -libc::EINVAL;
     }
-    (*ret).bytes = result;
+    unsafe { (*ret).bytes = result };
     0
 }
 
 fn trim_ascii_ws(data: Vec<u8>) -> Vec<u8> {
     let is_ws = |b: u8| -> bool { b == b' ' || b == b'\t' || b == b'\n' || b == b'\r' };
-    let start = data.iter().take_while(|b| is_ws(*b)).count();
-    let end = data.iter().rev().take_while(|b| is_ws(*b)).count();
-    data[start..data.len() - end].to_vec();
+    let start = data.iter().take_while(|b| is_ws(**b)).count();
+    let end = data.iter().rev().take_while(|b| is_ws(**b)).count();
+    data[start..data.len() - end].to_vec()
 }
 
 pub fn check_call(ret: c_int) -> Result<c_int, io::Error> {

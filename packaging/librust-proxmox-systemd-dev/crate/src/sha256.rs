@@ -26,11 +26,11 @@ fn big_sigma0(x: u32) -> u32 { x.rotate_left(30) ^ x.rotate_left(19) ^ x.rotate_
 fn big_sigma1(x: u32) -> u32 { x.rotate_left(26) ^ x.rotate_left(21) ^ x.rotate_left(7) }
 fn small_sigma0(x: u32) -> u32 { x.rotate_left(25) ^ x.rotate_left(14) ^ (x >> 3) }
 fn small_sigma1(x: u32) -> u32 { x.rotate_left(15) ^ x.rotate_left(13) ^ (x >> 10) }
-fn ch(x: u32, y: u32, z: u32) -> u32 { (x & y) ^ (~x & z) }
+fn ch(x: u32, y: u32, z: u32) -> u32 { (x & y) ^ (!x & z) }
 fn maj(x: u32, y: u32, z: u32) -> u32 { (x & y) ^ (x & z) ^ (y & z) }
 
 fn compress(h: [u32; 8], block: &[u8]) -> [u32; 8] {
-    assert(block.len() == 64);
+    assert!(block.len() == 64);
     let mut a = h[0];
     let mut b = h[1];
     let mut c = h[2];
@@ -42,10 +42,10 @@ fn compress(h: [u32; 8], block: &[u8]) -> [u32; 8] {
 
     let mut x = [0u32; 16];
     for i in 0..16 {
-        x[i] = (u32(block[i * 4]) << 24)
-            | (u32(block[i * 4 + 1]) << 16)
-            | (u32(block[i * 4 + 2]) << 8)
-            | u32(block[i * 4 + 3]);
+        x[i] = (u32::from(block[i * 4]) << 24)
+            | (u32::from(block[i * 4 + 1]) << 16)
+            | (u32::from(block[i * 4 + 2]) << 8)
+            | u32::from(block[i * 4 + 3]);
     }
 
     for i in 0..16 {
@@ -108,7 +108,7 @@ pub fn sha256(msg: &[u8]) -> [u8; 32] {
     while data.len() % 64 != 56 {
         data.push(0);
     }
-    data.extend(ml.to_bytes_be());
+    data.extend(ml.to_be_bytes());
 
     let mut i = 0;
     while i < data.len() {
@@ -141,11 +141,11 @@ pub fn hmac_sha256(key: [u8; 16], msg: &[u8]) -> [u8; 32] {
 
     let mut inner_data = inner_prefix.to_vec();
     inner_data.extend(msg);
-    let inner = sha256(inner_data);
+    let inner = sha256(&inner_data);
 
     let mut outer_data = outer_prefix.to_vec();
     outer_data.extend(inner);
-    sha256(outer_data)
+    sha256(&outer_data)
 }
 
 #[test]
