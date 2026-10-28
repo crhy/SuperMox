@@ -17,6 +17,7 @@
 # Type=forking  PIDFile=/run/pveproxy/pveproxy.pid
 
 . /lib/lsb/init-functions
+export PVE_SYSV_INIT=1
 
 DAEMON=/usr/bin/pveproxy
 PIDFILE=/run/pveproxy/pveproxy.pid

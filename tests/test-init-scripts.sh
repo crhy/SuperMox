@@ -56,6 +56,23 @@ while IFS= read -r -d '' f; do
   done
 done < <(find "$dir" -maxdepth 1 -type f -print0)
 
+# Daemon init scripts must export PVE_SYSV_INIT=1 so PVE::Daemon treats the run
+# as init-started and does not re-exec /etc/init.d/<svc> in a loop
+# (see patches/pve-common/0003-init-script-caller.patch).
+daemon_scripts="pvedaemon pveproxy spiceproxy pvestatd pvescheduler pve-firewall pve-ha-crm pve-ha-lrm pve-guests pvebanner pvenetcommit"
+for s in $daemon_scripts; do
+  f="init.d/$s"
+  if [ ! -f "$f" ]; then
+    echo "FAIL: init.d/$s missing"
+    fail=1
+    continue
+  fi
+  if ! grep -qE '^[[:space:]]*export PVE_SYSV_INIT=1' "$f"; then
+    echo "FAIL: init.d/$s missing export PVE_SYSV_INIT=1"
+    fail=1
+  fi
+done
+
 if [ "$count" -eq 0 ]; then
   echo "FAIL: no files in $dir"
   exit 1

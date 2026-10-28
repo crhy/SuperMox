@@ -1,0 +1,24 @@
+# Sysvinit service scripts shipped into Debian packages. init.d/<svc> is the single
+# source of truth; apply-patches.sh and vm-build-pkg.sh copy it into the right debian/
+# dir so the packaging patches no longer embed copies (copies drift).
+# Format (one line per shipped script):
+#   <component-or-packaging-name> <binary-package> <svc>
+# apply-patches.sh copies init.d/<svc> to <out>/<component>/<component>/debian/<binary-package>.<svc>.init
+# for every line whose first field is the component being patched.
+# Full-line and inline "#" comments are ignored.
+pve-cluster pve-cluster pve-cluster
+pve-firewall pve-firewall pve-firewall
+pve-firewall pve-firewall pvefw-logger
+pve-ha-manager pve-ha-manager pve-ha-crm
+pve-ha-manager pve-ha-manager pve-ha-lrm
+pve-ha-manager pve-ha-manager watchdog-mux
+pve-manager pve-manager pvebanner
+pve-manager pve-manager pve-guests
+pve-manager pve-manager pvedaemon
+pve-manager pve-manager pvenetcommit
+pve-manager pve-manager pveproxy
+pve-manager pve-manager pvescheduler
+pve-manager pve-manager pvestatd
+pve-manager pve-manager spiceproxy
+qemu-server qemu-server qmeventd
+supermox-ve supermox-ve networking

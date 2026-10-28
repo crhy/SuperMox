@@ -17,6 +17,7 @@
 # ExecReload=/usr/sbin/pve-firewall restart  Type=forking  PIDFile=/run/pve-firewall.pid
 
 . /lib/lsb/init-functions
+export PVE_SYSV_INIT=1
 
 DAEMON=/usr/sbin/pve-firewall
 PIDFILE=/run/pve-firewall.pid

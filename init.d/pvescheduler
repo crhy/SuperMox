@@ -15,6 +15,7 @@
 # PIDFile=/run/pvescheduler.pid
 
 . /lib/lsb/init-functions
+export PVE_SYSV_INIT=1
 
 DAEMON=/usr/bin/pvescheduler
 PIDFILE=/run/pvescheduler.pid

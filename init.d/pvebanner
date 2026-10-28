@@ -15,6 +15,7 @@
 # After=local-fs.target -> $local_fs; DefaultDependencies=no, Before=console-getty dropped.
 
 . /lib/lsb/init-functions
+export PVE_SYSV_INIT=1
 
 NAME=pvebanner
 

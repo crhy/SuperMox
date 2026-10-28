@@ -14,6 +14,7 @@
 # ExecReload=/usr/bin/pvestatd restart  Type=forking  PIDFile=/run/pvestatd.pid
 
 . /lib/lsb/init-functions
+export PVE_SYSV_INIT=1
 
 DAEMON=/usr/bin/pvestatd
 PIDFILE=/run/pvestatd.pid

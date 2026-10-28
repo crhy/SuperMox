@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 vm_ssh="$repo_root/scripts/vm-ssh.sh"
 VM_DIR="${SUPERMOX_VM_DIR:-/media/rhy/data/supermox-vm}"
 VM_SSH_PORT="${SUPERMOX_VM_SSH_PORT:-2223}"
+INIT_SCRIPTS="${INIT_SCRIPTS:-$repo_root/config/init-scripts.txt}"
 
 ssh_opts=(
   -o StrictHostKeyChecking=no
@@ -80,7 +81,7 @@ fi
 # the per-build cd dirs (relative to /root/build) and the log file.
 if [ "$is_packaging" -eq 1 ]; then
   remote_base="pkg-$component"
-  src_local="$packaging_dir"
+  src_local="$repo_root/build/pkg-stage/$component"
   copy_target="/root/build/pkg-$component/$component"
   build_dirs=("$remote_base/$component")
   log="$repo_root/build/logs/pkg-$component.log"
@@ -111,7 +112,8 @@ copy_debs_back() {
 if [ "$dry_run" -eq 1 ]; then
   if [ "$is_packaging" -eq 1 ]; then
     printf 'DRY-RUN: build pkg-%s (own packaging dir, no VM changes)\n' "$component"
-    printf '  tar -C packaging/%s -cf - . | scripts/vm-ssh.sh "rm -rf /root/build/pkg-%s/%s && mkdir -p /root/build/pkg-%s/%s && tar -C /root/build/pkg-%s/%s -xf -"\n' "$component" "$component" "$component" "$component" "$component" "$component" "$component"
+    printf '  rm -rf build/pkg-stage/%s && rsync -a packaging/%s/ build/pkg-stage/%s/ && copy init.d service scripts into build/pkg-stage/%s/debian/\n' "$component" "$component" "$component" "$component"
+    printf '  tar -C build/pkg-stage/%s -cf - . | scripts/vm-ssh.sh "rm -rf /root/build/pkg-%s/%s && mkdir -p /root/build/pkg-%s/%s && tar -C /root/build/pkg-%s/%s -xf -"\n' "$component" "$component" "$component" "$component" "$component" "$component" "$component"
     printf '  in VM /root/build/pkg-%s/%s: apt-get update\n' "$component" "$component"
     printf '  in VM /root/build/pkg-%s/%s: mk-build-deps --build-profiles=nocheck --install --remove --tool "apt-get -y --no-install-recommends" debian/control\n' "$component" "$component"
     printf '  in VM /root/build/pkg-%s/%s: dpkg-buildpackage -b -us -uc\n' "$component" "$component"
@@ -158,6 +160,27 @@ if [ "$is_packaging" -eq 0 ]; then
   if [ ! -d "$src_local" ]; then
     printf 'ERROR: no patched source for component: %s\n' "$component" >&2
     exit 1
+  fi
+fi
+
+if [ "$is_packaging" -eq 1 ]; then
+  # init.d/<svc> is the single source of truth; stage the packaging dir under build/
+  # and copy the service scripts into its debian/ so the repo copy stays the only one.
+  rm -rf "$src_local"
+  mkdir -p "$src_local"
+  rsync -a --exclude .git "$packaging_dir/" "$src_local/"
+  if [ -f "$INIT_SCRIPTS" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      line="${line%%#*}"
+      line="${line#"${line%%[![:space:]]*}"}"
+      line="${line%"${line##*[![:space:]]}"}"
+      [ -n "$line" ] || continue
+      read -r comp pkg svc <<< "$line"
+      [ "$comp" = "$component" ] || continue
+      [ -f "$repo_root/init.d/$svc" ] || continue
+      mkdir -p "$src_local/debian"
+      install -m 0755 "$repo_root/init.d/$svc" "$src_local/debian/$pkg.$svc.init"
+    done < "$INIT_SCRIPTS"
   fi
 fi
 

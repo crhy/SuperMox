@@ -19,6 +19,7 @@
 # Wants= dropped. pve-storage.target After= list folded in as $remote_fs.
 
 . /lib/lsb/init-functions
+export PVE_SYSV_INIT=1
 
 NAME=pve-guests
 

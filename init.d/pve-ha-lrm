@@ -14,6 +14,7 @@
 # Type=forking  PIDFile=/run/pve-ha-lrm.pid  TimeoutStopSec=infinity  KillMode=process
 
 . /lib/lsb/init-functions
+export PVE_SYSV_INIT=1
 
 DAEMON=/usr/sbin/pve-ha-lrm
 PIDFILE=/run/pve-ha-lrm.pid

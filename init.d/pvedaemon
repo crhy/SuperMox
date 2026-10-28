@@ -14,6 +14,7 @@
 # ExecReload=/usr/bin/pvedaemon restart  Type=forking  PIDFile=/run/pvedaemon.pid
 
 . /lib/lsb/init-functions
+export PVE_SYSV_INIT=1
 
 DAEMON=/usr/bin/pvedaemon
 PIDFILE=/run/pvedaemon.pid
