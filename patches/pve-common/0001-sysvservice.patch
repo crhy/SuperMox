@@ -1,0 +1,180 @@
+diff -ruN orig/src/Makefile new/src/Makefile
+--- a/src/Makefile	2026-10-28 04:35:08.535057661 -0700
++++ b/src/Makefile	2026-10-28 05:40:00.672998584 -0700
+@@ -33,6 +33,7 @@
+ 	SysFSTools.pm \
+ 	Syscall.pm \
+ 	Systemd.pm \
++	SysvService.pm \
+ 	Ticket.pm \
+ 	Tools.pm
+ 
+diff -ruN orig/src/PVE/SysvService.pm new/src/PVE/SysvService.pm
+--- a/src/PVE/SysvService.pm	1969-12-31 16:00:00.000000000 -0800
++++ b/src/PVE/SysvService.pm	2026-10-28 05:49:23.854179075 -0700
+@@ -0,0 +1,165 @@
++package PVE::SysvService;
++
++use strict;
++use warnings;
++
++use PVE::Tools qw(run_command);
++
++# Sysvinit service control for SuperMox: replaces the service-manager calls PXVIRT
++# inherited from Proxmox. Service scripts live in an init.d directory and are
++# driven directly (`<initd>/<name> <action>`); enable/disable uses update-rc.d.
++# The layout is overridable through the environment so tests (and non-default
++# installs) can point at a private tree.
++
++sub initd_dir {
++    return $ENV{PVE_SYSV_INITD_DIR} // '/etc/init.d';
++}
++
++sub update_rc_d {
++    return $ENV{PVE_SYSV_UPDATE_RC_D} // '/usr/sbin/update-rc.d';
++}
++
++# Accept either "foo" or "foo.service"; the sysv name never carries the suffix.
++sub unit_name {
++    my ($name) = @_;
++    $name =~ s/\.service\z//;
++    return $name;
++}
++
++# Absolute path of the service script. Dies when the script is not installed,
++# which is how every action function reports a missing service.
++sub script_path {
++    my ($name) = @_;
++    my $path = initd_dir() . '/' . unit_name($name);
++    die "service script not found: $path\n" if ! -e $path;
++    return $path;
++}
++
++sub exists {
++    my ($name) = @_;
++    my $path = initd_dir() . '/' . unit_name($name);
++    return -e $path ? 1 : 0;
++}
++
++sub start {
++    my ($name) = @_;
++    run_command([script_path($name), 'start']);
++}
++
++sub stop {
++    my ($name) = @_;
++    run_command([script_path($name), 'stop']);
++}
++
++sub restart {
++    my ($name) = @_;
++    run_command([script_path($name), 'restart']);
++}
++
++sub reload {
++    my ($name) = @_;
++    run_command([script_path($name), 'reload']);
++}
++
++sub is_running {
++    my ($name) = @_;
++    my $path = script_path($name);
++    my $rc = run_command([$path, 'status'], noerr => 1, quiet => 1);
++    return $rc == 0 ? 1 : 0;
++}
++
++# Whole script text: used to detect reload support and the LSB description.
++sub script_text {
++    my ($name) = @_;
++    my $path = script_path($name);
++    my $text = '';
++    open my $fh, '<', $path or die "cannot read service script $path: $!\n";
++    while (my $line = <$fh>) {
++        $text .= $line;
++    }
++    close $fh;
++    return $text;
++}
++
++# A script supports reload when its case statement has a "reload)" arm or a
++# combined "reload|...)" arm.
++sub supports_reload {
++    my ($name) = @_;
++    my $text = script_text($name);
++    return ($text =~ /reload\)/ || $text =~ /reload\|/) ? 1 : 0;
++}
++
++sub reload_or_restart {
++    my ($name) = @_;
++    if (supports_reload($name)) {
++        reload($name);
++    } else {
++        restart($name);
++    }
++}
++
++sub try_reload_or_restart {
++    my ($name) = @_;
++    return if ! is_running($name);
++    reload_or_restart($name);
++}
++
++sub enable {
++    my ($name) = @_;
++    script_path($name);
++    run_command([update_rc_d(), unit_name($name), 'defaults']);
++}
++
++sub disable {
++    my ($name) = @_;
++    script_path($name);
++    run_command([update_rc_d(), unit_name($name), 'disable']);
++}
++
++# Enabled means a runlevel start link S??<name> exists in one of rc2..rc5.d.
++sub is_enabled {
++    my ($name) = @_;
++    my $n = unit_name($name);
++    my $rc_dir = $ENV{PVE_SYSV_RC_DIR} // '/etc';
++    foreach my $runlevel (2, 3, 4, 5) {
++        my $dir = "$rc_dir/rc$runlevel.d";
++        next if ! -d $dir;
++        if (opendir my $dh, $dir) {
++            my @entries = readdir $dh;
++            closedir $dh;
++            foreach my $entry (@entries) {
++                return 1 if $entry =~ /\AS..\Q$n\E\z/;
++            }
++        }
++    }
++    return 0;
++}
++
++sub description {
++    my ($name) = @_;
++    my $text = script_text($name);
++    if ($text =~ /^[[:space:]]*#?[[:space:]]*Short-Description:[[:space:]]*(.+?)[[:space:]]*$/m) {
++        return $1;
++    }
++    return '';
++}
++
++# Service-status summary. Never dies: a missing script reports not-found.
++sub show {
++    my ($name) = @_;
++    my $path = initd_dir() . '/' . unit_name($name);
++
++    my $found = -e $path ? 1 : 0;
++    my $running = $found ? is_running($name) : 0;
++    my $enabled = $found ? is_enabled($name) : 0;
++    my $desc = $found ? description($name) : '';
++
++    return {
++        ActiveState => $running ? 'active' : 'inactive',
++        SubState => $running ? 'running' : 'dead',
++        UnitFileState => $found ? ($enabled ? 'enabled' : 'disabled') : 'not-found',
++        Description => $desc,
++    };
++}
++
++1;
