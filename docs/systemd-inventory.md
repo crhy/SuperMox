@@ -1,6 +1,6 @@
 # systemd inventory
 
-Totals: units=30, code references=99, control lines=4
+Totals: units=30, code references=96, control lines=4
 
 ## Units
 
@@ -63,7 +63,6 @@ Totals: units=30, code references=99, control lines=4
 | pve-common | src/PVE/Systemd.pm | 205 | my $if = $service->get_object('/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager'); |
 | pve-common | src/PVE/Systemd.pm | 209 | $if = $service->get_object($unit_path, 'org.freedesktop.systemd1.Unit') |
 | pve-common | src/PVE/Tools.pm | 1466 | my $cmd = ['journalctl', '-o', 'short', '--no-pager']; |
-| pve-container | debian/rules | 15 | override_dh_installsystemd |
 | pve-container | debian/rules | 16 | dh_installsystemd -ppve-container --no-start --no-enable --no-restart-after-upgrade -r 'system-pve\x |
 | pve-container | src/PVE/LXC.pm | 2968 | my $cmd = ['systemctl', 'start', "$base_unit\@$vmid"]; |
 | pve-container | src/PVE/LXC/Setup/ArchLinux.pm | 41 | # 'systemctl enable systemd-networkd', since that's what we're configuring |
@@ -72,14 +71,12 @@ Totals: units=30, code references=99, control lines=4
 | pve-container | src/pve-container-stop-wrapper | 13 | exec {'systemctl'} 'systemctl', '--no-block', 'restart', "pve-container\@${vmid}.service"; |
 | pve-container | src/pve-container-stop-wrapper | 15 | # stop if called via "systemctl stop lxc@ID" |
 | pve-firewall | debian/postinst | 10 | systemctl --system daemon-reload >/dev/null \|\| true |
-| pve-firewall | debian/rules | 9 | override_dh_installsystemd |
 | pve-firewall | debian/rules | 10 | dh_installsystemd --name pvefw-logger pvefw-logger.service |
 | pve-firewall | debian/rules | 11 | dh_installsystemd --name pve-firewall --no-stop-on-upgrade --no-restart-after-upgrade pve-firewall.s |
 | pve-firewall | src/PVE/Firewall.pm | 5208 | run_command([qw(systemctl try-reload-or-restart pvefw-logger.service)]); |
 | pve-ha-manager | debian/lintian-overrides | 2 | pve-ha-manager: maintainer-script-calls-systemctl * |
 | pve-ha-manager | debian/pve-ha-manager.postinst | 8 | if systemctl --quiet is-active pve-ha-lrm.service; then |
 | pve-ha-manager | debian/pve-ha-manager.postinst | 12 | if systemctl --quiet is-active pve-ha-crm.service; then |
-| pve-ha-manager | debian/rules | 34 | override_dh_installsystemd |
 | pve-ha-manager | debian/rules | 35 | dh_installsystemd -ppve-ha-manager --name watchdog-mux --no-restart-after-upgrade --no-stop-on-upgra |
 | pve-ha-manager | debian/rules | 37 | dh_installsystemd -ppve-ha-manager --name pve-ha-lrm pve-ha-lrm.service |
 | pve-ha-manager | debian/rules | 38 | dh_installsystemd -ppve-ha-manager --name pve-ha-crm pve-ha-crm.service |

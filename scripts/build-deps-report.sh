@@ -68,8 +68,11 @@ parse_control() {
 
 : > "$work/produced.tsv"
 for c in "${components[@]}"; do
-  f="upstream/pxvirt/packages/$c/$c/debian/control"
-  parse_control "$f" "$c" > "$work/raw.$c"
+  base="upstream/pxvirt/packages/$c/$c"
+  : > "$work/raw.$c"
+  while IFS= read -r f; do
+    parse_control "$f" "$c" >> "$work/raw.$c"
+  done < <(find "$base" -name .git -prune -o -type f -path '*/debian/control' -print)
   awk -F'\t' '$1=="B"{print $2}' "$work/raw.$c" | LC_ALL=C sort -u > "$work/$c.build"
   awk -F'\t' '$1=="R"{print $2}' "$work/raw.$c" | LC_ALL=C sort -u > "$work/$c.runtime"
   awk -F'\t' '$1=="P"{print $2"\t"$3}' "$work/raw.$c" >> "$work/produced.tsv"
@@ -129,7 +132,7 @@ awk -F'\t' '
     next
   }
   END {
-    # deterministic Kahn topological order over the 12 components
+    # deterministic Kahn topological order over the components
     split("", order)
     for (c in comps) order[c] = 1
     # sorted component list
@@ -163,7 +166,7 @@ awk -F'\t' '
     print "A dependency is MISSING if `apt-cache policy` on the Ceres VM reports no"
     print "install candidate (`(none)` or package not found)."
     print ""
-    print "## Build order (our 12 components)"
+    print "## Build order (our " m " components)"
     print ""
     print "Each component is listed after every component whose binary packages it"
     print "build-depends on."
@@ -179,7 +182,7 @@ awk -F'\t' '
     print ""
     print "## External missing packages (full sorted list)"
     print ""
-    print "Missing on Ceres and NOT produced by any of our 12 components; each needs an"
+    print "Missing on Ceres and NOT produced by any of our " m " components; each needs an"
     print "external source (e.g. Proxmox Rust crates `librust-*`, `libpve-rs-perl`,"
     print "`libproxmox-rs-perl`, `proxmox-*`)."
     print ""

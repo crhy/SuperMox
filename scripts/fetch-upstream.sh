@@ -16,6 +16,7 @@ COMPONENTS=(
   pve-http-server
   pve-guest-common
   proxmox-ve
+  proxmox-perl-rs
 )
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"

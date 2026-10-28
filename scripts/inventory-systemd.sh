@@ -3,20 +3,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-COMPONENTS=(
-  pve-manager
-  pve-cluster
-  pve-common
-  qemu-server
-  pve-container
-  pve-storage
-  pve-access-control
-  pve-ha-manager
-  pve-firewall
-  pve-http-server
-  pve-guest-common
-  proxmox-ve
-)
+mapfile -t COMPONENTS < <(bash scripts/fetch-upstream.sh --list)
+if [ "${#COMPONENTS[@]}" -eq 0 ]; then
+  printf 'ERROR: fetch-upstream.sh --list returned no components\n' >&2
+  exit 1
+fi
 PAT='systemctl|sd_notify|libsystemd|systemd-run|journalctl|(^|[[:space:]])dh_installsystemd|dh-sequence-systemd|systemd-sysv|PVE::Systemd|org\.freedesktop\.systemd1|enter_systemd_scope'
 
 OUT="docs/systemd-inventory.md"
