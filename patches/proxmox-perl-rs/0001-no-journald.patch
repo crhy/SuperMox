@@ -1,0 +1,14 @@
+diff -ruN orig/common/src/logger.rs new/common/src/logger.rs
+--- a/common/src/logger.rs	2026-10-28 09:17:54.519511109 -0700
++++ b/common/src/logger.rs	2026-10-28 09:46:44.146565378 -0700
+@@ -6,9 +6,9 @@
+         .parse()
+         .map_err(Error::from)
+         .and_then(|default_log_level| {
++            // SuperMox has no journald; keep the stderr_pve sink (daemon stderr is routed to syslog by our init scripts)
+             proxmox_log::Logger::from_env(env_var_name, default_log_level)
+                 .stderr_pve()
+-                .journald()
+                 .init()
+         })
+     {
