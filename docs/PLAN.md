@@ -16,6 +16,7 @@ Operate the amd64 KVM VM built by the scripts in `scripts/`. All paths default t
 - Check it (waits for ssh, proves PID 1 is sysvinit-core, runs `check-no-systemd.sh --image /`
   in the guest, confirms `/dev/kvm`): `bash scripts/vm-smoke.sh`
 - Stop it by pidfile only: `bash scripts/vm-stop.sh`
+- Configure Proxmox apt repos (keyring, sources, origin pins, verify installability): `bash scripts/vm-setup-proxmox-repos.sh`
 
 ## M2 — arm64 QEMU VM
 Reproduce the M1 result on an arm64 QEMU VM. PXVIRT is already arm64-capable, so the work is
