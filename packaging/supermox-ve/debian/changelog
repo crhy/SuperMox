@@ -1,3 +1,12 @@
+supermox-ve (0.1.1) unstable; urgency=medium
+
+  * Depend on cpio: proxmox-backup-file-restore's postinst runs it without
+    declaring it.
+  * Depend on ifupdown and ifenslave (pve-manager's alternative to ifupdown2):
+    ifupdown2 left eth0 down under sysvinit.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 28 Oct 2026 14:46:06 -0700
+
 supermox-ve (0.1.0) unstable; urgency=medium
 
   * Initial release.

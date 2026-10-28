@@ -80,7 +80,7 @@ printf 'PASS: ssh reachable after %ss\n' "$waited"
 # 4. Copy the debs in, index them, add the local repo source.
 remote 'mkdir -p /root/localrepo'
 copy_in "$DEBS_DIR"/*.deb root@127.0.0.1:/root/localrepo/
-remote 'cd /root/localrepo && dpkg-scanpackages . /dev/null > Packages 2> scan.log; printf "deb [trusted=yes] file:/root/localrepo ./\n" > /etc/apt/sources.list.d/supermox-local.list; printf "indexed %s packages\n" "$(grep -c "^Package:" Packages)"'
+remote 'export DEBIAN_FRONTEND=noninteractive; { command -v dpkg-scanpackages >/dev/null || { apt-get update -qq && apt-get install -y -qq --no-install-recommends dpkg-dev >/dev/null; }; } && cd /root/localrepo && dpkg-scanpackages . /dev/null > Packages 2> scan.log; printf "deb [trusted=yes] file:/root/localrepo ./\n" > /etc/apt/sources.list.d/supermox-local.list; printf "indexed %s packages\n" "$(grep -c "^Package:" Packages)"'
 
 # 5. vm-setup-proxmox-repos.sh downloads the Proxmox keyring with curl, which the base image lacks;
 #    install it first from the Devuan sources already in the image so the documented step can run.
@@ -92,7 +92,9 @@ bash "$repo_root/scripts/vm-setup-proxmox-repos.sh"
 # 6. /etc/hosts: hostname must resolve to the VM's own non-loopback IP (pve-cluster requires it).
 remote 'bash -s' <<'HOSTS'
 set -e
-ip="$(ip -4 -o addr show eth0 | awk '{print $4}')"
+ip="$(ip -4 -o addr show eth0 | awk '{sub(/\/.*/, "", $4); print $4}')"
+[ -n "$ip" ] || { echo "no IPv4 address on eth0" >&2; exit 1; }
+touch /etc/hosts
 hn="$(hostname)"
 grep -v "[[:space:]]${hn}\$" /etc/hosts > /etc/hosts.new || true
 printf '%s %s\n' "$ip" "$hn" >> /etc/hosts.new
@@ -102,8 +104,8 @@ printf 'resolves: '; getent hosts "$hn" || true
 HOSTS
 
 # 7. Install the meta package (noninteractive).
-printf '== apt-get install -y supermox-ve ==\n'
-remote 'export DEBIAN_FRONTEND=noninteractive; apt-get install -y supermox-ve'
+printf '== apt-get install -y --no-install-recommends supermox-ve ==\n'
+remote 'export DEBIAN_FRONTEND=noninteractive; apt-get install -y --no-install-recommends supermox-ve'
 
 # 8. Checks, from inside the VM. Print PASS/FAIL for each; on any FAIL dump the last 20 syslog lines
 #    and any per-service log.

@@ -9,6 +9,9 @@ Rules-Requires-Root: no
 Package: supermox-ve
 Architecture: all
 Depends: apt,
+         cpio,
+         ifenslave,
+         ifupdown,
          openssh-client,
          openssh-server,
          proxmox-archive-keyring,

@@ -17,7 +17,7 @@ export TMPDIR="${SUPERMOX_TMPDIR:-$(cd "$(dirname "$0")/.." && pwd)/build/tmp}"
 KEYRING=/usr/share/keyrings/devuan-archive-keyring.gpg
 COMPONENTS=main,contrib,non-free-firmware
 
-BASE_PKGS=sysvinit-core,sysv-rc,init-system-helpers,openssh-server,ifupdown,dhcpcd-base,opensysusers,util-linux-extra,devuan-keyring,rsyslog,cron,ca-certificates,less
+BASE_PKGS=sysvinit-core,sysv-rc,init-system-helpers,openssh-server,ifupdown,iproute2,dhcpcd-base,opensysusers,util-linux-extra,devuan-keyring,rsyslog,cron,ca-certificates,less
 KERNEL_PKG="$(supermox_kernel_pkg)"
 BASE_PKGS="$KERNEL_PKG,$BASE_PKGS"
 EXTRA_PKGS="${SUPERMOX_EXTRA_PKGS:-lsb-base}"
@@ -58,6 +58,7 @@ setup_hook='printf "Package: systemd\nPin: version *\nPin-Priority: -1\n\nPackag
 
 customize_hooks=(
   'echo supermox > "$1/etc/hostname"'
+  'printf "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n" > "$1/etc/hosts"'
   'chroot "$1" sh -c "echo root:supermox | chpasswd"'
   'sed -i "s/^#*PermitRootLogin.*/PermitRootLogin yes/" "$1/etc/ssh/sshd_config"'
   'printf "auto eth0\niface eth0 inet dhcp\n" > "$1/etc/network/interfaces"'

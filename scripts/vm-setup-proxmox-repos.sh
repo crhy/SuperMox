@@ -34,6 +34,7 @@ KEY_PATH='/usr/share/keyrings/proxmox-archive-keyring.gpg'
 
 if [ ! -s "$KEY_PATH" ]; then
   tmp="$(mktemp)"
+  command -v curl >/dev/null || { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null; }
   curl -fsSL -o "$tmp" "$KEY_URL"
   mv "$tmp" "$KEY_PATH"
   chmod 644 "$KEY_PATH"
@@ -55,6 +56,11 @@ Explanation: qemu-server needs Proxmox's patched swtpm (0.10.2+pve1), not Devuan
 Package: swtpm swtpm-libs swtpm-tools
 Pin: origin download.proxmox.com
 Pin-Priority: 600
+
+Explanation: SuperMox uses classic ifupdown + ifenslave; ifupdown2 left eth0 down under sysvinit.
+Package: ifupdown2
+Pin: version *
+Pin-Priority: -1
 PIN
 
 printf 'deb http://deb.devuan.org/merged excalibur main\n' > /etc/apt/sources.list.d/excalibur-rust.list
