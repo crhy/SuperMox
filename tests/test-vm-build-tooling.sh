@@ -39,5 +39,15 @@ if [ -z "$line_cp" ] || [ -z "$line_pr" ] || [ "$line_cp" -ge "$line_pr" ]; then
   exit 1
 fi
 
+# Own packaging/<name>/ dir: --dry-run must build the pkg-<name> dir with dpkg-buildpackage.
+out3="$(bash "$target" --dry-run librust-proxmox-systemd-dev)"
+for pat in 'pkg-librust-proxmox-systemd-dev' 'dpkg-buildpackage'; do
+  if ! printf '%s\n' "$out3" | grep -qF -- "$pat"; then
+    echo "FAIL: --dry-run librust-proxmox-systemd-dev missing: $pat"
+    exit 1
+  fi
+done
+
 echo "OK: vm-build-pkg.sh --dry-run pve-common mentions mk-build-deps and localrepo"
 echo "OK: vm-build-pkg.sh --dry-run proxmox-perl-rs lists common/pkg before pve-rs"
+echo "OK: vm-build-pkg.sh --dry-run librust-proxmox-systemd-dev builds pkg- dir with dpkg-buildpackage"

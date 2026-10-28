@@ -22,7 +22,7 @@ for arg in "$@"; do
 done
 
 if [ -z "$component" ]; then
-  printf 'usage: %s [--dry-run] <component>\n' "${0##*/}" >&2
+  printf 'usage: %s [--dry-run] <component|packaging-name>\n' "${0##*/}" >&2
   exit 2
 fi
 
@@ -52,18 +52,51 @@ read_subdirs() {
   done < "$file"
 }
 
-subdirs=()
-while IFS= read -r _s; do
-  [ -n "$_s" ] && subdirs+=("$_s")
-done < <(read_subdirs "$component")
+# Classify the name: an upstream component (from fetch-upstream.sh --list) or
+# one of our own Debian source packages under packaging/<name>/debian/control.
+packaging_dir="$repo_root/packaging/$component"
+is_packaging=0
+[ -f "$packaging_dir/debian/control" ] && is_packaging=1
 
-build_dirs=()
-if [ "${#subdirs[@]}" -gt 0 ]; then
-  for _s in "${subdirs[@]}"; do
-    build_dirs+=("$component/$_s")
-  done
+is_component=0
+while IFS= read -r _c; do
+  [ "$_c" = "$component" ] && is_component=1
+done < <(bash "$repo_root/scripts/fetch-upstream.sh" --list)
+
+if [ "$is_packaging" -eq 1 ] && [ "$is_component" -eq 1 ]; then
+  printf 'ERROR: %s exists both as an upstream component and under packaging/\n' "$component" >&2
+  exit 2
+fi
+
+# Subdirs only apply to upstream components; packaging/<name>/ is a single source dir.
+subdirs=()
+if [ "$is_packaging" -eq 0 ]; then
+  while IFS= read -r _s; do
+    [ -n "$_s" ] && subdirs+=("$_s")
+  done < <(read_subdirs "$component")
+fi
+
+# Remote build base under /root/build, the local dir to tar, the VM copy target,
+# the per-build cd dirs (relative to /root/build) and the log file.
+if [ "$is_packaging" -eq 1 ]; then
+  remote_base="pkg-$component"
+  src_local="$packaging_dir"
+  copy_target="/root/build/pkg-$component/$component"
+  build_dirs=("$remote_base/$component")
+  log="$repo_root/build/logs/pkg-$component.log"
 else
-  build_dirs=("$component")
+  remote_base="$component"
+  src_local="$repo_root/build/patched/$component/$component"
+  copy_target="/root/build/$component"
+  if [ "${#subdirs[@]}" -gt 0 ]; then
+    build_dirs=()
+    for _s in "${subdirs[@]}"; do
+      build_dirs+=("$component/$_s")
+    done
+  else
+    build_dirs=("$component")
+  fi
+  log="$repo_root/build/logs/$component.log"
 fi
 
 copy_debs_back() {
@@ -76,6 +109,17 @@ copy_debs_back() {
 }
 
 if [ "$dry_run" -eq 1 ]; then
+  if [ "$is_packaging" -eq 1 ]; then
+    printf 'DRY-RUN: build pkg-%s (own packaging dir, no VM changes)\n' "$component"
+    printf '  tar -C packaging/%s -cf - . | scripts/vm-ssh.sh "rm -rf /root/build/pkg-%s/%s && mkdir -p /root/build/pkg-%s/%s && tar -C /root/build/pkg-%s/%s -xf -"\n' "$component" "$component" "$component" "$component" "$component" "$component" "$component"
+    printf '  in VM /root/build/pkg-%s/%s: apt-get update\n' "$component" "$component"
+    printf '  in VM /root/build/pkg-%s/%s: mk-build-deps --build-profiles=nocheck --install --remove --tool "apt-get -y --no-install-recommends" debian/control\n' "$component" "$component"
+    printf '  in VM /root/build/pkg-%s/%s: dpkg-buildpackage -b -us -uc\n' "$component" "$component"
+    printf '  copy *.deb to /root/localrepo, dpkg-scanpackages . > Packages, apt-get update\n'
+    printf '  scp new *.deb from /root/localrepo to %s/debs/\n' "$VM_DIR"
+    printf '  log to build/logs/pkg-%s.log\n' "$component"
+    exit 0
+  fi
   printf 'DRY-RUN: build %s (no VM changes)\n' "$component"
   printf '  rm -rf build/patched && scripts/apply-patches.sh build/patched\n'
   printf '  tar -C build/patched/%s/%s -cf - . | scripts/vm-ssh.sh "rm -rf /root/build/%s && mkdir -p /root/build/%s && tar -C /root/build/%s -xf -"\n' "$component" "$component" "$component" "$component" "$component"
@@ -102,26 +146,25 @@ if ! command -v sshpass >/dev/null 2>&1; then
   exit 1
 fi
 
-src_dir="$repo_root/build/patched/$component/$component"
-log="$repo_root/build/logs/$component.log"
 mkdir -p "$repo_root/build/logs"
 
-rm -rf "$repo_root/build/patched"
-if ! "$repo_root/scripts/apply-patches.sh" "$repo_root/build/patched" >"$log" 2>&1; then
-  printf 'FAIL: apply-patches.sh\n' >&2
-  tail -n 30 "$log" >&2
-  exit 1
-fi
-
-if [ ! -d "$src_dir" ]; then
-  printf 'ERROR: no patched source for component: %s\n' "$component" >&2
-  exit 1
+if [ "$is_packaging" -eq 0 ]; then
+  rm -rf "$repo_root/build/patched"
+  if ! "$repo_root/scripts/apply-patches.sh" "$repo_root/build/patched" >"$log" 2>&1; then
+    printf 'FAIL: apply-patches.sh\n' >&2
+    tail -n 30 "$log" >&2
+    exit 1
+  fi
+  if [ ! -d "$src_local" ]; then
+    printf 'ERROR: no patched source for component: %s\n' "$component" >&2
+    exit 1
+  fi
 fi
 
 if ! {
   printf '\n=== copy source to VM ===\n'
-  tar -C "$repo_root/build/patched/$component/$component" -cf - . |
-    bash "$vm_ssh" "rm -rf /root/build/$component && mkdir -p /root/build/$component && tar -C /root/build/$component -xf -"
+  tar -C "$src_local" -cf - . |
+    bash "$vm_ssh" "rm -rf $copy_target && mkdir -p $copy_target && tar -C $copy_target -xf -"
 
   printf '\n=== build in VM ===\n'
   {

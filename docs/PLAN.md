@@ -22,6 +22,10 @@ Operate the amd64 KVM VM built by the scripts in `scripts/`. All paths default t
     while Ceres has 0.3.0). The script adds Devuan `excalibur` (trixie-era) as a low-priority source and pins
     `librust-*`/`rustc`/`cargo`/`libstd-rust-*`/`dh-cargo` to it (990) with Proxmox's own `librust-*` higher (995);
     crates are build-time source only, nothing from them ships.
+- Build a Debian source package in the VM: `bash scripts/vm-build-pkg.sh <name>`. Two kinds: an upstream
+  component (patched via `apply-patches.sh`, built from `upstream/pxvirt/packages/<name>/<name>/`) or one of our
+  own packages under `packaging/<name>/` (built directly, no patching, into `/root/build/pkg-<name>/<name>/`); a
+  name that is both is an error. Debs land in `/root/localrepo` and are copied back to `$SUPERMOX_VM_DIR/debs/`.
 
 ## M2 — arm64 QEMU VM
 Reproduce the M1 result on an arm64 QEMU VM. PXVIRT is already arm64-capable, so the work is
