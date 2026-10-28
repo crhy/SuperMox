@@ -126,25 +126,21 @@ pub fn sha256(msg: &[u8]) -> [u8; 32] {
     out
 }
 
-pub fn hmac_sha256(key: [u8; 16], msg: &[u8]) -> [u8; 32] {
+/// HMAC-SHA256 (RFC 2104) with a key of any length.
+pub fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
     let mut k = [0u8; 64];
-    for i in 0..16 {
-        k[i] = key[i];
+    if key.len() > 64 {
+        k[..32].copy_from_slice(&sha256(key));
+    } else {
+        k[..key.len()].copy_from_slice(key);
     }
 
-    let mut inner_prefix = [0u8; 64];
-    let mut outer_prefix = [0u8; 64];
-    for i in 0..64 {
-        inner_prefix[i] = k[i] ^ 0x36;
-        outer_prefix[i] = k[i] ^ 0x5c;
-    }
-
-    let mut inner_data = inner_prefix.to_vec();
-    inner_data.extend(msg);
+    let mut inner_data: Vec<u8> = k.iter().map(|b| b ^ 0x36).collect();
+    inner_data.extend_from_slice(msg);
     let inner = sha256(&inner_data);
 
-    let mut outer_data = outer_prefix.to_vec();
-    outer_data.extend(inner);
+    let mut outer_data: Vec<u8> = k.iter().map(|b| b ^ 0x5c).collect();
+    outer_data.extend_from_slice(&inner);
     sha256(&outer_data)
 }
 
@@ -166,11 +162,8 @@ fn test_sha256_empty() {
 }
 
 #[test]
-fn test_hmac_deterministic() {
-    let key = [1u8; 16];
-    let a = hmac_sha256(key, b"machine-id-string");
-    let b = hmac_sha256(key, b"machine-id-string");
-    assert_eq!(a, b);
-    let c = hmac_sha256(key, b"different");
-    assert_ne!(a, c);
+fn test_hmac_rfc4231_case2() {
+    let digest = hmac_sha256(b"Jefe", b"what do ya want for nothing?");
+    let hex = digest.iter().map(|b| format!("{:02x}", *b)).collect::<Vec<String>>().join("");
+    assert_eq!(hex, "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
 }
