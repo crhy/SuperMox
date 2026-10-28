@@ -146,7 +146,8 @@ for d in "${dirs[@]}"; do
   else
     dpkg-buildpackage -b -us -uc
   fi
-  if ! ls ./*.deb .././*.deb >/dev/null 2>&1; then
+  # Debs land in this dir (make deb) or its parent (dpkg-buildpackage); ls fails if either glob is empty.
+  if ! ls ./*.deb ../*.deb 2>/dev/null | grep -q .; then
     echo "ERROR: no .deb produced in $d" >&2
     exit 1
   fi

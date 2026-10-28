@@ -32,3 +32,14 @@ first as an LXC host.
 ## M4 — Waydroid frontend
 Run Waydroid (Android in an LXC container, on top of LineageOS) as the user-facing frontend, so
 the phone's interface and the SuperMox services share one platform.
+
+## Follow-ups
+- **Rust log routing (proxmox-perl-rs).** `patches/proxmox-perl-rs/0001-no-journald.patch` drops
+  the `.journald()` sink from `common/src/logger.rs` (the single real file behind the `pmg-rs`/`pve-rs`
+  `common` symlinks), so `pve-rs`/`pmg-rs` log output goes to stderr only. Follow-up: ensure the
+  `init.d/` service scripts redirect daemon stderr into syslog (e.g. via `start-stop-daemon --stderr`
+  or a `logger` wrapper) so Rust-side logs remain visible in the system log without journald.
+- **Upstream overrides.** `config/upstream-overrides.txt` pins components to upstream commits other
+  than what PXVIRT's submodule records (currently `proxmox-perl-rs` at pve-rs 0.15.3). Follow-up:
+  re-validate each override against PXVIRT's expected API on every upstream bump, and drop overrides
+  once PXVIRT's submodule advances past them.
