@@ -7,6 +7,16 @@ replacing every upstream systemd unit, `systemctl` call, `sd_notify` and libsyst
 `init.d/` service scripts and plain sysv tooling. This milestone is the foundation everything else
 builds on.
 
+### Milestone 1 VM
+Operate the amd64 KVM VM built by the scripts in `scripts/`. All paths default to
+`$SUPERMOX_VM_DIR` (`/media/rhy/data/supermox-vm`), overridable by env.
+
+- Build the rootfs and image: `bash scripts/build-rootfs.sh`
+- Start headless in the background: `bash scripts/vm-start.sh --background`
+- Check it (waits for ssh, proves PID 1 is sysvinit-core, runs `check-no-systemd.sh --image /`
+  in the guest, confirms `/dev/kvm`): `bash scripts/vm-smoke.sh`
+- Stop it by pidfile only: `bash scripts/vm-stop.sh`
+
 ## M2 — arm64 QEMU VM
 Reproduce the M1 result on an arm64 QEMU VM. PXVIRT is already arm64-capable, so the work is
 verifying the toolchain, packages and services build and run correctly on arm64, and fixing any
