@@ -1,0 +1,34 @@
+diff -ruN orig/debian/rules new/debian/rules
+--- a/debian/rules	2026-10-28 04:35:11.455771582 -0700
++++ b/debian/rules	2026-10-28 08:36:11.627439356 -0700
+@@ -13,7 +13,6 @@
+ 	dh $@
+ 
+ override_dh_installsystemd:
+-	dh_installsystemd -ppve-container --no-start --no-enable --no-restart-after-upgrade -r 'system-pve\x2dcontainer.slice'
+ 
+ override_dh_install:
+ 	dh_apparmor -p pve-container --profile-name=pve-container-mounthotplug
+diff -ruN orig/src/Makefile new/src/Makefile
+--- a/src/Makefile	2026-10-28 04:35:11.455982451 -0700
++++ b/src/Makefile	2026-10-28 08:36:21.115381667 -0700
+@@ -42,7 +42,7 @@
+ 
+ .PHONY: install
+ install: pct lxc-pve.conf pct.1 pct.conf.5 pct.bash-completion pct.zsh-completion \
+-    pve-userns.seccomp pve-container@.service pve-container-debug@.service \
++    pve-userns.seccomp \
+     lxc-pve-prestart-hook lxc-pve-autodev-hook lxc-pve-poststop-hook lxcnetaddbr
+ 	PVE_GENERATING_DOCS=1 perl -I. -T -e "use PVE::CLI::pct; PVE::CLI::pct->verify_api();"
+ 	install -d $(SBINDIR)
+@@ -50,10 +50,6 @@
+ 	install -d $(LXC_SCRIPT_DIR)
+ 	install -m 0755 lxcnetaddbr $(LXC_SCRIPT_DIR)
+ 	install -m 0755 pve-container-stop-wrapper $(LXC_SCRIPT_DIR)
+-	install -d -m0755 $(SERVICEDIR)
+-	install -m0644 pve-container@.service $(SERVICEDIR)/
+-	install -m0644 pve-container-debug@.service $(SERVICEDIR)/
+-	install -m0644 'system-pve\x2dcontainer.slice' $(SERVICEDIR)/
+ 	install -d $(LXC_HOOK_DIR)
+ 	install -m 0755 lxc-pve-prestart-hook $(LXC_HOOK_DIR)
+ 	install -m 0755 lxc-pve-autodev-hook $(LXC_HOOK_DIR)

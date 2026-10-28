@@ -46,6 +46,16 @@ while IFS= read -r -d '' f; do
   fi
 done < <(find "$dir" -maxdepth 1 -type f -print0)
 
+# LSB facilities must be real ones; a typo like $localfs makes insserv reject the script.
+while IFS= read -r -d '' f; do
+  for fac in $(sed -n 's/^# Required-\(Start\|Stop\): *//p' "$f" | tr ' ' '\n' | grep '^\$' || true); do
+    case "$fac" in
+      '$local_fs'|'$remote_fs'|'$network'|'$named'|'$portmap'|'$syslog'|'$time'|'$all') ;;
+      *) echo "FAIL: $f: unknown LSB facility $fac"; fail=1 ;;
+    esac
+  done
+done < <(find "$dir" -maxdepth 1 -type f -print0)
+
 if [ "$count" -eq 0 ]; then
   echo "FAIL: no files in $dir"
   exit 1

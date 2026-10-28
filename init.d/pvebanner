@@ -1,8 +1,8 @@
 #!/bin/sh
 ### BEGIN INIT INFO
 # Provides:          pvebanner
-# Required-Start:    $localfs
-# Required-Stop:     $localfs
+# Required-Start:    $local_fs
+# Required-Stop:     $local_fs
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: PVE Login Banner
@@ -12,7 +12,7 @@
 # upstream/pxvirt/packages/pve-manager/pve-manager/services/pvebanner.service
 # Type=oneshot  RemainAfterExit=yes  ConditionPathExists=/usr/bin/pvebanner
 # ExecStart=/usr/bin/pvebanner  (no ExecStop)
-# After=local-fs.target -> $localfs; DefaultDependencies=no, Before=console-getty dropped.
+# After=local-fs.target -> $local_fs; DefaultDependencies=no, Before=console-getty dropped.
 
 . /lib/lsb/init-functions
 

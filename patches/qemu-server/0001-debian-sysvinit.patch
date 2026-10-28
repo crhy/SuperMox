@@ -1,0 +1,111 @@
+diff -ruN orig/debian/qemu-server.qmeventd.init new/debian/qemu-server.qmeventd.init
+--- a/debian/qemu-server.qmeventd.init	1969-12-31 16:00:00.000000000 -0800
++++ b/debian/qemu-server.qmeventd.init	2026-10-28 08:31:45.630277997 -0700
+@@ -0,0 +1,59 @@
++#!/bin/sh
++### BEGIN INIT INFO
++# Provides:          qmeventd
++# Required-Start:    $local_fs
++# Required-Stop:     $local_fs
++# Default-Start:     2 3 4 5
++# Default-Stop:      0 1 6
++# Short-Description: PVE Qemu Event Daemon
++### END INIT INFO
++
++# Sysvinit service script translated from
++# upstream/pxvirt/packages/qemu-server/qemu-server/src/qmeventd/qmeventd.service
++# ExecStart=/usr/sbin/qmeventd /var/run/qmeventd.sock  Type=forking
++# qmeventd forks unless given -f: run it with -f under start-stop-daemon --background
++# --make-pidfile, pidfile /run/qmeventd.pid.
++
++. /lib/lsb/init-functions
++
++DAEMON=/usr/sbin/qmeventd
++PIDFILE=/run/qmeventd.pid
++NAME=qmeventd
++SOCKET=/var/run/qmeventd.sock
++
++case "$1" in
++  start)
++    log_begin_msg "Starting $NAME"
++    start-stop-daemon --start --quiet --background --make-pidfile \
++      --pidfile "$PIDFILE" --exec "$DAEMON" -- -f "$SOCKET"
++    log_end_msg $?
++    ;;
++  stop)
++    log_begin_msg "Stopping $NAME"
++    start-stop-daemon --stop --quiet --pidfile "$PIDFILE"
++    log_end_msg $?
++    ;;
++  restart)
++    "$0" stop
++    "$0" start
++    ;;
++  reload|force-reload)
++    "$0" restart
++    ;;
++  status)
++    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
++    rc=$?
++    if [ "$rc" -eq 0 ]; then
++      log_success_msg "$NAME is running"
++    else
++      log_failure_msg "$NAME is not running"
++    fi
++    exit "$rc"
++    ;;
++  *)
++    echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
++    exit 2
++    ;;
++esac
++
++exit 0
+diff -ruN orig/debian/rules new/debian/rules
+--- a/debian/rules	2026-10-28 04:35:10.066727676 -0700
++++ b/debian/rules	2026-10-28 08:31:52.345015861 -0700
+@@ -18,3 +18,8 @@
+ 
+ %:
+ 	dh $@
++
++override_dh_installsystemd:
++
++override_dh_installinit:
++	dh_installinit -pqemu-server --name=qmeventd
+diff -ruN orig/src/qmeventd/Makefile new/src/qmeventd/Makefile
+--- a/src/qmeventd/Makefile	2026-10-28 04:35:10.071378076 -0700
++++ b/src/qmeventd/Makefile	2026-10-28 08:32:06.756928232 -0700
+@@ -19,8 +19,6 @@
+ install: qmeventd docs
+ 	install -d $(DESTDIR)/$(SBINDIR)
+ 	install -m 0755 qmeventd $(DESTDIR)/$(SBINDIR)
+-	install -d $(DESTDIR)/$(SERVICEDIR)
+-	install -m 0644 qmeventd.service $(DESTDIR)/$(SERVICEDIR)
+ 	install -d $(DESTDIR)/$(MANDIR)/man8
+ 	install -m 0644 qmeventd.8 $(DESTDIR)/$(MANDIR)/man8
+ 
+diff -ruN orig/src/query-machine-capabilities/Makefile new/src/query-machine-capabilities/Makefile
+--- a/src/query-machine-capabilities/Makefile	2026-10-28 04:35:10.071378076 -0700
++++ b/src/query-machine-capabilities/Makefile	2026-10-28 08:32:10.892903084 -0700
+@@ -12,8 +12,6 @@
+ install: query-machine-capabilities
+ 	install -d $(DESTDIR)/$(BINDIR)
+ 	install -m 0755 query-machine-capabilities $(DESTDIR)$(BINDIR)
+-	install -d $(DESTDIR)/$(SERVICEDIR)
+-	install -m 0644 pve-query-machine-capabilities.service $(DESTDIR)$(SERVICEDIR)
+ 
+ .PHONY: clean
+ clean:
+diff -ruN orig/src/usr/Makefile new/src/usr/Makefile
+--- a/src/usr/Makefile	2026-10-28 04:35:10.078765856 -0700
++++ b/src/usr/Makefile	2026-10-28 08:32:16.492869035 -0700
+@@ -21,8 +21,6 @@
+ 	install -m 0755 pve-bridge-hotplug $(LIBEXECDIR)/pve-bridge-hotplug
+ 	install -m 0755 pve-bridgedown $(LIBEXECDIR)/pve-bridgedown
+ 	install -D -m 0755 dbus-vmstate $(LIBEXECDIR)/dbus-vmstate
+-	install -d $(LIBSYSTEMDDIR)
+-	install -D -m 0644 pve-dbus-vmstate@.service $(LIBSYSTEMDDIR)/system/pve-dbus-vmstate@.service
+ 	install -d $(DBUSDIR)
+ 	install -D -m 0644 org.qemu.VMState1.conf $(DBUSDIR)/system.d/org.qemu.VMState1.conf
+ 

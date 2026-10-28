@@ -1,8 +1,8 @@
 #!/bin/sh
 ### BEGIN INIT INFO
 # Provides:          pvenetcommit
-# Required-Start:    $localfs
-# Required-Stop:     $localfs
+# Required-Start:    $local_fs
+# Required-Stop:     $local_fs
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: Commit PVE network changes
@@ -14,7 +14,7 @@
 # ExecStartPre=-/bin/rm -f /etc/openvswitch/conf.db
 # Environment=FN=/etc/network/interfaces
 # ExecStart=sh -c 'if [ -f ${FN}.new ]; then mv ${FN}.new ${FN}; fi'  (no ExecStop)
-# After=local-fs.target -> $localfs; DefaultDependencies=no, Before=sysinit.target dropped.
+# After=local-fs.target -> $local_fs; DefaultDependencies=no, Before=sysinit.target dropped.
 
 . /lib/lsb/init-functions
 

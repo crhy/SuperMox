@@ -140,8 +140,8 @@ diff -ruN orig/debian/pve-manager.pvebanner.init new/debian/pve-manager.pvebanne
 +#!/bin/sh
 +### BEGIN INIT INFO
 +# Provides:          pvebanner
-+# Required-Start:    $localfs
-+# Required-Stop:     $localfs
++# Required-Start:    $local_fs
++# Required-Stop:     $local_fs
 +# Default-Start:     2 3 4 5
 +# Default-Stop:      0 1 6
 +# Short-Description: PVE Login Banner
@@ -151,7 +151,7 @@ diff -ruN orig/debian/pve-manager.pvebanner.init new/debian/pve-manager.pvebanne
 +# upstream/pxvirt/packages/pve-manager/pve-manager/services/pvebanner.service
 +# Type=oneshot  RemainAfterExit=yes  ConditionPathExists=/usr/bin/pvebanner
 +# ExecStart=/usr/bin/pvebanner  (no ExecStop)
-+# After=local-fs.target -> $localfs; DefaultDependencies=no, Before=console-getty dropped.
++# After=local-fs.target -> $local_fs; DefaultDependencies=no, Before=console-getty dropped.
 +
 +. /lib/lsb/init-functions
 +
@@ -307,8 +307,8 @@ diff -ruN orig/debian/pve-manager.pvenetcommit.init new/debian/pve-manager.pvene
 +#!/bin/sh
 +### BEGIN INIT INFO
 +# Provides:          pvenetcommit
-+# Required-Start:    $localfs
-+# Required-Stop:     $localfs
++# Required-Start:    $local_fs
++# Required-Stop:     $local_fs
 +# Default-Start:     2 3 4 5
 +# Default-Stop:      0 1 6
 +# Short-Description: Commit PVE network changes
@@ -320,7 +320,7 @@ diff -ruN orig/debian/pve-manager.pvenetcommit.init new/debian/pve-manager.pvene
 +# ExecStartPre=-/bin/rm -f /etc/openvswitch/conf.db
 +# Environment=FN=/etc/network/interfaces
 +# ExecStart=sh -c 'if [ -f ${FN}.new ]; then mv ${FN}.new ${FN}; fi'  (no ExecStop)
-+# After=local-fs.target -> $localfs; DefaultDependencies=no, Before=sysinit.target dropped.
++# After=local-fs.target -> $local_fs; DefaultDependencies=no, Before=sysinit.target dropped.
 +
 +. /lib/lsb/init-functions
 +

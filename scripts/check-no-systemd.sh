@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SYSTEMD_PAT='systemctl|sd_notify|libsystemd|systemd-run|journalctl|dh_installsystemd|dh-sequence-systemd|systemd-sysv|PVE::Systemd|org\.freedesktop\.systemd1|enter_systemd_scope'
+# dh_installsystemd counts only as a command; an empty override_dh_installsystemd: target is how packaging disables it.
+SYSTEMD_PAT='systemctl|sd_notify|libsystemd|systemd-run|journalctl|(^|[[:space:]])dh_installsystemd|dh-sequence-systemd|systemd-sysv|PVE::Systemd|org\.freedesktop\.systemd1|enter_systemd_scope'
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
