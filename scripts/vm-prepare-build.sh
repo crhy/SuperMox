@@ -27,7 +27,7 @@ printf "deb [trusted=yes] file:/root/localrepo ./\n" > /etc/apt/sources.list.d/s
 cd /root/localrepo && dpkg-scanpackages . > Packages 2>/dev/null || true
 chmod 644 /root/localrepo/Packages 2>/dev/null || true
 apt-get update
-apt-get -y --no-install-recommends install build-essential devscripts equivs debhelper dpkg-dev git rsync lintian
+apt-get -y --no-install-recommends install build-essential libcrypt-dev devscripts equivs debhelper dpkg-dev git rsync lintian
 apt-get update'
 
 printf 'VM build environment ready (/root/build, /root/localrepo).\n'
