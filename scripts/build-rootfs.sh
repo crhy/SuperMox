@@ -13,7 +13,7 @@ export TMPDIR="${SUPERMOX_TMPDIR:-$(cd "$(dirname "$0")/.." && pwd)/build/tmp}"
 KEYRING=/usr/share/keyrings/devuan-archive-keyring.gpg
 COMPONENTS=main,contrib,non-free-firmware
 
-BASE_PKGS=sysvinit-core,sysv-rc,init-system-helpers,linux-image-amd64,openssh-server,ifupdown,dhcpcd-base,opensysusers,util-linux-extra,rsyslog,cron,ca-certificates,less
+BASE_PKGS=sysvinit-core,sysv-rc,init-system-helpers,linux-image-amd64,openssh-server,ifupdown,dhcpcd-base,opensysusers,util-linux-extra,devuan-keyring,rsyslog,cron,ca-certificates,less
 EXTRA_PKGS="${SUPERMOX_EXTRA_PKGS:-lsb-base}"
 if [ -n "$EXTRA_PKGS" ]; then
   INCLUDE="$BASE_PKGS,$EXTRA_PKGS"
