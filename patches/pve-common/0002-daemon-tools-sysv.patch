@@ -1,0 +1,105 @@
+diff -ruN orig/src/PVE/Daemon.pm new/src/PVE/Daemon.pm
+--- a/src/PVE/Daemon.pm	2026-10-28 04:35:08.535283680 -0700
++++ b/src/PVE/Daemon.pm	2026-10-28 05:53:28.809071486 -0700
+@@ -20,6 +20,7 @@
+ 
+ use PVE::SafeSyslog;
+ use PVE::INotify;
++use PVE::SysvService;
+ 
+ use POSIX ":sys_wait_h";
+ use Fcntl ':flock';
+@@ -656,7 +657,7 @@
+             if (&$init_ppid() || $param->{debug}) {
+                 $self->start($param->{debug});
+             } else {
+-                PVE::Tools::run_command(['systemctl', 'start', $self->{name}]);
++                PVE::SysvService::start($self->{name});
+             }
+ 
+             return undef;
+@@ -707,8 +708,11 @@
+             if (&$init_ppid()) {
+                 &$reload_daemon($self, $use_hup);
+             } else {
+-                PVE::Tools::run_command(
+-                    ['systemctl', $use_hup ? 'reload-or-restart' : 'restart', $self->{name}]);
++                if ($use_hup) {
++                    PVE::SysvService::reload_or_restart($self->{name});
++                } else {
++                    PVE::SysvService::restart($self->{name});
++                }
+             }
+ 
+             return undef;
+@@ -764,7 +768,7 @@
+             if (&$init_ppid()) {
+                 $self->stop();
+             } else {
+-                PVE::Tools::run_command(['systemctl', 'stop', $self->{name}]);
++                PVE::SysvService::stop($self->{name});
+             }
+ 
+             return undef;
+diff -ruN orig/src/PVE/Tools.pm new/src/PVE/Tools.pm
+--- a/src/PVE/Tools.pm	2026-10-28 04:35:08.535283680 -0700
++++ b/src/PVE/Tools.pm	2026-10-28 05:59:54.959439498 -0700
+@@ -1463,12 +1463,53 @@
+         $limit--;
+     };
+ 
+-    my $cmd = ['journalctl', '-o', 'short', '--no-pager'];
++    # sysvinit has no journal: read the syslog file instead. Rotated
++    # syslog.1 (older) is read before syslog (newer) to keep chronological
++    # order. The service filter is a plain substring match on the line, and
++    # since/until are applied best-effort against the leading syslog
++    # timestamp (see .strata/notes-t9-daemon-tools.md for limitations).
++    my %month_re = (
++        'Jan' => '01', 'Feb' => '02', 'Mar' => '03', 'Apr' => '04',
++        'May' => '05', 'Jun' => '06', 'Jul' => '07', 'Aug' => '08',
++        'Sep' => '09', 'Oct' => '10', 'Nov' => '11', 'Dec' => '12',
++    );
+ 
+-    push @$cmd, '--unit', $service if $service;
+-    push @$cmd, '--since', $since if $since;
+-    push @$cmd, '--until', $until if $until;
+-    run_command($cmd, outfunc => $parser);
++    my $line_in_range = sub {
++        my $line = shift;
++        return 1 if (!$since && !$until);
++        if ($line =~ m/^([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})/) {
++            my $mm = $month_re{$1};
++            return 1 if !defined $mm;
++            my $ts = sprintf("%02d-%02d %02d:%02d:%02d", $mm, $2, $3, $4, $5);
++            my $s = $since // '0000-00-00 00:00:00';
++            my $u = $until // '9999-99-99 99:99:99';
++            # normalise user-provided since/until to MM-DD HH:MM:SS
++            my $norm = sub {
++                my $v = shift;
++                if ($v =~ m/^\d{4}-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/) {
++                    return sprintf("%02d-%02d %02d:%02d:%02d", $1, $2, $3, $4, $5 // '00');
++                }
++                return $v;
++            };
++            return 0 if $ts lt $norm->($s);
++            return 0 if $ts gt $norm->($u);
++        }
++        # unparseable line: keep it (best-effort)
++        return 1;
++    };
++
++    for my $file ('/var/log/syslog.1', '/var/log/syslog') {
++        my $fh = IO::File->new($file, "r");
++        next if !fh;
++        while (defined(my $line = <$fh>)) {
++            chomp $line;
++            next if $service && $line !~ /\Q$service\E/;
++            next if !$line_in_range->($line);
++            $parser->($line);
++        }
++        close($fh);
++        last if $limit <= 0;
++    }
+ 
+     # HACK: ExtJS store.guaranteeRange() does not like empty array
+     # so we add a line
