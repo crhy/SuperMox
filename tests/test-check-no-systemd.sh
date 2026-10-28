@@ -136,7 +136,7 @@ mkdir -p build
 rc=0
 out="$(cd build && bash ../scripts/check-no-systemd.sh --source ../upstream/pxvirt/packages 2>&1)" || rc=$?
 assert_rc 0
-assert_has "COUNT 66"
+assert_has "COUNT 69"
 
 if [ "$fail" -ne 0 ]; then
   exit 1

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SYSTEMD_PAT='systemctl|sd_notify|libsystemd|systemd-run|journalctl|dh_installsystemd|dh-sequence-systemd|systemd-sysv'
+SYSTEMD_PAT='systemctl|sd_notify|libsystemd|systemd-run|journalctl|dh_installsystemd|dh-sequence-systemd|systemd-sysv|PVE::Systemd|org\.freedesktop\.systemd1|enter_systemd_scope'
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 

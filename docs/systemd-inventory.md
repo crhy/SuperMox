@@ -1,6 +1,6 @@
 # systemd inventory
 
-Totals: units=30, code references=71, control lines=4
+Totals: units=30, code references=99, control lines=4
 
 ## Units
 
@@ -55,6 +55,13 @@ Totals: units=30, code references=71, control lines=4
 | pve-common | src/PVE/Daemon.pm | 659 | PVE::Tools::run_command(['systemctl', 'start', $self->{name}]); |
 | pve-common | src/PVE/Daemon.pm | 711 | ['systemctl', $use_hup ? 'reload-or-restart' : 'restart', $self->{name}]); |
 | pve-common | src/PVE/Daemon.pm | 767 | PVE::Tools::run_command(['systemctl', 'stop', $self->{name}]); |
+| pve-common | src/PVE/Systemd.pm | 1 | package PVE::Systemd; |
+| pve-common | src/PVE/Systemd.pm | 51 | my $service = $bus->get_service('org.freedesktop.systemd1'); |
+| pve-common | src/PVE/Systemd.pm | 52 | my $if = $service->get_object('/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager'); |
+| pve-common | src/PVE/Systemd.pm | 103 | sub enter_systemd_scope { |
+| pve-common | src/PVE/Systemd.pm | 204 | my $service = $bus->get_service('org.freedesktop.systemd1'); |
+| pve-common | src/PVE/Systemd.pm | 205 | my $if = $service->get_object('/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager'); |
+| pve-common | src/PVE/Systemd.pm | 209 | $if = $service->get_object($unit_path, 'org.freedesktop.systemd1.Unit') |
 | pve-common | src/PVE/Tools.pm | 1466 | my $cmd = ['journalctl', '-o', 'short', '--no-pager']; |
 | pve-container | debian/rules | 15 | override_dh_installsystemd |
 | pve-container | debian/rules | 16 | dh_installsystemd -ppve-container --no-start --no-enable --no-restart-after-upgrade -r 'system-pve\x |
@@ -96,22 +103,43 @@ Totals: units=30, code references=71, control lines=4
 | pve-manager | debian/postinst | 101 | if systemctl -q is-enabled "$UNIT" 2> /dev/null; then |
 | pve-manager | debian/postinst | 178 | systemctl --system daemon-reload >/dev/null \|\| true |
 | pve-manager | debian/postinst | 226 | if systemctl -q is-enabled "$unit"; then |
+| pve-storage | src/PVE/API2/Disks/Directory.pm | 12 | use PVE::Systemd; |
+| pve-storage | src/PVE/API2/Disks/Directory.pm | 147 | $storid = PVE::Systemd::unescape_unit($storid); |
+| pve-storage | src/PVE/API2/Disks/Directory.pm | 216 | my $mountunitname = PVE::Systemd::escape_unit($path, 1) . ".mount"; |
 | pve-storage | src/PVE/API2/Disks/Directory.pm | 318 | run_command(['systemctl', 'daemon-reload']); |
 | pve-storage | src/PVE/API2/Disks/Directory.pm | 319 | run_command(['systemctl', 'enable', $mountunitname]); |
 | pve-storage | src/PVE/API2/Disks/Directory.pm | 320 | run_command(['systemctl', 'start', $mountunitname]); |
+| pve-storage | src/PVE/API2/Disks/Directory.pm | 381 | my $mountunitname = PVE::Systemd::escape_unit($path, 1) . ".mount"; |
 | pve-storage | src/PVE/API2/Disks/Directory.pm | 400 | run_command(['systemctl', 'stop', $mountunitname]); |
 | pve-storage | src/PVE/API2/Disks/Directory.pm | 401 | run_command(['systemctl', 'disable', $mountunitname]); |
+| pve-storage | src/PVE/API2/Disks/ZFS.pm | 8 | use PVE::Systemd; |
+| pve-storage | src/PVE/API2/Disks/ZFS.pm | 513 | 'zfs-import@' . PVE::Systemd::escape_unit($name, undef) . '.service'; |
 | pve-storage | src/PVE/API2/Disks/ZFS.pm | 514 | $cmd = ['systemctl', 'enable', $importunit]; |
+| pve-storage | src/PVE/API2/Disks/ZFS.pm | 624 | 'zfs-import@' . PVE::Systemd::escape_unit($name) . '.service'; |
 | pve-storage | src/PVE/API2/Disks/ZFS.pm | 625 | run_command(['systemctl', 'disable', $importunit]); |
+| pve-storage | src/PVE/Storage/CephFSPlugin.pm | 14 | use PVE::Systemd; |
+| pve-storage | src/PVE/Storage/CephFSPlugin.pm | 67 | my $unit_fn = PVE::Systemd::escape_unit($where, 1) . ".mount"; |
 | pve-storage | src/PVE/Storage/CephFSPlugin.pm | 73 | run_command(['systemctl', 'daemon-reload'], errmsg => "daemon-reload error") |
 | pve-storage | src/PVE/Storage/CephFSPlugin.pm | 75 | run_command(['systemctl', 'start', $unit_fn], errmsg => "mount error"); |
+| pve-storage | src/PVE/Storage/ESXiPlugin.pm | 13 | use PVE::Systemd; |
+| pve-storage | src/PVE/Storage/ESXiPlugin.pm | 172 | return "pve-esxi-fuse-" . PVE::Systemd::escape_unit($storeid); |
+| pve-storage | src/PVE/Storage/ESXiPlugin.pm | 179 | return PVE::Systemd::is_unit_active($scope_name_base . '.scope'); |
+| pve-storage | src/PVE/Storage/ESXiPlugin.pm | 225 | PVE::Systemd::enter_systemd_scope( |
 | pve-storage | src/PVE/Storage/ESXiPlugin.pm | 278 | eval { run_command(['/bin/systemctl', 'reset-failed', $scope], %silence_std_outs) }; |
 | pve-storage | src/PVE/Storage/ESXiPlugin.pm | 279 | eval { run_command(['/bin/systemctl', 'stop', $scope], %silence_std_outs) }; |
+| qemu-server | src/PVE/QemuServer.pm | 48 | use PVE::Systemd; |
 | qemu-server | src/PVE/QemuServer.pm | 5940 | eval { run_command(['/bin/systemctl', 'reset-failed', "$vmid.scope"], %silence_std_outs) }; |
 | qemu-server | src/PVE/QemuServer.pm | 5941 | eval { run_command(['/bin/systemctl', 'stop', "$vmid.scope"], %silence_std_outs) }; |
+| qemu-server | src/PVE/QemuServer.pm | 5944 | PVE::Systemd::wait_for_unit_removed("$vmid.scope", 20); |
+| qemu-server | src/PVE/QemuServer.pm | 5981 | PVE::Systemd::enter_systemd_scope($vmid, "Proxmox VE VM $vmid", |
+| qemu-server | src/PVE/QemuServer/CGroup.pm | 8 | use PVE::Systemd; |
+| qemu-server | src/PVE/QemuServer/CGroup.pm | 25 | PVE::Systemd::systemd_call(sub { |
 | qemu-server | src/PVE/QemuServer/CPUConfig.pm | 925 | . "systemctl status query-machine-capabilities\n"; |
+| qemu-server | src/PVE/QemuServer/DBusVMState.pm | 7 | use PVE::Systemd; |
 | qemu-server | src/PVE/QemuServer/DBusVMState.pm | 53 | eval { PVE::Tools::run_command(['systemctl', 'start', "pve-dbus-vmstate\@$vmid"]) }; |
 | qemu-server | src/test/MigrationTest/QmMock.pm | 135 | if ($cmd eq '/bin/systemctl') { |
+| qemu-server | src/test/MigrationTest/Shared.pm | 221 | our $systemd_module = Test::MockModule->new("PVE::Systemd"); |
+| qemu-server | src/test/MigrationTest/Shared.pm | 226 | enter_systemd_scope => sub { |
 
 ## Package dependencies
 

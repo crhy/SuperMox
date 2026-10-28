@@ -17,7 +17,7 @@ COMPONENTS=(
   pve-guest-common
   proxmox-ve
 )
-PAT='systemctl|sd_notify|libsystemd|systemd-run|journalctl|dh_installsystemd|dh-sequence-systemd|systemd-sysv'
+PAT='systemctl|sd_notify|libsystemd|systemd-run|journalctl|dh_installsystemd|dh-sequence-systemd|systemd-sysv|PVE::Systemd|org\.freedesktop\.systemd1|enter_systemd_scope'
 
 OUT="docs/systemd-inventory.md"
 UNITS_TSV="build/inventory-units.tsv"
