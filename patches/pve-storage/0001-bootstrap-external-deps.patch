@@ -1,47 +1,41 @@
 diff -ruN orig/debian/control new/debian/control
---- a/debian/control	2026-10-28 04:35:12.797189224 -0700
-+++ b/debian/control	2026-10-28 12:44:14.006764714 -0700
-@@ -7,16 +7,16 @@
-                libposix-strptime-perl,
+--- a/debian/control	2026-10-28 13:16:11.749283291 -0700
++++ b/debian/control	2026-10-28 13:35:28.883478464 -0700
+@@ -8,7 +8,7 @@
                 libpve-access-control,
                 libpve-cluster-perl (>= 8.0.6),
--               libpve-common-perl (>= 8.2.3),
+                libpve-common-perl (>= 9.2.3),
 -               librados2-perl,
--               libtest-mockmodule-perl,
-+                libpve-common-perl (>= 8.2.3),
-+                librados2-perl <!nocheck>,
-+                libtest-mockmodule-perl,
++               librados2-perl <!nocheck>,
+                libtest-mockmodule-perl,
                 libxml-libxml-perl,
                 lintian,
-                perl,
+@@ -16,7 +16,7 @@
                 pve-cluster (>= 5.0-32),
                 pve-doc-generator (>= 5.3-3),
--               pve-qemu-kvm | qemu-utils,
+                pve-qemu-kvm | qemu-utils,
 -               zfsutils-linux,
-+                pve-qemu-kvm | qemu-utils,
-+                zfsutils-linux <!nocheck>,
++               zfsutils-linux <!nocheck>,
  Standards-Version: 4.6.2
- Homepage: https://www.lierfang.com
+ Homepage: https://www.proxmox.com
  
-@@ -39,7 +39,6 @@
+@@ -38,7 +38,6 @@
           libpve-apiclient-perl (>= 3.1-1),
           libpve-cluster-perl (>= 8.0.6),
-          libpve-common-perl (>= 8.2.9),
+          libpve-common-perl (>= 9.2.3),
 -         librados2-perl,
           libxml-libxml-perl,
           lvm2,
           lzop,
 diff -ruN orig/src/PVE/Storage/RBDPlugin.pm new/src/PVE/Storage/RBDPlugin.pm
---- a/src/PVE/Storage/RBDPlugin.pm	2026-10-28 04:35:12.799625688 -0700
-+++ b/src/PVE/Storage/RBDPlugin.pm	2026-10-28 12:42:40.427233368 -0700
-@@ -13,7 +13,9 @@
+--- a/src/PVE/Storage/RBDPlugin.pm	2026-10-28 13:16:11.754623473 -0700
++++ b/src/PVE/Storage/RBDPlugin.pm	2026-10-28 13:35:30.747469088 -0700
+@@ -13,7 +13,7 @@
  use PVE::Cluster qw(cfs_read_file);
  use PVE::JSONSchema qw(get_standard_option);
  use PVE::ProcFSTools;
 -use PVE::RADOS;
-+BEGIN {
-+    eval { require PVE::RADOS; PVE::RADOS->import(); };
-+}
++BEGIN { eval { require PVE::RADOS; PVE::RADOS->import(); }; }
  use PVE::RPCEnvironment;
  use PVE::Storage::Plugin;
  use PVE::Tools qw(run_command trim file_read_firstline);

@@ -132,16 +132,16 @@ assert_rc 2
 unset SYSTEMD_ALLOWLIST_FILE
 
 # script works when run from build/ (config/ and build/ resolve from repo root)
-# uses the raw (unpatched) upstream, which still has 69 references; pin a
+# uses the raw (unpatched) upstream, which still has 74 references; pin a
 # fixture baseline so this check is independent of the repo ratchet baseline.
 mkdir -p build
-printf '69\n' > "$root/baseline-raw.txt"
+printf '74\n' > "$root/baseline-raw.txt"
 export SYSTEMD_BASELINE_FILE="$PWD/$root/baseline-raw.txt"
 rc=0
 out="$(cd build && bash ../scripts/check-no-systemd.sh --source ../upstream/pxvirt/packages 2>&1)" || rc=$?
 unset SYSTEMD_BASELINE_FILE
 assert_rc 0
-assert_has "COUNT 69"
+assert_has "COUNT 74"
 
 if [ "$fail" -ne 0 ]; then
   exit 1

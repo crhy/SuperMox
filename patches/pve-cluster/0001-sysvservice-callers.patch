@@ -1,15 +1,15 @@
 diff -ruN orig/src/PVE/API2/ClusterConfig.pm new/src/PVE/API2/ClusterConfig.pm
---- a/src/PVE/API2/ClusterConfig.pm	2026-10-28 04:35:07.193990778 -0700
-+++ b/src/PVE/API2/ClusterConfig.pm	2026-10-28 06:12:25.967968243 -0700
+--- a/src/PVE/API2/ClusterConfig.pm	2026-10-28 13:16:11.577284141 -0700
++++ b/src/PVE/API2/ClusterConfig.pm	2026-10-28 13:21:46.479614619 -0700
 @@ -13,6 +13,7 @@
  use PVE::APIClient::LWP;
  use PVE::Corosync;
  use PVE::Cluster::Setup;
 +use PVE::SysvService;
- use JSON;
  
  use IO::Socket::UNIX;
-@@ -228,7 +229,8 @@
+ 
+@@ -156,7 +157,8 @@
              PVE::Cluster::Setup::ssh_merge_known_hosts($nodename, $local_ip_address, 1);
  
              print "Restart corosync and cluster filesystem\n";
@@ -21,7 +21,7 @@ diff -ruN orig/src/PVE/API2/ClusterConfig.pm new/src/PVE/API2/ClusterConfig.pm
          my $worker = sub {
 diff -ruN orig/src/PVE/CLI/pvecm.pm new/src/PVE/CLI/pvecm.pm
 --- a/src/PVE/CLI/pvecm.pm	2026-10-28 04:35:07.194175917 -0700
-+++ b/src/PVE/CLI/pvecm.pm	2026-10-28 06:12:39.475895028 -0700
++++ b/src/PVE/CLI/pvecm.pm	2026-10-28 13:22:04.331524835 -0700
 @@ -276,11 +276,11 @@
              my $outsub = sub { print "\nnode '$node': " . shift };
              print "\nINFO: start and enable corosync qdevice daemon on node '$node'...\n";
@@ -48,8 +48,8 @@ diff -ruN orig/src/PVE/CLI/pvecm.pm new/src/PVE/CLI/pvecm.pm
  
          run_command(['corosync-cfgtool', '-R']);
 diff -ruN orig/src/PVE/Cluster/Setup.pm new/src/PVE/Cluster/Setup.pm
---- a/src/PVE/Cluster/Setup.pm	2026-10-28 04:35:07.194374845 -0700
-+++ b/src/PVE/Cluster/Setup.pm	2026-10-28 06:12:16.484019648 -0700
+--- a/src/PVE/Cluster/Setup.pm	2026-10-28 13:16:11.577284141 -0700
++++ b/src/PVE/Cluster/Setup.pm	2026-10-28 13:22:49.195299200 -0700
 @@ -18,6 +18,7 @@
  use PVE::JSONSchema;
  use PVE::Network;
@@ -67,7 +67,7 @@ diff -ruN orig/src/PVE/Cluster/Setup.pm new/src/PVE/Cluster/Setup.pm
  }
  
  sub setup_rootsshconfig {
-@@ -812,14 +813,17 @@
+@@ -784,8 +785,8 @@
      PVE::Tools::file_set_contents($localclusterconf, $corosync_conf);
  
      print "stopping pve-cluster service\n";
@@ -76,8 +76,11 @@ diff -ruN orig/src/PVE/Cluster/Setup.pm new/src/PVE/Cluster/Setup.pm
 +    eval { PVE::SysvService::stop('pve-cluster') };
 +    if ($@) { die "can't stop pve-cluster service\n" }
  
-     my $dbfile = PVE::Cluster::cfs_backup_database();
-     unlink $dbfile;
+     eval { PVE::Cluster::cfs_backup_database() };
+     if (my $err = $@) {
+@@ -795,8 +796,11 @@
+         PVE::Cluster::cfs_unlink_db_unsafe();
+     }
  
 -    $cmd = ['systemctl', 'start', 'corosync', 'pve-cluster'];
 -    PVE::Tools::run_command($cmd, errmsg => "starting pve-cluster failed");
@@ -89,7 +92,7 @@ diff -ruN orig/src/PVE/Cluster/Setup.pm new/src/PVE/Cluster/Setup.pm
  
      # wait for quorum
      my $printqmsg = 1;
-@@ -837,7 +841,8 @@
+@@ -814,7 +818,8 @@
      updatecerts_and_ssh(1);
  
      print "generated new node certificate, restart pveproxy and pvedaemon services\n";

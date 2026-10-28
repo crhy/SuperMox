@@ -1,15 +1,15 @@
 diff -ruN orig/src/PVE/Firewall.pm new/src/PVE/Firewall.pm
---- a/src/PVE/Firewall.pm	2026-10-28 04:35:21.388185699 -0700
-+++ b/src/PVE/Firewall.pm	2026-10-28 06:12:45.315863374 -0700
-@@ -22,6 +22,7 @@
+--- a/src/PVE/Firewall.pm	2026-10-28 13:16:11.777283152 -0700
++++ b/src/PVE/Firewall.pm	2026-10-28 13:28:43.821515662 -0700
+@@ -23,6 +23,7 @@
  use PVE::ProcFSTools;
  use PVE::SafeSyslog;
  use PVE::Tools qw($IPV4RE $IPV6RE);
 +use PVE::SysvService;
- use PVE::Tools qw(run_command lock_file dir_glob_foreach);
+ use PVE::Tools qw(run_command lock_file dir_glob_foreach file_get_contents);
  
  use PVE::Firewall::Helpers;
-@@ -5205,7 +5206,7 @@
+@@ -5416,7 +5417,7 @@
          my $tmpfile = "$pve_fw_status_dir/log_nf_conntrack";
          PVE::Tools::file_set_contents($tmpfile, $value);
  

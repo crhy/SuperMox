@@ -1,6 +1,6 @@
 diff -ruN orig/src/PVE/Daemon.pm new/src/PVE/Daemon.pm
---- a/src/PVE/Daemon.pm	2026-10-28 04:35:08.535283680 -0700
-+++ b/src/PVE/Daemon.pm	2026-10-28 05:53:28.809071486 -0700
+--- a/src/PVE/Daemon.pm	2026-10-28 13:16:11.305285486 -0700
++++ b/src/PVE/Daemon.pm	2026-10-28 13:25:17.386553895 -0700
 @@ -20,6 +20,7 @@
  
  use PVE::SafeSyslog;
@@ -13,7 +13,7 @@ diff -ruN orig/src/PVE/Daemon.pm new/src/PVE/Daemon.pm
              if (&$init_ppid() || $param->{debug}) {
                  $self->start($param->{debug});
              } else {
--                PVE::Tools::run_command(['systemctl', 'start', $self->{name}]);
+-                PVE::Cmd::run(['systemctl', 'start', $self->{name}]);
 +                PVE::SysvService::start($self->{name});
              }
  
@@ -22,7 +22,7 @@ diff -ruN orig/src/PVE/Daemon.pm new/src/PVE/Daemon.pm
              if (&$init_ppid()) {
                  &$reload_daemon($self, $use_hup);
              } else {
--                PVE::Tools::run_command(
+-                PVE::Cmd::run(
 -                    ['systemctl', $use_hup ? 'reload-or-restart' : 'restart', $self->{name}]);
 +                if ($use_hup) {
 +                    PVE::SysvService::reload_or_restart($self->{name});
@@ -36,15 +36,15 @@ diff -ruN orig/src/PVE/Daemon.pm new/src/PVE/Daemon.pm
              if (&$init_ppid()) {
                  $self->stop();
              } else {
--                PVE::Tools::run_command(['systemctl', 'stop', $self->{name}]);
+-                PVE::Cmd::run(['systemctl', 'stop', $self->{name}]);
 +                PVE::SysvService::stop($self->{name});
              }
  
              return undef;
 diff -ruN orig/src/PVE/Tools.pm new/src/PVE/Tools.pm
---- a/src/PVE/Tools.pm	2026-10-28 04:35:08.535283680 -0700
-+++ b/src/PVE/Tools.pm	2026-10-28 05:59:54.959439498 -0700
-@@ -1463,12 +1463,53 @@
+--- a/src/PVE/Tools.pm	2026-10-28 13:16:11.305285486 -0700
++++ b/src/PVE/Tools.pm	2026-10-28 13:26:15.818260021 -0700
+@@ -838,12 +838,53 @@
          $limit--;
      };
  
