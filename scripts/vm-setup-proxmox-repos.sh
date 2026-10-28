@@ -60,15 +60,18 @@ Explanation: Rust crates are build-time source only; nothing from them ships.
  (e.g. proxmox-log needs nix 0.29 but Ceres has 0.30, and tracing-journald
  >=0.3.1 but Ceres has 0.3.0), so take crates from Devuan excalibur (trixie-era)
  and prefer Proxmox's own librust crates from download.proxmox.com.
+ The compiler comes from Proxmox too: their crates need a newer rustc than
+ excalibur's 1.85 (proxmox-schema 5.5 needs 1.88), and Proxmox builds with
+ its own backported rustc.
 Package: *
 Pin: release n=excalibur
 Pin-Priority: 50
 
-Package: librust-* rustc cargo libstd-rust-* dh-cargo
+Package: librust-* dh-cargo
 Pin: release n=excalibur
 Pin-Priority: 990
 
-Package: librust-*
+Package: librust-* rustc cargo libstd-rust-*
 Pin: origin download.proxmox.com
 Pin-Priority: 995
 RUSTPIN
