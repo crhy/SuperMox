@@ -177,6 +177,8 @@ if ! {
 set -e
 export DEBIAN_FRONTEND=noninteractive DEBEMAIL='root@localhost' DEBFULLNAME='SuperMox'
 export DEB_BUILD_PROFILES=nocheck DEB_BUILD_OPTIONS=nocheck
+# bindgen 0.71 mis-parses headers with libclang 22 (nettle-sys got opaque RSA structs); use libclang 21 when present.
+if [ -d /usr/lib/llvm-21/lib ]; then export LIBCLANG_PATH=/usr/lib/llvm-21/lib; fi
 for p in $(dpkg -l '*-build-deps' 2>/dev/null | awk '/^i/{print $2}'); do
   dpkg --remove --force-remove-reinstreq "$p" 2>/dev/null || true
 done
