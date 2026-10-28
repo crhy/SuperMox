@@ -1,0 +1,3 @@
+# Replaces the pve-daily-update timer unit (OnCalendar=*-*-* 1:00, RandomizedDelaySec=5h).
+# Runs the pve-daily-update ExecStart once a day at 01:00, with a random delay.
+0 1 * * * root sleep $(shuf -i 0-3600 -n 1); /usr/bin/pveupdate

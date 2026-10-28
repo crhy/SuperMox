@@ -51,6 +51,42 @@ if [ "$count" -eq 0 ]; then
   exit 1
 fi
 
+cron="cron/pve-daily-update"
+if [ ! -f "$cron" ]; then
+  echo "FAIL: $cron does not exist"
+  fail=1
+else
+  if grep -qE "systemctl|systemd|sd_notify|journalctl" "$cron"; then
+    echo "FAIL: $cron (systemd-text)"
+    fail=1
+  fi
+  lineno=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    trimmed=${line#"${line%%[![:space:]]*}"}
+    [ -z "$trimmed" ] && continue
+    case "$trimmed" in
+      '#'*) continue ;;
+    esac
+    IFS=' ' read -r f1 f2 f3 f4 f5 user cmd <<< "$trimmed"
+    if [ -z "$user" ] || [ -z "$cmd" ]; then
+      echo "FAIL: $cron line $lineno (missing time/user/command fields)"
+      fail=1
+      continue
+    fi
+    for field in "$f1" "$f2" "$f3" "$f4" "$f5"; do
+      if ! printf '%s' "$field" | grep -qE '^[0-9*,/-]+$'; then
+        echo "FAIL: $cron line $lineno (field '$field' is not a time field)"
+        fail=1
+      fi
+    done
+    if [ "$user" != "root" ]; then
+      echo "FAIL: $cron line $lineno (user field is '$user', expected root)"
+      fail=1
+    fi
+  done < "$cron"
+fi
+
 if [ "$fail" -ne 0 ]; then
   exit 1
 fi

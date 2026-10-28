@@ -1,0 +1,52 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          pve-guests
+# Required-Start:    pveproxy pvestatd spiceproxy pve-firewall lxc pve-ha-crm pve-ha-lrm $remote_fs
+# Required-Stop:     pveproxy pvestatd spiceproxy pve-firewall lxc pve-ha-crm pve-ha-lrm $remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: PVE guests
+### END INIT INFO
+
+# Sysvinit service script translated from
+# upstream/pxvirt/packages/pve-manager/pve-manager/services/pve-guests.service
+# Type=oneshot  RemainAfterExit=yes  TimeoutSec=infinity  ConditionPathExists=/usr/bin/pvesh
+# ExecStartPre=-/usr/share/pve-manager/helpers/pve-startall-delay
+# ExecStart=/usr/bin/pvesh --nooutput create /nodes/localhost/startall
+# ExecStop=-/usr/bin/vzdump -stop
+# ExecStop=/usr/bin/pvesh --nooutput create /nodes/localhost/stopall
+# After= pveproxy pvestatd spiceproxy pve-firewall lxc pve-ha-crm pve-ha-lrm -> Required-Start.
+# Wants= dropped. pve-storage.target After= list folded in as $remote_fs.
+
+. /lib/lsb/init-functions
+
+NAME=pve-guests
+
+case "$1" in
+  start)
+    log_begin_msg "Starting $NAME"
+    /usr/share/pve-manager/helpers/pve-startall-delay 2>/dev/null || true
+    /usr/bin/pvesh --nooutput create /nodes/localhost/startall
+    log_end_msg $?
+    ;;
+  stop)
+    log_begin_msg "Stopping $NAME"
+    /usr/bin/vzdump -stop 2>/dev/null || true
+    /usr/bin/pvesh --nooutput create /nodes/localhost/stopall
+    log_end_msg $?
+    ;;
+  restart)
+    "$0" stop
+    "$0" start
+    ;;
+  status)
+    log_success_msg "$NAME is a oneshot task (no daemon)"
+    exit 0
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|status}" >&2
+    exit 2
+    ;;
+esac
+
+exit 0

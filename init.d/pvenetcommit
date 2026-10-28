@@ -1,0 +1,48 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          pvenetcommit
+# Required-Start:    $localfs
+# Required-Stop:     $localfs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Commit PVE network changes
+### END INIT INFO
+
+# Sysvinit service script translated from
+# upstream/pxvirt/packages/pve-manager/pve-manager/services/pvenetcommit.service
+# Type=oneshot  RemainAfterExit=yes
+# ExecStartPre=-/bin/rm -f /etc/openvswitch/conf.db
+# Environment=FN=/etc/network/interfaces
+# ExecStart=sh -c 'if [ -f ${FN}.new ]; then mv ${FN}.new ${FN}; fi'  (no ExecStop)
+# After=local-fs.target -> $localfs; DefaultDependencies=no, Before=sysinit.target dropped.
+
+. /lib/lsb/init-functions
+
+NAME=pvenetcommit
+FN=/etc/network/interfaces
+
+case "$1" in
+  start)
+    log_begin_msg "Starting $NAME"
+    /bin/rm -f /etc/openvswitch/conf.db 2>/dev/null || true
+    if [ -f "${FN}.new" ]; then mv "${FN}.new" "${FN}"; fi
+    log_end_msg $?
+    ;;
+  stop)
+    log_begin_msg "Stopping $NAME"
+    log_end_msg 0
+    ;;
+  restart)
+    "$0" start
+    ;;
+  status)
+    log_success_msg "$NAME is a oneshot task (no daemon)"
+    exit 0
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|status}" >&2
+    exit 2
+    ;;
+esac
+
+exit 0
