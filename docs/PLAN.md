@@ -17,6 +17,11 @@ Operate the amd64 KVM VM built by the scripts in `scripts/`. All paths default t
   in the guest, confirms `/dev/kvm`): `bash scripts/vm-smoke.sh`
 - Stop it by pidfile only: `bash scripts/vm-stop.sh`
 - Configure Proxmox apt repos (keyring, sources, origin pins, verify installability): `bash scripts/vm-setup-proxmox-repos.sh`
+  - Rust crate pins: Proxmox's `librust-proxmox-*` devel crates target Debian trixie crate versions, but Ceres
+    crates are too new (e.g. `proxmox-log` needs `nix` 0.29 while Ceres has 0.30, and `tracing-journald` >=0.3.1
+    while Ceres has 0.3.0). The script adds Devuan `excalibur` (trixie-era) as a low-priority source and pins
+    `librust-*`/`rustc`/`cargo`/`libstd-rust-*`/`dh-cargo` to it (990) with Proxmox's own `librust-*` higher (995);
+    crates are build-time source only, nothing from them ships.
 
 ## M2 — arm64 QEMU VM
 Reproduce the M1 result on an arm64 QEMU VM. PXVIRT is already arm64-capable, so the work is

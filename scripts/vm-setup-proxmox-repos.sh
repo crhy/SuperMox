@@ -52,6 +52,27 @@ Pin: origin ""
 Pin-Priority: 900
 PIN
 
+printf 'deb http://deb.devuan.org/merged excalibur main\n' > /etc/apt/sources.list.d/excalibur-rust.list
+
+cat > /etc/apt/preferences.d/supermox-rust-excalibur <<'RUSTPIN'
+Explanation: Rust crates are build-time source only; nothing from them ships.
+ Ceres crate versions are too new for Proxmox's trixie-targeted devel crates
+ (e.g. proxmox-log needs nix 0.29 but Ceres has 0.30, and tracing-journald
+ >=0.3.1 but Ceres has 0.3.0), so take crates from Devuan excalibur (trixie-era)
+ and prefer Proxmox's own librust crates from download.proxmox.com.
+Package: *
+Pin: release n=excalibur
+Pin-Priority: 50
+
+Package: librust-* rustc cargo libstd-rust-* dh-cargo
+Pin: release n=excalibur
+Pin-Priority: 990
+
+Package: librust-*
+Pin: origin download.proxmox.com
+Pin-Priority: 995
+RUSTPIN
+
 apt-get update
 REMOTE
 
