@@ -32,7 +32,7 @@ for want in pve-cluster pve-access-control proxmox-perl-rs; do
 done
 
 ov_out="$(bash "$target" --list-overrides)"
-ov_line="proxmox-perl-rs f2fbed015ec15d204193bcb751388d8acd3bf6ef"
+ov_line="proxmox-perl-rs c6b798f72a7e9f1063d75b144835d63781006ef4"
 if ! printf '%s\n' "$ov_out" | grep -qxF -- "$ov_line"; then
   echo "FAIL: --list-overrides did not print: $ov_line"
   printf '%s\n' "$ov_out"
@@ -42,8 +42,8 @@ fi
 co="upstream/pxvirt/packages/proxmox-perl-rs/proxmox-perl-rs"
 if [ -d "$co" ]; then
   head="$(git -C "$co" rev-parse HEAD)"
-  if [ "$head" != "f2fbed015ec15d204193bcb751388d8acd3bf6ef" ]; then
-    echo "FAIL: $co HEAD is $head, expected override f2fbed015ec15d204193bcb751388d8acd3bf6ef"
+  if [ "$head" != "c6b798f72a7e9f1063d75b144835d63781006ef4" ]; then
+    echo "FAIL: $co HEAD is $head, expected override c6b798f72a7e9f1063d75b144835d63781006ef4"
     exit 1
   fi
 fi

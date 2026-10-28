@@ -1,10 +1,10 @@
 diff -ruN orig/pve-rs/debian/control new/pve-rs/debian/control
---- a/pve-rs/debian/control	2026-10-28 13:12:17.528515543 -0700
-+++ b/pve-rs/debian/control	2026-10-28 13:12:38.103948651 -0700
+--- a/pve-rs/debian/control	2026-10-28 10:00:44.238197205 -0700
++++ b/pve-rs/debian/control	2026-10-28 10:23:13.619763096 -0700
 @@ -4,7 +4,7 @@
- Build-Depends: cargo:native <!nocheck>,
-                debhelper-compat (= 13),
+ Build-Depends: debhelper-compat (= 13),
                 dh-cargo (>= 25),
+                cargo:native <!nocheck>,
 -               libproxmox-rs-perl (>= 0.3.5),
 +               libproxmox-rs-perl (>= 0.3.5) <!nocheck>,
                 librust-anyhow-1+default-dev,
