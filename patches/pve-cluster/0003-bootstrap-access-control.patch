@@ -1,0 +1,12 @@
+diff -ruN orig/debian/control new/debian/control
+--- a/debian/control	2026-10-28 11:49:42.565839089 -0700
++++ b/debian/control	2026-10-28 11:49:42.568258015 -0700
+@@ -10,7 +10,7 @@
+                libdigest-hmac-perl,
+                libfuse-dev (>= 2.9.2),
+                libglib2.0-dev (>= 2.68),
+-               libpve-access-control,
++               libpve-access-control <!nocheck>,
+                libpve-apiclient-perl,
+                libpve-common-perl (>= 5.0-28),
+                libqb-dev (>= 2.0.1),
