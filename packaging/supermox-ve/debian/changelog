@@ -1,9 +1,20 @@
+supermox-ve (0.1.2) unstable; urgency=medium
+
+  * Ship the networking init script (debian/supermox-ve.networking.init,
+    installed with dh_installinit --name=networking --no-start) so ifupdown2
+    brings up eth0 under sysvinit.
+  * Declare Replaces: ifupdown and Conflicts: ifupdown so the package can
+    take over the conffile left behind by ifupdown's own networking script.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 28 Oct 2026 15:20:00 -0700
+
 supermox-ve (0.1.1) unstable; urgency=medium
 
   * Depend on cpio: proxmox-backup-file-restore's postinst runs it without
     declaring it.
-  * Depend on ifupdown and ifenslave (pve-manager's alternative to ifupdown2):
-    ifupdown2 left eth0 down under sysvinit.
+  * Depend on ifupdown2 (pve-manager allows ifenslave as an alternative, but
+    libpve-network-perl needs ifupdown2 outright): SuperMox ships its own
+    networking init script for ifupdown2 so eth0 comes up under sysvinit.
 
  -- SuperMox <noreply@supermox.me>  Wed, 28 Oct 2026 14:46:06 -0700
 

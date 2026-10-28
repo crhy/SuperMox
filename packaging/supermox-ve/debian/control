@@ -10,8 +10,7 @@ Package: supermox-ve
 Architecture: all
 Depends: apt,
          cpio,
-         ifenslave,
-         ifupdown,
+         ifupdown2,
          openssh-client,
          openssh-server,
          proxmox-archive-keyring,
@@ -21,7 +20,8 @@ Depends: apt,
          sysvinit-core,
          linux-image-amd64 | linux-image-arm64 | linux-image-armmp-lpae | linux-image-riscv64 | linux-image-loong64,
          ${misc:Depends}
-Conflicts: systemd-sysv, systemd
+Conflicts: systemd-sysv, systemd, ifupdown
+Replaces: ifupdown
 Provides: proxmox-ve
 Description: SuperMox virtualization stack
  Meta package that pulls in the SuperMox virtualization stack: the
