@@ -82,13 +82,13 @@ if [ "$dry_run" -eq 1 ]; then
   if [ "${#subdirs[@]}" -gt 0 ]; then
     for _s in "${subdirs[@]}"; do
       printf '  in VM /root/build/%s/%s: apt-get update\n' "$component" "$_s"
-      printf '  in VM /root/build/%s/%s: mk-build-deps --install --remove --tool "apt-get -y --no-install-recommends" debian/control\n' "$component" "$_s"
+      printf '  in VM /root/build/%s/%s: mk-build-deps --build-profiles=nocheck --install --remove --tool "apt-get -y --no-install-recommends" debian/control\n' "$component" "$_s"
       printf '  in VM /root/build/%s/%s: make deb (if Makefile has deb: target) else dpkg-buildpackage -b -us -uc\n' "$component" "$_s"
       printf '  copy *.deb to /root/localrepo, dpkg-scanpackages . > Packages, apt-get update\n'
     done
   else
     printf '  in VM /root/build/%s: apt-get update\n' "$component"
-    printf '  in VM /root/build/%s: mk-build-deps --install --remove --tool "apt-get -y --no-install-recommends" debian/control\n' "$component"
+    printf '  in VM /root/build/%s: mk-build-deps --build-profiles=nocheck --install --remove --tool "apt-get -y --no-install-recommends" debian/control\n' "$component"
     printf '  in VM /root/build/%s: make deb (if Makefile has deb: target) else dpkg-buildpackage -b -us -uc\n' "$component"
     printf '  copy *.deb to /root/localrepo and run dpkg-scanpackages . > Packages\n'
   fi
@@ -133,6 +133,7 @@ if ! {
     cat <<'REMOTE'
 set -e
 export DEBIAN_FRONTEND=noninteractive DEBEMAIL='root@localhost' DEBFULLNAME='SuperMox'
+export DEB_BUILD_PROFILES=nocheck DEB_BUILD_OPTIONS=nocheck
 for p in $(dpkg -l '*-build-deps' 2>/dev/null | awk '/^i/{print $2}'); do
   dpkg --remove --force-remove-reinstreq "$p" 2>/dev/null || true
 done
@@ -140,7 +141,7 @@ apt-get -y -f install >/dev/null 2>&1 || true
 for d in "${dirs[@]}"; do
   apt-get update >/dev/null 2>&1 || true
   cd "/root/build/$d"
-  mk-build-deps --install --remove --tool 'apt-get -y --no-install-recommends' debian/control
+  mk-build-deps --build-profiles=nocheck --install --remove --tool 'apt-get -y --no-install-recommends' debian/control
   if grep -qE '^deb:' Makefile; then
     make deb || true
   else
