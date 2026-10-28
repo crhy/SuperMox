@@ -187,7 +187,7 @@ for d in "${dirs[@]}"; do
   apt-get update >/dev/null 2>&1 || true
   cd "/root/build/$d"
   mk-build-deps --build-profiles=nocheck --install --remove --tool 'apt-get -y --no-install-recommends' debian/control
-  if grep -qE '^deb:' Makefile; then
+  if grep -qE '^deb[[:space:]:]' Makefile; then
     make deb || true
   else
     dpkg-buildpackage -b -us -uc

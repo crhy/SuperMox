@@ -1,0 +1,73 @@
+diff -ruN orig/debian/libpve-cluster-api-perl.install new/debian/libpve-cluster-api-perl.install
+--- a/debian/libpve-cluster-api-perl.install	2026-10-28 04:35:07.193585841 -0700
++++ b/debian/libpve-cluster-api-perl.install	2026-10-28 12:12:53.702950566 -0700
+@@ -1,7 +1,4 @@
+ usr/bin/pvecm
+-usr/share/bash-completion/completions/pvecm
+-usr/share/man/man1/pvecm.1
+ usr/share/perl5/PVE/API2
+ usr/share/perl5/PVE/CLI
+ usr/share/perl5/PVE/Cluster/Setup.pm
+-usr/share/zsh/vendor-completions/_pvecm
+diff -ruN orig/debian/libpve-cluster-perl.install new/debian/libpve-cluster-perl.install
+--- a/debian/libpve-cluster-perl.install	2026-10-28 04:35:07.193585841 -0700
++++ b/debian/libpve-cluster-perl.install	2026-10-28 12:12:57.118939356 -0700
+@@ -1,4 +1,3 @@
+-usr/share/man/man5/datacenter.cfg.5
+ usr/share/perl5/PVE/Corosync.pm
+ usr/share/perl5/PVE/DataCenterConfig.pm
+ usr/share/perl5/PVE/RRD.pm
+diff -ruN orig/Makefile new/Makefile
+--- a/Makefile	2026-10-28 04:35:07.190777593 -0700
++++ b/Makefile	2026-10-28 12:15:46.850382365 -0700
+@@ -39,7 +39,7 @@
+ deb $(DBG_DEB) $(LIB_DEB): $(DEB)
+ $(DEB): $(BUILDDIR)
+ 	cd $(BUILDDIR); dpkg-buildpackage -b -us -uc
+-	lintian $(DEB)
++	lintian --suppress-tags missing-systemd-service-for-init.d-script $(DEB)
+ 
+ sbuild: $(DSC)
+ 	sbuild $(DSC)
+diff -ruN orig/src/PVE/Makefile new/src/PVE/Makefile
+--- a/src/PVE/Makefile	2026-10-28 04:35:07.194374845 -0700
++++ b/src/PVE/Makefile	2026-10-28 12:11:19.763258839 -0700
+@@ -10,21 +10,23 @@
+ 
+ PERL_DOC_INC_DIRS:=..
+ 
++DOC_OK := $(shell perl -e 'use PVE::RPCEnvironment' 2>/dev/null && echo 1)
++
+ SUBDIRS=Cluster CLI API2
+ SOURCES=IPCC.pm Cluster.pm Corosync.pm RRD.pm DataCenterConfig.pm Notify.pm SSHInfo.pm
+ 
+-all:
++all: IPCC.so Cluster/IPCConst.pm
+ 
+ .PHONY: install
+-install: pvecm $(SOURCES) IPCC.so pvecm.1 pvecm.bash-completion pvecm.zsh-completion datacenter.cfg.5
++install: pvecm $(SOURCES) IPCC.so $(if $(DOC_OK),pvecm.1 pvecm.bash-completion pvecm.zsh-completion datacenter.cfg.5)
+ 	install -D -m 0755 pvecm $(DESTDIR)/usr/bin/pvecm
+ 	install -d $(PVEDIR)
+ 	for f in $(SOURCES); do install -m 0664 $$f $(PVEDIR)/$$f; done
+ 	install -D IPCC.so $(PVE_VENDORARCH)/IPCC.so
+-	install -D pvecm.1 $(MAN)/man1/pvecm.1
+-	install -D datacenter.cfg.5 $(MAN)/man5/datacenter.cfg.5
+-	install -m 0644 -D pvecm.bash-completion $(BASHCOMPLETION)/pvecm
+-	install -m 0644 -D pvecm.zsh-completion $(ZSHCOMPLETION)/_pvecm
++	$(if $(DOC_OK),install -D pvecm.1 $(MAN)/man1/pvecm.1)
++	$(if $(DOC_OK),install -D datacenter.cfg.5 $(MAN)/man5/datacenter.cfg.5)
++	$(if $(DOC_OK),install -m 0644 -D pvecm.bash-completion $(BASHCOMPLETION)/pvecm)
++	$(if $(DOC_OK),install -m 0644 -D pvecm.zsh-completion $(ZSHCOMPLETION)/_pvecm)
+ 	for d in $(SUBDIRS); do $(MAKE) -C $$d install; done
+ 
+ %.bash-completion:
+@@ -59,6 +61,8 @@
+ 
+ -include /usr/share/pve-doc-generator/pve-doc-generator.mk
+ 
++generated/pvecm.1-synopsis.adoc generated/pvecm.1-opts.adoc generated/datacenter.cfg.5-synopsis.adoc generated/datacenter.cfg.5-opts.adoc pvecm.bash-completion pvecm.zsh-completion: IPCC.so Cluster/IPCConst.pm
++
+ .PHONY: clean
+ clean:
+ 	rm -f *.xml.tmp *.1 *.5 *.8 *{synopsis,opts}.adoc docinfo.xml
