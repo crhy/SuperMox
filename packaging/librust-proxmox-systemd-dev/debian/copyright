@@ -1,0 +1,28 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: proxmox-systemd
+Upstream-Contact: Proxmox Server Solutions GmbH <support@proxmox.com>
+Source: https://git.proxmox.com/?p=proxmox.git
+
+Files: crate/*
+Copyright: 2024 - 2026 Proxmox Server Solutions GmbH <support@proxmox.com>
+License: AGPL-3.0-or-later
+ This program is free software: you can redistribute it and/or modify it under
+ the terms of the GNU Affero General Public License as published by the Free
+ Software Foundation, either version 3 of the License, or (at your option) any
+ later version.
+ .
+ This program is distributed in the hope that it will be useful, but WITHOUT
+ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ details.
+ .
+ You should have received a copy of the GNU Affero General Public License along
+ with this program. If not, see <https://www.gnu.org/licenses/>.
+
+Files: debian/*
+Copyright: SuperMox <noreply@supermox.me>
+License: AGPL-3.0-or-later
+ This packaging is derived from the upstream Debianized Rust crate
+ "proxmox-systemd", which is licensed under the GNU Affero General Public
+ License, version 3 (or later). SuperMox keeps that license and credits
+ Proxmox Server Solutions GmbH for the crate source it repackages.

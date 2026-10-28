@@ -1,0 +1,25 @@
+Source: librust-proxmox-systemd-dev
+Section: rust
+Priority: optional
+Maintainer: SuperMox <noreply@supermox.me>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: librust-proxmox-systemd-dev
+Architecture: amd64
+Multi-Arch: same
+Depends: librust-libc-0.2+default-dev (>= 0.2.107-~~)
+Provides: librust-proxmox-systemd+default-dev (= 1.0.1-1+supermox1),
+ librust-proxmox-systemd-1+default-dev (= 1.0.1-1+supermox1),
+ librust-proxmox-systemd-1-dev (= 1.0.1-1+supermox1),
+ librust-proxmox-systemd-1.0+default-dev (= 1.0.1-1+supermox1),
+ librust-proxmox-systemd-1.0-dev (= 1.0.1-1+supermox1),
+ librust-proxmox-systemd-1.0.1+default-dev (= 1.0.1-1+supermox1),
+ librust-proxmox-systemd-1.0.1-dev (= 1.0.1-1+supermox1)
+Description: Utilities for dealing with systemd unit files - Rust source code
+ SuperMox's own copy of the Debianized Rust crate "proxmox-systemd". It
+ ships the same source as the upstream package but drops the libsystemd
+ development dependency, so it can be built and used on a system that
+ has no systemd and no libsystemd. A later task replaces the crate's
+ libsystemd FFI calls.

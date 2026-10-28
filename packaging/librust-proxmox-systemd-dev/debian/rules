@@ -1,0 +1,7 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_install:
+	mkdir -p debian/librust-proxmox-systemd-dev/usr/share/cargo/registry
+	cp -a crate debian/librust-proxmox-systemd-dev/usr/share/cargo/registry/proxmox-systemd-1.0.1

@@ -1,0 +1,9 @@
+librust-proxmox-systemd-dev (1.0.1-1+supermox1) unstable; urgency=medium
+
+  * SuperMox's own copy of the Debianized Rust crate "proxmox-systemd"
+    (upstream crate version 1.0.1), packaged unchanged as a native source
+    package so later tasks can replace its libsystemd calls.
+  * The libsystemd-dev dependency is dropped from Depends; the crate's
+    libsystemd FFI calls are left untouched in this task.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 28 Oct 2026 08:41:47 -0700

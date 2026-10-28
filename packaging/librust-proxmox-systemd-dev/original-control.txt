@@ -1,0 +1,14 @@
+Package: librust-proxmox-systemd-dev
+Source: rust-proxmox-systemd
+Version: 1.0.1-1
+Architecture: amd64
+Maintainer: Proxmox Support Team <support@proxmox.com>
+Installed-Size: 34
+Depends: librust-libc-0.2+default-dev (>= 0.2.107-~~), libsystemd-dev
+Provides: librust-proxmox-systemd+default-dev (= 1.0.1-1), librust-proxmox-systemd-1+default-dev (= 1.0.1-1), librust-proxmox-systemd-1-dev (= 1.0.1-1), librust-proxmox-systemd-1.0+default-dev (= 1.0.1-1), librust-proxmox-systemd-1.0-dev (= 1.0.1-1), librust-proxmox-systemd-1.0.1+default-dev (= 1.0.1-1), librust-proxmox-systemd-1.0.1-dev (= 1.0.1-1)
+Section: rust
+Priority: optional
+Multi-Arch: same
+Homepage: https://proxmox.com
+Description: Utilities for dealing with systemd unit files and communicating with systemd - Rust source code
+ Source code for Debianized Rust crate "proxmox-systemd"
