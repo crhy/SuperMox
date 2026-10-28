@@ -32,9 +32,10 @@ done
 fail=0
 
 init_path="$(remote 'readlink -f /proc/1/exe' 2>/dev/null || true)"
-dpkg_line="$(remote 'dpkg -S /sbin/init' 2>/dev/null || true)"
-if [ "$init_path" = "/sbin/init" ] && printf '%s\n' "$dpkg_line" | grep -q 'sysvinit-core'; then
-  printf 'PASS: PID 1 is sysvinit-core (/sbin/init)\n'
+# /sbin is a symlink to /usr/sbin on merged-/usr systems, so PID 1 may show as /usr/sbin/init.
+dpkg_line="$(remote "dpkg -S $init_path" 2>/dev/null || true)"
+if { [ "$init_path" = "/sbin/init" ] || [ "$init_path" = "/usr/sbin/init" ]; } && printf '%s\n' "$dpkg_line" | grep -q 'sysvinit-core'; then
+  printf 'PASS: PID 1 is sysvinit-core (%s)\n' "$init_path"
 else
   printf 'FAIL: PID 1 not sysvinit-core (exe=%s dpkg=%s)\n' "$init_path" "$dpkg_line"
   fail=1

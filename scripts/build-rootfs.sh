@@ -13,7 +13,7 @@ export TMPDIR="${SUPERMOX_TMPDIR:-$(cd "$(dirname "$0")/.." && pwd)/build/tmp}"
 KEYRING=/usr/share/keyrings/devuan-archive-keyring.gpg
 COMPONENTS=main,contrib,non-free-firmware
 
-BASE_PKGS=sysvinit-core,sysv-rc,init-system-helpers,linux-image-amd64,openssh-server,ifupdown,dhcpcd-base,opensysusers,rsyslog,cron,ca-certificates,less
+BASE_PKGS=sysvinit-core,sysv-rc,init-system-helpers,linux-image-amd64,openssh-server,ifupdown,dhcpcd-base,opensysusers,util-linux-extra,rsyslog,cron,ca-certificates,less
 EXTRA_PKGS="${SUPERMOX_EXTRA_PKGS:-lsb-base}"
 if [ -n "$EXTRA_PKGS" ]; then
   INCLUDE="$BASE_PKGS,$EXTRA_PKGS"
@@ -45,6 +45,7 @@ customize_hooks=(
   'sed -i "s/^#*PermitRootLogin.*/PermitRootLogin yes/" "$1/etc/ssh/sshd_config"'
   'printf "auto eth0\niface eth0 inet dhcp\n" > "$1/etc/network/interfaces"'
   'printf "/dev/vda / ext4 defaults 0 1\n" >> "$1/etc/fstab"'
+  # util-linux-extra is in the include list: dracut needs its switch_root without systemd, but does not depend on it.
   # Maintainer scripts mask services for systemd with /dev/null links in /etc/systemd; sysvinit never reads them.
   'rm -rf "$1/etc/systemd"'
   'printf "DPkg::Post-Invoke { \"rm -rf /etc/systemd\"; };\n" > "$1/etc/apt/apt.conf.d/99supermox-no-systemd"'
