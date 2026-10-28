@@ -1,3 +1,3 @@
 # Pin a component to an upstream commit other than the one PXVIRT's submodule records.
 # Format: <component> <git-url> <commit>  # <reason>   (a line without a "# reason" is an error)
-proxmox-perl-rs https://git.proxmox.com/git/proxmox-perl-rs c6b798f72a7e9f1063d75b144835d63781006ef4  # PXVIRT pin is pve-rs 0.9.4; PVE 9 needs >= 0.10, trixie ships 0.15.3
+proxmox-perl-rs https://git.proxmox.com/git/proxmox-perl-rs f2fbed015ec15d204193bcb751388d8acd3bf6ef  # PXVIRT pins pve-rs 0.9.4 (bookworm); its PVE 9.0 components (Aug-Sep 2025) match pve-rs 0.10.10
