@@ -1,0 +1,161 @@
+diff -ruN orig/debian/postinst new/debian/postinst
+--- a/debian/postinst	2026-10-28 04:35:21.387824622 -0700
++++ b/debian/postinst	2026-10-28 08:27:54.046464779 -0700
+@@ -6,14 +6,12 @@
+ 
+ case "$1" in
+     configure)
+-	# modeled after dh_systemd_start output
+-	systemctl --system daemon-reload >/dev/null || true
+ 	if [ -n "$2" ]; then
+-		_dh_action=try-reload-or-restart
++		_dh_action=force-reload
+ 	else
+ 		_dh_action=start
+ 	fi
+-	deb-systemd-invoke $_dh_action pve-firewall.service >/dev/null || true
++	invoke-rc.d pve-firewall $_dh_action >/dev/null || true
+     ;;
+ 
+     abort-upgrade|abort-remove|abort-deconfigure)
+diff -ruN orig/debian/pve-firewall.pve-firewall.init new/debian/pve-firewall.pve-firewall.init
+--- a/debian/pve-firewall.pve-firewall.init	1969-12-31 16:00:00.000000000 -0800
++++ b/debian/pve-firewall.pve-firewall.init	2026-10-28 08:27:21.760750536 -0700
+@@ -0,0 +1,64 @@
++#!/bin/sh
++### BEGIN INIT INFO
++# Provides:          pve-firewall
++# Required-Start:    pvefw-logger pve-cluster $network kmod
++# Required-Stop:     pvefw-logger pve-cluster $network kmod
++# Default-Start:     2 3 4 5
++# Default-Stop:      0 1 6
++# Short-Description: PVE firewall
++### END INIT INFO
++
++# Sysvinit service script translated from
++# upstream/pxvirt/packages/pve-firewall/pve-firewall/debian/pve-firewall.service
++# ExecStartPre=-/usr/bin/update-alternatives --set ebtables /usr/sbin/ebtables-legacy
++# ExecStartPre=-/usr/bin/update-alternatives --set iptables /usr/sbin/iptables-legacy
++# ExecStartPre=-/usr/bin/update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
++# ExecStart=/usr/sbin/pve-firewall start  ExecStop=/usr/sbin/pve-firewall stop
++# ExecReload=/usr/sbin/pve-firewall restart  Type=forking  PIDFile=/run/pve-firewall.pid
++
++. /lib/lsb/init-functions
++
++DAEMON=/usr/sbin/pve-firewall
++PIDFILE=/run/pve-firewall.pid
++NAME=pve-firewall
++
++case "$1" in
++  start)
++    log_begin_msg "Starting $NAME"
++    update-alternatives --set ebtables /usr/sbin/ebtables-legacy 2>/dev/null || true
++    update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null || true
++    update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null || true
++    "$DAEMON" start
++    log_end_msg $?
++    ;;
++  stop)
++    log_begin_msg "Stopping $NAME"
++    "$DAEMON" stop
++    log_end_msg $?
++    ;;
++  restart)
++    "$0" stop
++    "$0" start
++    ;;
++  reload|force-reload)
++    log_begin_msg "Reloading $NAME"
++    "$DAEMON" restart
++    log_end_msg $?
++    ;;
++  status)
++    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
++    rc=$?
++    if [ "$rc" -eq 0 ]; then
++      log_success_msg "$NAME is running"
++    else
++      log_failure_msg "$NAME is not running"
++    fi
++    exit "$rc"
++    ;;
++  *)
++    echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
++    exit 2
++    ;;
++esac
++
++exit 0
+diff -ruN orig/debian/pve-firewall.pvefw-logger.init new/debian/pve-firewall.pvefw-logger.init
+--- a/debian/pve-firewall.pvefw-logger.init	1969-12-31 16:00:00.000000000 -0800
++++ b/debian/pve-firewall.pvefw-logger.init	2026-10-28 08:27:21.761638960 -0700
+@@ -0,0 +1,56 @@
++#!/bin/sh
++### BEGIN INIT INFO
++# Provides:          pvefw-logger
++# Required-Start:    $localfs
++# Required-Stop:     $localfs
++# Default-Start:     2 3 4 5
++# Default-Stop:      0 1 6
++# Short-Description: PVE firewall logger
++### END INIT INFO
++
++# Sysvinit service script translated from
++# upstream/pxvirt/packages/pve-firewall/pve-firewall/debian/pvefw-logger.service
++# ExecStart=/usr/sbin/pvefw-logger  Type=forking  PIDFile=/run/pvefw-logger.pid
++# TimeoutStopSec=5
++
++. /lib/lsb/init-functions
++
++DAEMON=/usr/sbin/pvefw-logger
++PIDFILE=/run/pvefw-logger.pid
++NAME=pvefw-logger
++
++case "$1" in
++  start)
++    log_begin_msg "Starting $NAME"
++    "$DAEMON"
++    log_end_msg $?
++    ;;
++  stop)
++    log_begin_msg "Stopping $NAME"
++    start-stop-daemon --stop --quiet --retry TERM/5/KILL/5 --pidfile "$PIDFILE"
++    log_end_msg $?
++    ;;
++  restart)
++    "$0" stop
++    "$0" start
++    ;;
++  reload|force-reload)
++    "$0" restart
++    ;;
++  status)
++    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
++    rc=$?
++    if [ "$rc" -eq 0 ]; then
++      log_success_msg "$NAME is running"
++    else
++      log_failure_msg "$NAME is not running"
++    fi
++    exit "$rc"
++    ;;
++  *)
++    echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
++    exit 2
++    ;;
++esac
++
++exit 0
+diff -ruN orig/debian/rules new/debian/rules
+--- a/debian/rules	2026-10-28 04:35:21.387824622 -0700
++++ b/debian/rules	2026-10-28 08:27:34.490583684 -0700
+@@ -7,7 +7,7 @@
+ 	dh $@
+ 
+ override_dh_installsystemd:
+-	dh_installsystemd --name pvefw-logger pvefw-logger.service
+-	dh_installsystemd --name pve-firewall --no-stop-on-upgrade --no-restart-after-upgrade pve-firewall.service
+ 
+ override_dh_installinit:
++	dh_installinit -ppve-firewall --name=pvefw-logger
++	dh_installinit -ppve-firewall --name=pve-firewall --no-stop-on-upgrade --no-restart-after-upgrade
