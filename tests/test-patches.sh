@@ -43,7 +43,8 @@ assert_has "Applied patches to build/patched"
 
 run scripts/check-no-systemd.sh --source build/patched
 assert_rc 0
-assert_has "COUNT 59"
+baseline="$(tr -dc '0-9' < config/systemd-baseline.txt)"
+assert_has "COUNT $baseline"
 
 # --- unit: patch-workspace + patch-save on a tiny fake component ---
 export UPSTREAM_PACKAGES="$PWD/build/test-patch/packages"
