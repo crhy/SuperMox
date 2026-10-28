@@ -1,0 +1,64 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          pveproxy
+# Required-Start:    pve-cluster pvedaemon ssh
+# Required-Stop:     pve-cluster pvedaemon ssh
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: PVE API Proxy Server
+### END INIT INFO
+
+# Sysvinit service script translated from
+# upstream/pxvirt/packages/pve-manager/pve-manager/services/pveproxy.service
+# ExecStartPre=-/usr/bin/pvecm updatecerts --silent
+# ExecStart=/usr/bin/pveproxy start  ExecStop=/usr/bin/pveproxy stop
+# ExecReload=/usr/bin/pveproxy restart
+# ExecStartPost=-sh -c '[ ! -e /var/log/pveam.log ] && /usr/bin/pveupdate'
+# Type=forking  PIDFile=/run/pveproxy/pveproxy.pid
+
+. /lib/lsb/init-functions
+
+DAEMON=/usr/bin/pveproxy
+PIDFILE=/run/pveproxy/pveproxy.pid
+NAME=pveproxy
+
+case "$1" in
+  start)
+    log_begin_msg "Starting $NAME"
+    /usr/bin/pvecm updatecerts --silent || true
+    "$DAEMON" start
+    rc=$?
+    [ ! -e /var/log/pveam.log ] && /usr/bin/pveupdate || true
+    log_end_msg "$rc"
+    ;;
+  stop)
+    log_begin_msg "Stopping $NAME"
+    "$DAEMON" stop
+    log_end_msg $?
+    ;;
+  restart)
+    "$0" stop
+    "$0" start
+    ;;
+  reload|force-reload)
+    log_begin_msg "Reloading $NAME"
+    "$DAEMON" restart
+    log_end_msg $?
+    ;;
+  status)
+    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      log_success_msg "$NAME is running"
+    else
+      log_failure_msg "$NAME is not running"
+    fi
+    exit "$rc"
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
+    exit 2
+    ;;
+esac
+
+exit 0
