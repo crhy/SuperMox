@@ -186,6 +186,10 @@ apt-get -y -f install >/dev/null 2>&1 || true
 for d in "${dirs[@]}"; do
   apt-get update >/dev/null 2>&1 || true
   cd "/root/build/$d"
+  # Some packages (librados2-perl) generate debian/control from control.in at build time.
+  if [ ! -f debian/control ] && [ -f debian/control.in ]; then
+    sed -e "s|@PERLAPI@|perlapi-$(perl -MConfig -e 'print $Config{debian_abi}//$Config{version};')|g" debian/control.in > debian/control
+  fi
   mk-build-deps --build-profiles=nocheck --install --remove --tool 'apt-get -y --no-install-recommends' debian/control
   if grep -qE '^deb[[:space:]:]' Makefile; then
     make deb || true

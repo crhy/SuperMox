@@ -50,6 +50,11 @@ Pin-Priority: 100
 Package: *
 Pin: origin ""
 Pin-Priority: 999
+
+Explanation: qemu-server needs Proxmox's patched swtpm (0.10.2+pve1), not Devuan's.
+Package: swtpm swtpm-libs swtpm-tools
+Pin: origin download.proxmox.com
+Pin-Priority: 600
 PIN
 
 printf 'deb http://deb.devuan.org/merged excalibur main\n' > /etc/apt/sources.list.d/excalibur-rust.list

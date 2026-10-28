@@ -1,6 +1,6 @@
 # Pin a component to an upstream commit other than the one PXVIRT's submodule records.
 # Format: <component> <git-url> <commit>  # <reason>   (a line without a "# reason" is an error)
-# Milestone 1 (amd64) builds each component at the version Proxmox's trixie repo ships (2026-10-28),
+# Milestone 1 (first target amd64; all architectures) builds each component at the version Proxmox's trixie repo ships (2026-10-28),
 # so every component, pve-rs and Proxmox's Rust crates agree. PXVIRT's pins lag upstream by about a year.
 proxmox-perl-rs https://git.proxmox.com/git/proxmox-perl-rs c6b798f72a7e9f1063d75b144835d63781006ef4  # pve-rs 0.15.3, matches Proxmox's current crates
 pve-common https://git.proxmox.com/git/pve-common.git 1fc3a09b6456c487d37e602fcd85b7082a32bc50  # 9.2.5, as in Proxmox's trixie repo
@@ -15,3 +15,4 @@ pve-ha-manager https://git.proxmox.com/git/pve-ha-manager.git c73364c19d5317e6df
 qemu-server https://git.proxmox.com/git/qemu-server.git 71ea0ac7192bb935f63cb64beb59e87d6cecd3bf  # 9.2.13, as in Proxmox's trixie repo
 pve-manager https://git.proxmox.com/git/pve-manager.git 66bc407c6d90a67aa15caed394bb294af174b6e1  # 9.2.24, as in Proxmox's trixie repo
 proxmox-ve https://git.proxmox.com/git/proxmox-ve.git 339b52bbec418a0978c187b1e95eea5b098b9322  # 9.2.0, as in Proxmox's trixie repo
+librados2-perl https://git.proxmox.com/git/librados2-perl.git a9f0d562b20b47d51e2271f05541da494eb39e36  # 1.5.1, as in Proxmox's trixie repo; Proxmox's build is tied to Perl 5.40

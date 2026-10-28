@@ -17,6 +17,7 @@ COMPONENTS=(
   pve-guest-common
   proxmox-ve
   proxmox-perl-rs
+  librados2-perl
 )
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"

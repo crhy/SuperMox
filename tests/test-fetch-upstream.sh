@@ -13,8 +13,8 @@ fi
 mapfile -t lines < <(bash "$target" --list)
 
 count=${#lines[@]}
-if [ "$count" -ne 13 ]; then
-  echo "FAIL: --list printed $count lines, expected 13"
+if [ "$count" -ne 14 ]; then
+  echo "FAIL: --list printed $count lines, expected 14"
   exit 1
 fi
 
@@ -48,4 +48,4 @@ if [ -d "$co" ]; then
   fi
 fi
 
-echo "OK: fetch-upstream.sh --list prints 13 lines including pve-cluster, pve-access-control and proxmox-perl-rs; --list-overrides prints the proxmox-perl-rs override and the checkout HEAD matches it"
+echo "OK: fetch-upstream.sh --list prints 14 lines including pve-cluster, pve-access-control and proxmox-perl-rs; --list-overrides prints the proxmox-perl-rs override and the checkout HEAD matches it"
