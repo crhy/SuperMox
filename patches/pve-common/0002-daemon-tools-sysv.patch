@@ -90,7 +90,7 @@ diff -ruN orig/src/PVE/Tools.pm new/src/PVE/Tools.pm
 +
 +    for my $file ('/var/log/syslog.1', '/var/log/syslog') {
 +        my $fh = IO::File->new($file, "r");
-+        next if !fh;
++        next if !$fh;
 +        while (defined(my $line = <$fh>)) {
 +            chomp $line;
 +            next if $service && $line !~ /\Q$service\E/;
