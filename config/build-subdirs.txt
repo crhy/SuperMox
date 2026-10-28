@@ -1,0 +1,8 @@
+# Components that build several Debian source packages from subdirectories.
+# Format (one line per component):
+#   <component> <subdir> [<subdir> ...]
+# Subdirs are relative to the component source root and are built in the order
+# listed, each with its own mk-build-deps + build, refreshing the local repo
+# between them so a later subdir can build-depend on an earlier one.
+# Full-line and inline "#" comments are ignored.
+proxmox-perl-rs common/pkg pve-rs
