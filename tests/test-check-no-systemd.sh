@@ -98,6 +98,46 @@ assert_rc 1
 assert_has "COUNT 1"
 unset SYSTEMD_BASELINE_FILE
 
+# 1e: a systemd unit file present under lib/systemd/system fails --image
+e="$root/e"
+mkdir -p "$e/var/lib/dpkg" "$e/sbin" "$e/lib/systemd/system"
+printf 'Package: sysvinit-core\nStatus: install ok installed\n\n' > "$e/var/lib/dpkg/status"
+printf '#!/sbin/init\n' > "$e/sbin/init"
+printf '[Unit]\nDescription=x\n' > "$e/lib/systemd/system/foo.service"
+run --image "$e"
+assert_rc 1
+assert_has "systemd unit tree present: lib/systemd/system/foo.service"
+
+# --source allowlist: an allowlisted file is not counted
+al="$root/allowlist.txt"
+s2="$root/src2"
+mkdir -p "$s2/sub"
+printf 'sub/*  # test fixture\n' > "$al"
+printf '[Unit]\nDescription=x\n' > "$s2/sub/foo.service"
+printf '1\n' > "$root/baseline-allow.txt"
+export SYSTEMD_ALLOWLIST_FILE="$al"
+export SYSTEMD_BASELINE_FILE="$root/baseline-allow.txt"
+run --source "$s2"
+assert_rc 0
+assert_has "ALLOWED 1"
+assert_has "COUNT 0"
+unset SYSTEMD_ALLOWLIST_FILE
+unset SYSTEMD_BASELINE_FILE
+
+# allowlist line without a "# reason" exits 2
+printf 'sub/*\n' > "$al"
+export SYSTEMD_ALLOWLIST_FILE="$al"
+run --source "$s2"
+assert_rc 2
+unset SYSTEMD_ALLOWLIST_FILE
+
+# script works when run from build/ (config/ and build/ resolve from repo root)
+mkdir -p build
+rc=0
+out="$(cd build && bash ../scripts/check-no-systemd.sh --source ../upstream/pxvirt/packages 2>&1)" || rc=$?
+assert_rc 0
+assert_has "COUNT 66"
+
 if [ "$fail" -ne 0 ]; then
   exit 1
 fi

@@ -1,0 +1,6 @@
+# Allowlist for --source: files matching a glob (relative to the DIR argument)
+# are excluded from the systemd list and the COUNT. Format:
+#   <glob relative to DIR>  # <reason>
+# A non-comment line without a "# reason" is an error (exit 2).
+pve-container/pve-container/src/test/*  # guest OS fixtures for container setup tests
+pve-container/pve-container/src/PVE/LXC/Setup/*  # configures init inside guest containers
