@@ -1,0 +1,59 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          qmeventd
+# Required-Start:    $localfs
+# Required-Stop:     $localfs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: PVE Qemu Event Daemon
+### END INIT INFO
+
+# Sysvinit service script translated from
+# upstream/pxvirt/packages/qemu-server/qemu-server/src/qmeventd/qmeventd.service
+# ExecStart=/usr/sbin/qmeventd /var/run/qmeventd.sock  Type=forking
+# qmeventd does not fork itself: started with start-stop-daemon --background
+# --make-pidfile, pidfile /run/qmeventd.pid.
+
+. /lib/lsb/init-functions
+
+DAEMON=/usr/sbin/qmeventd
+PIDFILE=/run/qmeventd.pid
+NAME=qmeventd
+SOCKET=/var/run/qmeventd.sock
+
+case "$1" in
+  start)
+    log_begin_msg "Starting $NAME"
+    start-stop-daemon --start --quiet --background --make-pidfile \
+      --pidfile "$PIDFILE" --exec "$DAEMON" -- "$SOCKET"
+    log_end_msg $?
+    ;;
+  stop)
+    log_begin_msg "Stopping $NAME"
+    start-stop-daemon --stop --quiet --pidfile "$PIDFILE"
+    log_end_msg $?
+    ;;
+  restart)
+    "$0" stop
+    "$0" start
+    ;;
+  reload|force-reload)
+    "$0" restart
+    ;;
+  status)
+    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      log_success_msg "$NAME is running"
+    else
+      log_failure_msg "$NAME is not running"
+    fi
+    exit "$rc"
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
+    exit 2
+    ;;
+esac
+
+exit 0

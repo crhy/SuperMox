@@ -1,0 +1,59 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          pvescheduler
+# Required-Start:    pve-cluster pve-guests
+# Required-Stop:     pve-cluster pve-guests
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: PVE scheduler
+### END INIT INFO
+
+# Sysvinit service script translated from
+# upstream/pxvirt/packages/pve-manager/pve-manager/services/pvescheduler.service
+# ExecStart=/usr/bin/pvescheduler start  ExecStop=/usr/bin/pvescheduler stop
+# ExecReload=/usr/bin/pvescheduler restart  Type=forking  KillMode=process
+# PIDFile=/run/pvescheduler.pid
+
+. /lib/lsb/init-functions
+
+DAEMON=/usr/bin/pvescheduler
+PIDFILE=/run/pvescheduler.pid
+NAME=pvescheduler
+
+case "$1" in
+  start)
+    log_begin_msg "Starting $NAME"
+    "$DAEMON" start
+    log_end_msg $?
+    ;;
+  stop)
+    log_begin_msg "Stopping $NAME"
+    "$DAEMON" stop
+    log_end_msg $?
+    ;;
+  restart)
+    "$0" stop
+    "$0" start
+    ;;
+  reload|force-reload)
+    log_begin_msg "Reloading $NAME"
+    "$DAEMON" restart
+    log_end_msg $?
+    ;;
+  status)
+    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      log_success_msg "$NAME is running"
+    else
+      log_failure_msg "$NAME is not running"
+    fi
+    exit "$rc"
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
+    exit 2
+    ;;
+esac
+
+exit 0
