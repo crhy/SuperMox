@@ -1,0 +1,240 @@
+diff -ruN orig/debian/control new/debian/control
+--- a/debian/control	2026-10-28 04:35:17.949817326 -0700
++++ b/debian/control	2026-10-28 08:46:36.791733119 -0700
+@@ -28,7 +28,6 @@
+          pve-cluster (>= 3.0-17),
+          pve-container (>= 5.0.1),
+          qemu-server (>= 8.0.2),
+-         systemd,
+          ${misc:Depends},
+          ${perl:Depends},
+          ${shlibs:Depends},
+diff -ruN orig/debian/lintian-overrides new/debian/lintian-overrides
+--- a/debian/lintian-overrides	2026-10-28 04:35:17.949817326 -0700
++++ b/debian/lintian-overrides	2026-10-28 08:47:08.767553576 -0700
+@@ -1,2 +1 @@
+ pve-ha-manager: repeated-trigger-name pve-api-updates (lines 1 2)*
+-pve-ha-manager: maintainer-script-calls-systemctl *
+diff -ruN orig/debian/pve-ha-manager.postinst new/debian/pve-ha-manager.postinst
+--- a/debian/pve-ha-manager.postinst	2026-10-28 04:35:17.949817326 -0700
++++ b/debian/pve-ha-manager.postinst	2026-10-28 08:46:48.883665223 -0700
+@@ -4,13 +4,13 @@
+ 
+ #DEBHELPER#
+ 
+-if [ "$1" = "triggered" ] && [ -d "/run/systemd/system" ]; then
+-    if systemctl --quiet is-active pve-ha-lrm.service; then
+-      deb-systemd-invoke reload-or-try-restart pve-ha-lrm.service || true
++if [ "$1" = "triggered" ]; then
++    if invoke-rc.d --quiet pve-ha-lrm status >/dev/null 2>&1; then
++      invoke-rc.d pve-ha-lrm force-reload || true
+     fi
+ 
+-    if systemctl --quiet is-active pve-ha-crm.service; then
+-      deb-systemd-invoke reload-or-try-restart pve-ha-crm.service || true
++    if invoke-rc.d --quiet pve-ha-crm status >/dev/null 2>&1; then
++      invoke-rc.d pve-ha-crm force-reload || true
+     fi
+ fi
+ 
+diff -ruN orig/debian/pve-ha-manager.pve-ha-crm.init new/debian/pve-ha-manager.pve-ha-crm.init
+--- a/debian/pve-ha-manager.pve-ha-crm.init	1969-12-31 16:00:00.000000000 -0800
++++ b/debian/pve-ha-manager.pve-ha-crm.init	2026-10-28 08:46:27.307194428 -0700
+@@ -0,0 +1,56 @@
++#!/bin/sh
++### BEGIN INIT INFO
++# Provides:          pve-ha-crm
++# Required-Start:    corosync pve-cluster pvedaemon watchdog-mux syslog
++# Required-Stop:     corosync pve-cluster pvedaemon watchdog-mux syslog
++# Default-Start:     2 3 4 5
++# Default-Stop:      0 1 6
++# Short-Description: PVE Cluster HA Resource Manager Daemon
++### END INIT INFO
++
++# Sysvinit service script translated from
++# upstream/pxvirt/packages/pve-ha-manager/pve-ha-manager/debian/pve-ha-crm.service
++# ExecStart=/usr/sbin/pve-ha-crm start  ExecStop=/usr/sbin/pve-ha-crm stop
++# Type=forking  PIDFile=/run/pve-ha-crm.pid  TimeoutStopSec=65
++
++. /lib/lsb/init-functions
++
++DAEMON=/usr/sbin/pve-ha-crm
++PIDFILE=/run/pve-ha-crm.pid
++NAME=pve-ha-crm
++
++case "$1" in
++  start)
++    log_begin_msg "Starting $NAME"
++    "$DAEMON" start
++    log_end_msg $?
++    ;;
++  stop)
++    log_begin_msg "Stopping $NAME"
++    "$DAEMON" stop
++    log_end_msg $?
++    ;;
++  restart)
++    "$0" stop
++    "$0" start
++    ;;
++  reload|force-reload)
++    "$0" restart
++    ;;
++  status)
++    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
++    rc=$?
++    if [ "$rc" -eq 0 ]; then
++      log_success_msg "$NAME is running"
++    else
++      log_failure_msg "$NAME is not running"
++    fi
++    exit "$rc"
++    ;;
++  *)
++    echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
++    exit 2
++    ;;
++esac
++
++exit 0
+diff -ruN orig/debian/pve-ha-manager.pve-ha-lrm.init new/debian/pve-ha-manager.pve-ha-lrm.init
+--- a/debian/pve-ha-manager.pve-ha-lrm.init	1969-12-31 16:00:00.000000000 -0800
++++ b/debian/pve-ha-manager.pve-ha-lrm.init	2026-10-28 08:46:27.306361173 -0700
+@@ -0,0 +1,56 @@
++#!/bin/sh
++### BEGIN INIT INFO
++# Provides:          pve-ha-lrm
++# Required-Start:    corosync lxc pve-cluster pve-ha-crm pvedaemon pveproxy ssh syslog watchdog-mux
++# Required-Stop:     corosync lxc pve-cluster pve-ha-crm pvedaemon pveproxy ssh syslog watchdog-mux
++# Default-Start:     2 3 4 5
++# Default-Stop:      0 1 6
++# Short-Description: PVE Local HA Resource Manager Daemon
++### END INIT INFO
++
++# Sysvinit service script translated from
++# upstream/pxvirt/packages/pve-ha-manager/pve-ha-manager/debian/pve-ha-lrm.service
++# ExecStart=/usr/sbin/pve-ha-lrm start  ExecStop=/usr/sbin/pve-ha-lrm stop
++# Type=forking  PIDFile=/run/pve-ha-lrm.pid  TimeoutStopSec=infinity  KillMode=process
++
++. /lib/lsb/init-functions
++
++DAEMON=/usr/sbin/pve-ha-lrm
++PIDFILE=/run/pve-ha-lrm.pid
++NAME=pve-ha-lrm
++
++case "$1" in
++  start)
++    log_begin_msg "Starting $NAME"
++    "$DAEMON" start
++    log_end_msg $?
++    ;;
++  stop)
++    log_begin_msg "Stopping $NAME"
++    "$DAEMON" stop
++    log_end_msg $?
++    ;;
++  restart)
++    "$0" stop
++    "$0" start
++    ;;
++  reload|force-reload)
++    "$0" restart
++    ;;
++  status)
++    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
++    rc=$?
++    if [ "$rc" -eq 0 ]; then
++      log_success_msg "$NAME is running"
++    else
++      log_failure_msg "$NAME is not running"
++    fi
++    exit "$rc"
++    ;;
++  *)
++    echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
++    exit 2
++    ;;
++esac
++
++exit 0
+diff -ruN orig/debian/pve-ha-manager.watchdog-mux.init new/debian/pve-ha-manager.watchdog-mux.init
+--- a/debian/pve-ha-manager.watchdog-mux.init	1969-12-31 16:00:00.000000000 -0800
++++ b/debian/pve-ha-manager.watchdog-mux.init	2026-10-28 08:46:27.305486179 -0700
+@@ -0,0 +1,58 @@
++#!/bin/sh
++### BEGIN INIT INFO
++# Provides:          watchdog-mux
++# Required-Start:    $local_fs
++# Required-Stop:     $local_fs
++# Default-Start:     2 3 4 5
++# Default-Stop:      0 1 6
++# Short-Description: PVE watchdog multiplexer
++### END INIT INFO
++
++# Sysvinit service script translated from
++# upstream/pxvirt/packages/pve-ha-manager/pve-ha-manager/debian/watchdog-mux.service
++# ExecStart=/usr/sbin/watchdog-mux
++# watchdog-mux does not fork itself: started with start-stop-daemon --background
++# --make-pidfile, pidfile /run/watchdog-mux.pid.
++
++. /lib/lsb/init-functions
++
++DAEMON=/usr/sbin/watchdog-mux
++PIDFILE=/run/watchdog-mux.pid
++NAME=watchdog-mux
++
++case "$1" in
++  start)
++    log_begin_msg "Starting $NAME"
++    start-stop-daemon --start --quiet --background --make-pidfile \
++      --pidfile "$PIDFILE" --exec "$DAEMON"
++    log_end_msg $?
++    ;;
++  stop)
++    log_begin_msg "Stopping $NAME"
++    start-stop-daemon --stop --quiet --pidfile "$PIDFILE"
++    log_end_msg $?
++    ;;
++  restart)
++    "$0" stop
++    "$0" start
++    ;;
++  reload|force-reload)
++    "$0" restart
++    ;;
++  status)
++    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
++    rc=$?
++    if [ "$rc" -eq 0 ]; then
++      log_success_msg "$NAME is running"
++    else
++      log_failure_msg "$NAME is not running"
++    fi
++    exit "$rc"
++    ;;
++  *)
++    echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
++    exit 2
++    ;;
++esac
++
++exit 0
+diff -ruN orig/debian/rules new/debian/rules
+--- a/debian/rules	2026-10-28 04:35:17.949817326 -0700
++++ b/debian/rules	2026-10-28 08:46:34.295747133 -0700
+@@ -29,10 +29,10 @@
+ override_dh_missing:
+ 	dh_missing --fail-missing
+ 
+-# dh_systemd_enable watchdog-mux despite it being static to get it installed in
+-# the correct location/package without manual intervention
+ override_dh_installsystemd:
+-	dh_installsystemd -ppve-ha-manager --name watchdog-mux --no-restart-after-upgrade --no-stop-on-upgrade watchdog-mux.service
++
++override_dh_installinit:
++	dh_installinit -ppve-ha-manager --name watchdog-mux --no-restart-after-upgrade --no-stop-on-upgrade
+ 	# restart LRM first, else single-node clusters with configured HA will deadlock
+-	dh_installsystemd -ppve-ha-manager --name pve-ha-lrm pve-ha-lrm.service
+-	dh_installsystemd -ppve-ha-manager --name pve-ha-crm pve-ha-crm.service
++	dh_installinit -ppve-ha-manager --name pve-ha-lrm
++	dh_installinit -ppve-ha-manager --name pve-ha-crm
