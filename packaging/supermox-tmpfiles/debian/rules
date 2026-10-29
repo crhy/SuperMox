@@ -2,5 +2,10 @@
 %:
 	dh $@
 
+override_dh_auto_install:
+	mkdir -p debian/supermox-tmpfiles/usr/bin
+	cp -a usr/bin/systemd-tmpfiles debian/supermox-tmpfiles/usr/bin/systemd-tmpfiles
+	chmod 0755 debian/supermox-tmpfiles/usr/bin/systemd-tmpfiles
+
 override_dh_installinit:
 	dh_installinit --name=supermox-tmpfiles

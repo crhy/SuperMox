@@ -1,3 +1,12 @@
+supermox-tmpfiles (0.1.1) unstable; urgency=medium
+
+  * Install /usr/bin/systemd-tmpfiles into the package via
+    override_dh_auto_install; previously the shim was never copied into the
+    .deb, so postfix's postinst (systemd-tmpfiles: not found, exit 127) failed
+    and left postfix, pve-manager and supermox-ve unconfigured.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 28 Oct 2026 17:30:00 -0700
+
 supermox-tmpfiles (0.1.0) unstable; urgency=medium
 
   * Initial release: POSIX sh replacement for systemd-standalone-tmpfiles.

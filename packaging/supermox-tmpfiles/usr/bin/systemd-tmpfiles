@@ -35,18 +35,47 @@ if [ -z "$action" ]; then
   exit 2
 fi
 
+# Search path for tmpfiles.d, prefixed with --root when given.
+# Precedence: /run overrides /etc overrides /usr/lib.
+if [ -n "$root" ]; then
+  search_dirs="$root/usr/lib/tmpfiles.d $root/etc/tmpfiles.d $root/run/tmpfiles.d"
+else
+  search_dirs="/usr/lib/tmpfiles.d /etc/tmpfiles.d /run/tmpfiles.d"
+fi
+
 if [ -n "$files" ]; then
   conf_files=""
   for f in $files; do
-    if [ ! -f "$f" ]; then
-      printf 'systemd-tmpfiles: no such file: %s\n' "$f" >&2
-      exit 1
-    fi
-    conf_files="$conf_files $f"
+    case "$f" in
+      */*)
+        # Path (absolute or relative): used as-is.
+        if [ -f "$f" ]; then
+          conf_files="$conf_files $f"
+        else
+          printf 'systemd-tmpfiles: no such file: %s\n' "$f" >&2
+          exit 1
+        fi
+        ;;
+      *)
+        # Bare name (e.g. "postfix.conf"): resolve against the search path.
+        found=""
+        for dir in $search_dirs; do
+          cand="$dir/$f"
+          if [ -f "$cand" ]; then
+            found="$cand"
+          fi
+        done
+        if [ -z "$found" ]; then
+          printf 'systemd-tmpfiles: no such file: %s\n' "$f" >&2
+          exit 1
+        fi
+        conf_files="$conf_files $found"
+        ;;
+    esac
   done
 else
   conf_files=""
-  for dir in /usr/lib/tmpfiles.d /etc/tmpfiles.d /run/tmpfiles.d; do
+  for dir in $search_dirs; do
     if [ -d "$dir" ]; then
       for f in "$dir"/*.conf; do
         [ -f "$f" ] || continue
