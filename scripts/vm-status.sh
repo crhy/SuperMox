@@ -6,8 +6,8 @@ found=0
 for pid in $(pgrep -x 'qemu-system-x86' || true) $(pgrep -x 'qemu-system-aar' || true); do
   cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline")"
   case "$cmd" in
-    *supermox-test*) name="test"; port=${SUPERMOX_TEST_SSH_PORT:-2224} ;;
-    *supermox-vm*) name="build"; port=2223 ;;
+    *supermox-test*|*test-data*) name="test"; port=${SUPERMOX_TEST_SSH_PORT:-2224} ;;
+    *supermox-vm*|*vm-data*) name="build"; port=2223 ;;
     *) continue ;;
   esac
   found=1

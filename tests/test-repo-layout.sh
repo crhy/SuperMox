@@ -2,7 +2,7 @@
 # Fail if a tracked top-level entry is not one we expect (catches stray copies of patched trees or downloads).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-allowed=' .gitignore AGENTS.md README.md config cron docs init.d packaging patches scripts src tests '
+allowed=' .gitignore AGENTS.md README.md bin config cron docs init.d packaging patches scripts src tests '
 allowed+=' smhome.png theapp.png supermox_white_paper_1.pdf '
 bad=0
 while IFS= read -r entry; do
