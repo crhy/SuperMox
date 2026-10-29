@@ -17,6 +17,7 @@ Depends: apt,
          pve-manager (>= 8.0.4),
          pve-qemu-kvm,
          qemu-server (>= 9.0~),
+         supermox-tmpfiles,
          sysvinit-core,
          linux-image-amd64 | linux-image-arm64 | linux-image-armmp-lpae | linux-image-riscv64 | linux-image-loong64,
          ${misc:Depends}

@@ -1,0 +1,20 @@
+Source: supermox-tmpfiles
+Section: admin
+Priority: optional
+Maintainer: SuperMox <noreply@supermox.me>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: supermox-tmpfiles
+Architecture: all
+Provides: systemd-tmpfiles
+Conflicts: systemd-standalone-tmpfiles
+Description: tmpfiles.d processor for sysvinit systems
+  SuperMox's replacement for systemd-standalone-tmpfiles. It ships
+  /usr/bin/systemd-tmpfiles as a POSIX sh script that implements the
+  tmpfiles.d line types needed by the PVE stack (d D v q Q f F L z Z r R)
+  for --create, --remove and --boot. It satisfies the "systemd-tmpfiles"
+  virtual package that debhelper's dh_installtmpfiles adds as a dependency
+  of packages shipping debian/tmpfiles, without pulling in any systemd
+  code.

@@ -34,7 +34,9 @@ while IFS= read -r -d '' f; do
     fi
   done
 
-  if grep -qE "systemctl|systemd|sd_notify|journalctl" "$f"; then
+  # "systemd-tmpfiles" is our own replacement binary name (callers expect it);
+  # strip it before flagging bare systemd references.
+  if sed 's/systemd-tmpfiles/SMXTMP/g' "$f" | grep -qE "systemctl|systemd|sd_notify|journalctl"; then
     reasons="$reasons systemd-text"
   fi
 

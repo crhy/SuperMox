@@ -1,0 +1,215 @@
+#!/bin/sh
+# SuperMox tmpfiles.d processor — replaces systemd-standalone-tmpfiles.
+# Implements the tmpfiles.d types the PVE stack needs: d D v q Q f F L z Z r R.
+# POSIX sh; no bashisms.
+
+usage() {
+  printf 'usage: systemd-tmpfiles [--create|--remove|--boot] [--root DIR] [FILE...]\n' >&2
+}
+
+root=""
+action=""
+boot=0
+files=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --create) action=create; shift ;;
+    --remove) action=remove; shift ;;
+    --boot)   boot=1; shift ;;
+    --root)
+      if [ $# -lt 2 ]; then usage; exit 2; fi
+      root="$2"; shift 2 ;;
+    --root=*)
+      root="${1#--root=}"; shift ;;
+    -*)
+      printf 'systemd-tmpfiles: unknown option: %s\n' "$1" >&2
+      exit 2 ;;
+    *)
+      files="$files $1"; shift ;;
+  esac
+done
+
+if [ -z "$action" ]; then
+  usage
+  exit 2
+fi
+
+if [ -n "$files" ]; then
+  conf_files=""
+  for f in $files; do
+    if [ ! -f "$f" ]; then
+      printf 'systemd-tmpfiles: no such file: %s\n' "$f" >&2
+      exit 1
+    fi
+    conf_files="$conf_files $f"
+  done
+else
+  conf_files=""
+  for dir in /usr/lib/tmpfiles.d /etc/tmpfiles.d /run/tmpfiles.d; do
+    if [ -d "$dir" ]; then
+      for f in "$dir"/*.conf; do
+        [ -f "$f" ] || continue
+        conf_files="$conf_files $f"
+      done
+    fi
+  done
+fi
+
+# Later dirs override same-name files: /run > /etc > /usr/lib.
+# Build an ordered list where later entries replace earlier same-basename ones.
+ordered=""
+for f in $conf_files; do
+  base="${f##*/}"
+  # Remove any earlier entry with the same basename.
+  new_ordered=""
+  for g in $ordered; do
+    gbase="${g##*/}"
+    if [ "$gbase" != "$base" ]; then
+      new_ordered="$new_ordered $g"
+    fi
+  done
+  ordered="$new_ordered $f"
+done
+
+process_line() {
+  local_type="$1"
+  path="$2"
+  mode="$3"
+  uid="$4"
+  gid="$5"
+  age="$6"
+  arg="$7"
+
+  # Prefix with root for filesystem operations.
+  if [ -n "$root" ]; then
+    rp="$root$path"
+  else
+    rp="$path"
+  fi
+
+  case "$action" in
+    create)
+      # --boot: skip entries that have an age (they are runtime-only).
+      if [ "$boot" -eq 1 ]; then
+        case "$age" in
+          -|"") ;;
+          *) return 0 ;;
+        esac
+      fi
+      case "$local_type" in
+        d|D|v|q|Q)
+          if [ -d "$rp" ]; then
+            return 0
+          fi
+          if [ "$local_type" = "q" ] || [ "$local_type" = "Q" ]; then
+            mkdir -p "$rp" 2>/dev/null || true
+          else
+            mkdir -p "$(dirname "$rp")" 2>/dev/null || true
+            mkdir "$rp" 2>/dev/null || true
+          fi
+          if [ -d "$rp" ]; then
+            apply_perms "$rp" "$mode" "$uid" "$gid"
+          fi
+          ;;
+        f|F)
+          if [ -e "$rp" ]; then
+            return 0
+          fi
+          mkdir -p "$(dirname "$rp")" 2>/dev/null || true
+          : > "$rp" 2>/dev/null || true
+          apply_perms "$rp" "$mode" "$uid" "$gid"
+          ;;
+        L)
+          if [ -z "$arg" ] || [ "$arg" = "-" ]; then
+            printf 'systemd-tmpfiles: L type needs a target: %s\n' "$path" >&2
+            return 0
+          fi
+          mkdir -p "$(dirname "$rp")" 2>/dev/null || true
+          rm -f "$rp" 2>/dev/null || true
+          ln -s "$arg" "$rp" 2>/dev/null || true
+          ;;
+        z|Z)
+          if [ ! -e "$rp" ]; then
+            return 0
+          fi
+          apply_perms "$rp" "$mode" "$uid" "$gid"
+          if [ "$local_type" = "Z" ] && [ -d "$rp" ]; then
+            find "$rp" -exec chmod "$mode" {} + 2>/dev/null || true
+          fi
+          ;;
+        r|R)
+          return 0
+          ;;
+        *)
+          printf 'systemd-tmpfiles: ignoring unknown type: %s\n' "$local_type" >&2
+          return 0
+          ;;
+      esac
+      ;;
+    remove)
+      case "$local_type" in
+        r|R)
+          if [ -e "$rp" ]; then
+            if [ "$local_type" = "R" ]; then
+              rm -rf "$rp" 2>/dev/null || true
+            else
+              rm -f "$rp" 2>/dev/null || true
+            fi
+          fi
+          ;;
+        d|D)
+          # Remove if empty (age-based cleanup simplified: remove if dir is empty).
+          if [ -d "$rp" ]; then
+            rmdir "$rp" 2>/dev/null || true
+          fi
+          ;;
+        *)
+          return 0
+          ;;
+      esac
+      ;;
+  esac
+}
+
+apply_perms() {
+  target="$1"
+  mode="$2"
+  uid="$3"
+  gid="$4"
+
+  case "$mode" in
+    -|"") ;;
+    *) chmod "$mode" "$target" 2>/dev/null || true ;;
+  esac
+  case "$uid" in
+    -|"") ;;
+    *) chown "$uid${gid:+:$gid}" "$target" 2>/dev/null || true; return 0 ;;
+  esac
+  case "$gid" in
+    -|"") ;;
+    *) chown ":$gid" "$target" 2>/dev/null || true ;;
+  esac
+}
+
+set -f
+for f in $ordered; do
+  lineno=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    # Skip blank lines and comments.
+    case "$line" in
+      ''|'#'*) continue ;;
+    esac
+    # Parse fields (tab or space separated); globbing off so paths are literal.
+    set -- $line
+    if [ $# -lt 2 ]; then
+      printf 'systemd-tmpfiles: %s:%d: too few fields\n' "$f" "$lineno" >&2
+      continue
+    fi
+    process_line "$1" "$2" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}"
+  done < "$f"
+done
+set +f
+
+exit 0

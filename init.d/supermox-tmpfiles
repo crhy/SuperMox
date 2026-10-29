@@ -1,0 +1,50 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          supermox-tmpfiles
+# Required-Start:    mountkernfs $local_fs
+# Required-Stop:
+# Default-Start:     S
+# Default-Stop:      0 6
+# Short-Description: Create runtime directories from tmpfiles.d
+### END INIT INFO
+
+# Runs the tmpfiles.d processor at boot so /run directories the PVE stack
+# needs (e.g. /run/qemu-server) exist before the services start. The
+# command is named systemd-tmpfiles only because upstream callers (debhelper
+# dh_installtmpfiles) expect that name; the binary is our POSIX sh script.
+
+. /lib/lsb/init-functions
+
+NAME=supermox-tmpfiles
+TMPFILES=/usr/bin/systemd-tmpfiles
+
+case "$1" in
+  start)
+    log_begin_msg "Creating tmpfiles.d entries"
+    "$TMPFILES" --boot --create
+    log_end_msg $?
+    ;;
+  stop)
+    log_begin_msg "Removing tmpfiles.d entries"
+    "$TMPFILES" --remove
+    log_end_msg $?
+    ;;
+  restart)
+    "$0" stop
+    "$0" start
+    ;;
+  status)
+    if [ -x "$TMPFILES" ]; then
+      log_success_msg "$NAME is installed"
+      exit 0
+    fi
+    log_failure_msg "$NAME is not installed"
+    exit 4
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|status}" >&2
+    exit 2
+    ;;
+esac
+
+exit 0

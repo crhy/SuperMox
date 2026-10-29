@@ -45,6 +45,18 @@ image_mode() {
     fi
   done
 
+  # usr/bin/systemd-tmpfiles is allowed only when it belongs to our
+  # supermox-tmpfiles package (dpkg .list), not to systemd-standalone-tmpfiles.
+  if [ -e "$root/usr/bin/systemd-tmpfiles" ]; then
+    if [ -f "$root/var/lib/dpkg/info/supermox-tmpfiles.list" ] &&
+      grep -qx '/usr/bin/systemd-tmpfiles' "$root/var/lib/dpkg/info/supermox-tmpfiles.list"; then
+      :
+    else
+      printf 'FAIL: systemd binary present: usr/bin/systemd-tmpfiles (not owned by supermox-tmpfiles)\n'
+      fail=1
+    fi
+  fi
+
   local init=""
   if [ -e "$root/sbin/init" ] || [ -L "$root/sbin/init" ]; then
     init="$root/sbin/init"

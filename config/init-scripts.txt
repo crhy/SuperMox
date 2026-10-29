@@ -22,3 +22,4 @@ pve-manager pve-manager pvestatd
 pve-manager pve-manager spiceproxy
 qemu-server qemu-server qmeventd
 supermox-ve supermox-ve networking
+supermox-tmpfiles supermox-tmpfiles supermox-tmpfiles
