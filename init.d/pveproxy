@@ -47,7 +47,10 @@ case "$1" in
     log_end_msg $?
     ;;
   status)
-    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
+    # pveproxy's pidfile lives in a pve-owned /run/pveproxy dir; start-stop-daemon
+    # refuses to match on a non-root pidfile alone, so also match on the daemon
+    # executable to make the match unambiguous.
+    start-stop-daemon --status --quiet --pidfile "$PIDFILE" --exec "$DAEMON"
     rc=$?
     if [ "$rc" -eq 0 ]; then
       log_success_msg "$NAME is running"

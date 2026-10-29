@@ -1,8 +1,10 @@
 #!/bin/sh
 ### BEGIN INIT INFO
 # Provides:          pve-ha-lrm
-# Required-Start:    corosync lxc pve-cluster pve-ha-crm pvedaemon pveproxy ssh syslog watchdog-mux
-# Required-Stop:     corosync lxc pve-cluster pve-ha-crm pvedaemon pveproxy ssh syslog watchdog-mux
+# Required-Start:    pve-cluster
+# Required-Stop:     pve-cluster
+# Should-Start:      corosync pve-ha-crm pvedaemon pveproxy watchdog-mux
+# Should-Stop:       corosync pve-ha-crm pvedaemon pveproxy watchdog-mux
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: PVE Local HA Resource Manager Daemon

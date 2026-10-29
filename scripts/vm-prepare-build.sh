@@ -18,6 +18,12 @@ until remote true 2>/dev/null; do
   waited=$((waited + 5))
 done
 
+# ifupdown2 (pulled in by some build deps) ships no init script; the leftover classic-ifupdown
+# /etc/init.d/networking then breaks networking on the next boot and ssh stops answering. Install
+# ours so the build VM stays reachable after builds.
+remote 'cat > /etc/init.d/networking' < "$repo_root/init.d/networking"
+remote 'chmod 755 /etc/init.d/networking'
+
 remote 'set -e
 export DEBIAN_FRONTEND=noninteractive
 # Build VM only: install scripts must not start services (PVE services fail without a running cluster).

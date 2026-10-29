@@ -1,0 +1,26 @@
+#!/bin/sh
+# supermox-ve postinst.
+#
+# The upstream pve-manager package starts its services from postinst with
+# "invoke-rc.d <svc> start", but under sysvinit that is a no-op unless the
+# service is enabled (has S-links). pve-manager's own postinst carries no
+# "update-rc.d ... defaults" block (upstream relies on systemd enablement),
+# so its services never get S-links and never start.
+#
+# supermox-ve is our meta package and is configured after pve-manager (it
+# Depends: on it), so all the init scripts already exist here. We enable and
+# start the pve services in dependency order. Everything is best-effort (||
+# true) so a failing daemon never aborts the package configure.
+
+set -e
+
+# Enable (create S-links) in dependency order, then start.
+for svc in pve-guests pvenetcommit pvedaemon pveproxy pvestatd pvescheduler spiceproxy pvebanner; do
+    update-rc.d "$svc" defaults >/dev/null 2>&1 || true
+done
+
+for svc in pve-guests pvenetcommit pvedaemon pveproxy pvestatd pvescheduler spiceproxy pvebanner; do
+    invoke-rc.d "$svc" start >/dev/null 2>&1 || true
+done
+
+exit 0
