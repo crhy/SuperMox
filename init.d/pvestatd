@@ -1,8 +1,10 @@
 #!/bin/sh
 ### BEGIN INIT INFO
 # Provides:          pvestatd
-# Required-Start:    pve-cluster pvenetcommit
-# Required-Stop:     pve-cluster pvenetcommit
+# Required-Start:    pve-cluster
+# Should-Start:      pvenetcommit
+# Required-Stop:     pve-cluster
+# Should-Stop:       pvenetcommit
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: PVE Status Daemon

@@ -216,6 +216,9 @@ if ! {
 set -e
 export DEBIAN_FRONTEND=noninteractive DEBEMAIL='root@localhost' DEBFULLNAME='SuperMox'
 export DEB_BUILD_PROFILES=nocheck DEB_BUILD_OPTIONS=nocheck
+# mk-build-deps builds the dummy package maintainer email from `hostname -f`;
+# make the VM hostname resolvable so that does not fail with "Name or service not known".
+hn="$(hostname)"; grep -qE "[[:space:]]${hn}$" /etc/hosts || printf '127.0.0.1 %s\n' "$hn" >> /etc/hosts
 # bindgen 0.71 mis-parses headers with libclang 22 (nettle-sys got opaque RSA structs); use libclang 21 when present.
 if [ -d /usr/lib/llvm-21/lib ]; then export LIBCLANG_PATH=/usr/lib/llvm-21/lib; fi
 for p in $(dpkg -l '*-build-deps' 2>/dev/null | awk '/^i/{print $2}'); do

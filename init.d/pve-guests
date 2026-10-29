@@ -1,8 +1,10 @@
 #!/bin/sh
 ### BEGIN INIT INFO
 # Provides:          pve-guests
-# Required-Start:    pveproxy pvestatd spiceproxy pve-firewall lxc pve-ha-crm pve-ha-lrm $remote_fs
-# Required-Stop:     pveproxy pvestatd spiceproxy pve-firewall lxc pve-ha-crm pve-ha-lrm $remote_fs
+# Required-Start:    pveproxy pvestatd spiceproxy pve-firewall pve-ha-crm pve-ha-lrm $remote_fs
+# Should-Start:      lxc
+# Required-Stop:     pveproxy pvestatd spiceproxy pve-firewall pve-ha-crm pve-ha-lrm $remote_fs
+# Should-Stop:       lxc
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: PVE guests

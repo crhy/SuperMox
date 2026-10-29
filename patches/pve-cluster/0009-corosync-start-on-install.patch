@@ -1,0 +1,17 @@
+diff -ruN orig/debian/pve-cluster.postinst new/debian/pve-cluster.postinst
+--- a/debian/pve-cluster.postinst	2026-10-29 10:37:25.479178359 -0700
++++ b/debian/pve-cluster.postinst	2026-10-29 10:37:38.343793540 -0700
+@@ -77,6 +77,13 @@
+     version: 2
+ }
+ EOF
++  # The corosync package's own init script started corosync with the
++  # placeholder config (and failed: missing /var/log/corosync). Now that
++  # we wrote a usable single-node config, make sure the log dir exists
++  # and (re)start corosync so pmxcfs can reach quorum when #DEBHELPER#
++  # starts the pve-cluster service below.
++  mkdir -p /var/log/corosync
++  invoke-rc.d corosync restart >/dev/null 2>&1 || invoke-rc.d corosync start >/dev/null 2>&1 || true
+ }
+ 
+ case "$1" in
