@@ -66,17 +66,32 @@ customize_hooks=(
   'printf "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n" > "$1/etc/hosts"'
   'chroot "$1" sh -c "echo root:supermox | chpasswd"'
   'sed -i "s/^#*PermitRootLogin.*/PermitRootLogin yes/" "$1/etc/ssh/sshd_config"'
-  'printf "auto eth0\niface eth0 inet dhcp\n" > "$1/etc/network/interfaces"'
+  # Devuan ships dhcpcd, not dhclient, and ifupdown2's "inet dhcp" method hard-codes
+  # /sbin/dhclient, so DHCP is done by /etc/init.d/networking running dhcpcd directly.
+  # interfaces keeps only the stanzas ifupdown2 does handle (loopback, static, manual).
+  # It must contain at least one stanza: ifup -a with an empty file exits non-zero with
+  # "no ifaces found matching given allow lists" and S10networking would report failure.
+  'mkdir -p "$1/etc/network"'
+  'copy-in '"$repo_root"'/config/network/interfaces /etc/network/'
   'printf "/dev/vda / ext4 defaults 0 1\n" >> "$1/etc/fstab"'
   # util-linux-extra is in the include list: dracut needs its switch_root without systemd, but does not depend on it.
   # Maintainer scripts mask services for systemd with /dev/null links in /etc/systemd; sysvinit never reads them.
   'rm -rf "$1/etc/systemd"'
   'printf "DPkg::Post-Invoke { \"rm -rf /etc/systemd\"; };\n" > "$1/etc/apt/apt.conf.d/99supermox-no-systemd"'
   # ifupdown2 ships no init script, so the base image must carry SuperMox's own
-  # /etc/init.d/networking (and its rcS.d link) or nothing configures the network at boot.
+  # /etc/init.d/networking. sysv-rc boots runlevel S make-style: startpar only runs the scripts
+  # listed in /etc/init.d/.depend.boot, which insserv generates from the init script's LSB header
+  # and the rc?.d links. A hand-made rcS.d symlink is therefore not enough - networking would
+  # never run - so let update-rc.d create the links and regenerate the dependency files.
   'copy-in '"$repo_root"'/init.d/networking /etc/init.d/'
   'chmod 755 "$1/etc/init.d/networking"'
-  'ln -sf ../init.d/networking "$1/etc/rcS.d/S10networking"'
+  'chroot "$1" update-rc.d networking defaults'
+  # QEMU gives the guest its NIC as a virtio-net-pci device, but the kernel initramfs has no
+  # virtio_net.ko and nothing autoloads it under sysvinit, so eth0 never exists and S10networking
+  # has nothing to configure. /etc/init.d/kmod (rcS.d/S06kmod, i.e. before S10networking) loads
+  # the modules listed in /etc/modules-load.d/.
+  'mkdir -p "$1/etc/modules-load.d"'
+  'copy-in '"$repo_root"'/config/modules-load.d/supermox.conf /etc/modules-load.d/'
 )
 
 cmd=(
@@ -159,3 +174,30 @@ rm -rf "$tmp"
 
 truncate -s "$IMAGE_SIZE" "$img"
 "${mke2fs_cmd[@]}"
+
+# mke2fs -d can silently leave entries out of the image (and dpkg inside a booted VM later
+# drops the rcS.d link again), so verify the paths that decide whether the VM boots with a
+# network. debugfs exits 0 even when a path is missing, so grep its output instead.
+if [ -x /usr/sbin/debugfs ]; then
+  cmds="$TMPDIR/rootfs-verify.cmds"
+  printf 'stat /etc/init.d/networking\nstat /etc/modules-load.d/supermox.conf\n' > "$cmds"
+  missing="$(/usr/sbin/debugfs -f "$cmds" "$img" 2>&1 | grep -E 'not found' || true)"
+  rm -f "$cmds"
+  if [ -n "$missing" ]; then
+    printf 'ERROR: %s is missing boot-critical paths:\n%s\n' "$img" "$missing" >&2
+    exit 1
+  fi
+  # sysv-rc boots runlevel S make-style: startpar only runs scripts that have both an rcS.d
+  # link and an entry in .depend.boot, so both must name networking.
+  if ! /usr/sbin/debugfs -R 'ls /etc/rcS.d' "$img" 2>/dev/null | grep -q 'networking'; then
+    printf 'ERROR: %s: no networking link in /etc/rcS.d; the network would never come up at boot\n' "$img" >&2
+    exit 1
+  fi
+  if ! /usr/sbin/debugfs -R 'cat /etc/init.d/.depend.boot' "$img" 2>/dev/null | grep -q 'networking'; then
+    printf 'ERROR: %s: /etc/init.d/.depend.boot does not list networking; it would never run at boot\n' "$img" >&2
+    exit 1
+  fi
+  printf 'Verified boot-critical paths in %s\n' "$img"
+else
+  printf 'WARNING: /usr/sbin/debugfs not installed; image not verified\n' >&2
+fi

@@ -1,0 +1,9 @@
+# SuperMox base network configuration.
+#
+# DHCP is NOT configured with an "inet dhcp" stanza: ifupdown2's dhcp method
+# hard-codes /sbin/dhclient, which Devuan does not ship (it ships dhcpcd-base).
+# /etc/init.d/networking therefore runs dhcpcd itself for interfaces that need
+# an address. This file holds the stanzas ifupdown2 *can* handle; add static
+# or manual stanzas below.
+auto lo
+iface lo inet loopback

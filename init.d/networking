@@ -12,6 +12,11 @@
 # service-unit files (networking.service, ifup@.service) and no init script,
 # so SuperMox provides this one itself. ifupdown2's ifup/ifdown/ifreload are
 # Python front ends that accept -a and -X/--exclude.
+#
+# DHCP is not handled by ifupdown2 here: its "inet dhcp" method hard-codes
+# /sbin/dhclient, which Devuan does not ship (dhcpcd-base is the DHCP client). This
+# script therefore runs dhcpcd itself and leaves ifupdown2 in charge of the static
+# and manual stanzas in /etc/network/interfaces.
 
 . /lib/lsb/init-functions
 
@@ -26,21 +31,34 @@ ifupdown_init() {
   [ -e /etc/network/run ] || ln -s /run/network /etc/network/run
 }
 
+# dhcpcd daemonises when given no interface and picks up interfaces that appear later.
+# Skip it when a real dhclient is installed, so ifupdown2's own dhcp method wins.
+dhcp_start() {
+  [ -x /usr/sbin/dhcpcd ] || return 0
+  [ -x /sbin/dhclient ] && return 0
+  dhcpcd -q
+}
+
+dhcp_stop() {
+  [ -f /run/dhcpcd.pid ] || return 0
+  kill "$(cat /run/dhcpcd.pid)" 2>/dev/null || true
+}
+
 case "$1" in
   start)
     log_begin_msg "Starting $NAME"
     ifupdown_init
     ifup -a
     rc=$?
-    # A failure caused only by loopback must not fail boot.
-    if [ "$rc" -ne 0 ] && ifup -a --exclude=lo >/dev/null 2>&1; then
-      rc=0
-    fi
+    # dhcpcd reports its own problems on stderr and must not change the boot result:
+    # a missing DHCP server on a static-only host is not a boot failure.
+    dhcp_start || true
     log_end_msg "$rc"
     ;;
   stop)
     log_begin_msg "Stopping $NAME"
     ifupdown_init
+    dhcp_stop
     ifdown -a --exclude=lo
     log_end_msg $?
     ;;

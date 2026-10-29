@@ -24,7 +24,19 @@ done
 # removes classic ifupdown, so recreate that too.
 remote 'cat > /etc/init.d/networking' < "$repo_root/init.d/networking"
 remote 'chmod 755 /etc/init.d/networking'
-remote 'ln -sf ../init.d/networking /etc/rcS.d/S10networking'
+# sysv-rc boots runlevel S make-style: startpar only runs scripts listed in
+# /etc/init.d/.depend.boot, so a hand-made rcS.d symlink is not enough. update-rc.d creates
+# the link and regenerates the dependency files from the init script's LSB header.
+remote 'update-rc.d networking defaults'
+remote 'grep -q networking /etc/init.d/.depend.boot'
+# ifupdown2's "inet dhcp" method needs dhclient, which Devuan does not ship, so the
+# interfaces file must not carry an "inet dhcp" stanza; dhcpcd is run by our init script
+# instead. Ship the loopback stanza so ifup -a has something to configure.
+remote 'cat > /etc/network/interfaces' < "$repo_root/config/network/interfaces"
+# virtio_net is not in the kernel initramfs and nothing autoloads it under sysvinit, so without
+# this kmod (rcS.d/S06kmod) never creates eth0 and the VM boots without a network.
+remote 'mkdir -p /etc/modules-load.d'
+remote 'cat > /etc/modules-load.d/supermox.conf' < "$repo_root/config/modules-load.d/supermox.conf"
 
 remote 'set -e
 export DEBIAN_FRONTEND=noninteractive
