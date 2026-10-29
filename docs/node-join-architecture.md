@@ -86,6 +86,34 @@ Status: design (2026-10-28). Implementation is split into tasks; see "Build orde
   work behind any NAT and hide where a node is.
 - Kernels without WireGuard use `wireguard-go` in userspace, so this works on any hardware.
 
+## Finding each other over the internet (discovery)
+
+Addresses change: phones roam, and home IPs change. Nodes need a way to find the current endpoints of other members
+with no central server, so that only members can read them and nobody can forge them. There is no blockchain: that
+solves global agreement between strangers (who owns what), which discovery does not need, and it would add fees,
+delay and a permanent public record of a cluster's devices. Three layers, used in order:
+
+1. **Gossip over the overlay.** Every member keeps the last known endpoints of all members, as signed
+   `{node, endpoints, seq, time}` records, and exchanges them with every peer it can reach. Reaching one member is
+   enough to learn where all the others are. WireGuard also follows a peer to its new IP automatically once the peer
+   sends a packet.
+2. **An onion address for every node (Tor).** Each node runs a Tor onion service for its join daemon and for
+   WireGuard-over-TCP fallback traffic. The onion address comes from a key the node keeps, so it never changes whatever
+   the IP or NAT, and needs no port forwarding and no server. A node that knows nobody's current IP can still reach any
+   member through its onion address from the membership list. It is slower, so it is used to get back in touch, then
+   traffic moves to a direct path.
+3. **A distributed hash table for fast, direct rendezvous.** Each node publishes its endpoints to the existing BitTorrent
+   "mainline" DHT, which has millions of peers and needs no server we run, under
+   `key = HKDF(E, "dht-locator" + node_id + current UTC day)`. The value is encrypted with `join_key` and signed with
+   the node's Ed25519 key. Outsiders see random keys that change every day and opaque bytes. Members can compute the
+   keys and check the signatures. Records are refreshed every 30 minutes and expire after 2 hours.
+
+The QR invite and the 12-word join both still carry or need at least one endpoint. That can be a LAN address, a
+public address, or a member's onion address; after that, layers 1-3 keep the cluster connected.
+
+A blockchain could still fit the whitepaper's later marketplace (paying strangers to use idle hardware), where
+strangers do need a shared ledger. That is a separate feature.
+
 ## Core and edge nodes (a Proxmox constraint)
 
 Proxmox clustering (corosync and pmxcfs) needs a low, stable round-trip time, roughly under 5 ms, between voting nodes.
@@ -110,4 +138,5 @@ Phones and machines reached over the internet cannot meet that. So:
 4. `supermox-joind` (daemon plus a sysvinit script), the `supermox-join` command, the WireGuard configuration writer,
    and an approval queue.
 5. A two-namespace integration test: two network namespaces joined by a veth pair, run through the whole join.
-6. Relaying for NAT (v2), Tor (v3), measuring RTT and choosing core or edge.
+6. Discovery: signed endpoint gossip, then Tor onion services per node, then mainline-DHT locator records.
+7. Relaying for NAT (v2), measuring RTT and choosing core or edge.
