@@ -16,7 +16,10 @@
 # DHCP is not handled by ifupdown2 here: its "inet dhcp" method hard-codes
 # /sbin/dhclient, which Devuan does not ship (dhcpcd-base is the DHCP client). This
 # script therefore runs dhcpcd itself and leaves ifupdown2 in charge of the static
-# and manual stanzas in /etc/network/interfaces.
+# and manual stanzas in /etc/network/interfaces. dhclient can still end up on the
+# path (ifupdown2 pulls it in), so it must not be used as a reason to skip dhcpcd:
+# /etc/network/interfaces has no "inet dhcp" stanza, so nothing else would configure
+# eth0 and ssh would be unreachable.
 
 . /lib/lsb/init-functions
 
@@ -32,11 +35,22 @@ ifupdown_init() {
 }
 
 # dhcpcd daemonises when given no interface and picks up interfaces that appear later.
-# Skip it when a real dhclient is installed, so ifupdown2's own dhcp method wins.
+# Devuan's dhcpcd-base installs the binary as /sbin/dhcpcd (/usr/sbin/dhcpcd is the
+# Debian layout); look for both so the check never silently skips DHCP.
+DHCPD=""
+dhcp_find() {
+  for d in /usr/sbin/dhcpcd /sbin/dhcpcd; do
+    [ -x "$d" ] || continue
+    DHCPD=$d
+    return 0
+  done
+  return 0
+}
+
 dhcp_start() {
-  [ -x /usr/sbin/dhcpcd ] || return 0
-  [ -x /sbin/dhclient ] && return 0
-  dhcpcd -q
+  dhcp_find || return 0
+  [ -n "$DHCPD" ] || return 0
+  "$DHCPD" -q
 }
 
 dhcp_stop() {
