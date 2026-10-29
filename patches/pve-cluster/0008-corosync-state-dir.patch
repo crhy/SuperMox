@@ -1,0 +1,7 @@
+diff -ruN orig/debian/pve-cluster.dirs new/debian/pve-cluster.dirs
+--- a/debian/pve-cluster.dirs	2026-10-28 04:35:06.025807383 -0700
++++ b/debian/pve-cluster.dirs	2026-10-29 03:00:00.000000000 -0700
+@@ -1,2 +1,3 @@
+ /usr/bin
+ /var/lib/pve-cluster
++/var/lib/corosync

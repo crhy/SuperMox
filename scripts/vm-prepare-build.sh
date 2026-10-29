@@ -20,9 +20,11 @@ done
 
 # ifupdown2 (pulled in by some build deps) ships no init script; the leftover classic-ifupdown
 # /etc/init.d/networking then breaks networking on the next boot and ssh stops answering. Install
-# ours so the build VM stays reachable after builds.
+# ours so the build VM stays reachable after builds. dpkg drops the rcS.d link when it
+# removes classic ifupdown, so recreate that too.
 remote 'cat > /etc/init.d/networking' < "$repo_root/init.d/networking"
 remote 'chmod 755 /etc/init.d/networking'
+remote 'ln -sf ../init.d/networking /etc/rcS.d/S10networking'
 
 remote 'set -e
 export DEBIAN_FRONTEND=noninteractive

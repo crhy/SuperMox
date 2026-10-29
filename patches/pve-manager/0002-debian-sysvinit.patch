@@ -127,7 +127,7 @@ diff -ruN orig/debian/pve-manager.cron.d new/debian/pve-manager.cron.d
 diff -ruN orig/debian/rules new/debian/rules
 --- a/debian/rules	2026-10-28 04:35:06.025500495 -0700
 +++ b/debian/rules	2026-10-28 13:31:06.852873196 -0700
-@@ -14,3 +14,15 @@
+@@ -14,3 +14,18 @@
  
  override_dh_fixperms:
  	dh_fixperms -Xvar/log/pveproxy
@@ -140,9 +140,12 @@ diff -ruN orig/debian/rules new/debian/rules
 +	dh_installinit -ppve-manager --name=spiceproxy
 +	dh_installinit -ppve-manager --name=pvestatd
 +	dh_installinit -ppve-manager --name=pvescheduler
-+	dh_installinit -ppve-manager --name=pvebanner
-+	dh_installinit -ppve-manager --name=pvenetcommit
-+	dh_installinit -ppve-manager --name=pve-guests
++# pvebanner, pvenetcommit and pve-guests are enabled but never started by upstream
++# on install (pvebanner/pvenetcommit are one-shot helpers, pve-guests needs a
++# running cluster); boot and the pve start sequence are the right times.
++	dh_installinit -ppve-manager --name=pvebanner --no-start
++	dh_installinit -ppve-manager --name=pvenetcommit --no-start
++	dh_installinit -ppve-manager --name=pve-guests --no-start
 diff -ruN orig/debian/tmpfiles new/debian/tmpfiles
 --- a/debian/tmpfiles	2026-10-28 04:35:06.025807383 -0700
 +++ b/debian/tmpfiles	1969-12-31 16:00:00.000000000 -0800

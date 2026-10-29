@@ -17,7 +17,10 @@ export TMPDIR="${SUPERMOX_TMPDIR:-$(cd "$(dirname "$0")/.." && pwd)/build/tmp}"
 KEYRING=/usr/share/keyrings/devuan-archive-keyring.gpg
 COMPONENTS=main,contrib,non-free-firmware
 
-BASE_PKGS=sysvinit-core,sysv-rc,init-system-helpers,openssh-server,ifupdown,iproute2,dhcpcd-base,opensysusers,util-linux-extra,devuan-keyring,rsyslog,cron,ca-certificates,less
+# ifupdown (classic) is not used: it depends on systemd-provided sysusers and its
+# /etc/init.d/networking becomes an orphan when ifupdown2 replaces it later, which
+# breaks boot networking. ifupdown2 provides the tools; SuperMox ships the init script.
+BASE_PKGS=sysvinit-core,sysv-rc,init-system-helpers,openssh-server,ifupdown2,iproute2,dhcpcd-base,opensysusers,util-linux-extra,devuan-keyring,rsyslog,cron,ca-certificates,less
 KERNEL_PKG="$(supermox_kernel_pkg)"
 BASE_PKGS="$KERNEL_PKG,$BASE_PKGS"
 EXTRA_PKGS="${SUPERMOX_EXTRA_PKGS:-lsb-base}"
@@ -56,6 +59,8 @@ img="$VM_DIR/rootfs.img"
 
 setup_hook='printf "Package: systemd\nPin: version *\nPin-Priority: -1\n\nPackage: systemd-sysv\nPin: version *\nPin-Priority: -1\n\nPackage: libsystemd0\nPin: version *\nPin-Priority: -1\n\nPackage: libpam-systemd\nPin: version *\nPin-Priority: -1\n\nPackage: systemd-standalone-sysusers\nPin: version *\nPin-Priority: -1\n\nPackage: systemd-standalone-tmpfiles\nPin: version *\nPin-Priority: -1\n" > "$1/etc/apt/preferences.d/no-systemd"'
 
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+
 customize_hooks=(
   'echo supermox > "$1/etc/hostname"'
   'printf "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n" > "$1/etc/hosts"'
@@ -67,6 +72,11 @@ customize_hooks=(
   # Maintainer scripts mask services for systemd with /dev/null links in /etc/systemd; sysvinit never reads them.
   'rm -rf "$1/etc/systemd"'
   'printf "DPkg::Post-Invoke { \"rm -rf /etc/systemd\"; };\n" > "$1/etc/apt/apt.conf.d/99supermox-no-systemd"'
+  # ifupdown2 ships no init script, so the base image must carry SuperMox's own
+  # /etc/init.d/networking (and its rcS.d link) or nothing configures the network at boot.
+  'copy-in '"$repo_root"'/init.d/networking /etc/init.d/'
+  'chmod 755 "$1/etc/init.d/networking"'
+  'ln -sf ../init.d/networking "$1/etc/rcS.d/S10networking"'
 )
 
 cmd=(
