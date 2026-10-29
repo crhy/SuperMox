@@ -20,6 +20,9 @@ done
 
 remote 'set -e
 export DEBIAN_FRONTEND=noninteractive
+# Build VM only: install scripts must not start services (PVE services fail without a running cluster).
+printf "#!/bin/sh\nexit 101\n" > /usr/sbin/policy-rc.d
+chmod 755 /usr/sbin/policy-rc.d
 mkdir -p /root/build /root/localrepo
 chmod o+x /root
 chmod 755 /root/localrepo

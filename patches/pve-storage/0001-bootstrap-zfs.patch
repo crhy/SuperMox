@@ -1,0 +1,12 @@
+diff -ruN orig/debian/control new/debian/control
+--- a/debian/control	2026-10-28 13:16:11.749283291 -0700
++++ b/debian/control	2026-10-28 17:10:05.514823975 -0700
+@@ -16,7 +16,7 @@
+                pve-cluster (>= 5.0-32),
+                pve-doc-generator (>= 5.3-3),
+                pve-qemu-kvm | qemu-utils,
+-               zfsutils-linux,
++               zfsutils-linux <!nocheck>,
+ Standards-Version: 4.6.2
+ Homepage: https://www.proxmox.com
+ 
