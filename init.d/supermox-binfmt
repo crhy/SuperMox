@@ -1,0 +1,181 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          supermox-binfmt
+# Required-Start:    mountkernfs $local_fs
+# Required-Stop:
+# Default-Start:     S
+# Default-Stop:
+# Short-Description: Register binfmt_misc handlers from binfmt.d
+### END INIT INFO
+
+# SuperMox nodes must be able to run other architectures' binaries (building
+# or booting a foreign-architecture rootfs, containers, chroots). Debian's
+# qemu-user-binfmt package only installs /usr/lib/binfmt.d/qemu-*.conf files
+# and expects the init system to load them at boot; on a sysvinit node nothing
+# does, so this script mounts binfmt_misc and feeds every binfmt.d/*.conf
+# line to the register file itself.
+#
+# Directories are read in order usr/lib (package supplied), /etc (admin
+# override), /run (runtime drop-ins); for the same file name the later
+# directory wins. Entries already present under the mount point are skipped,
+# so re-running is cheap and never duplicates a handler.
+#
+# BINFMT_ROOT prefixes every path (default empty) so the tests can point the
+# whole script at a fake tree under build/.
+
+. /lib/lsb/init-functions
+
+NAME=supermox-binfmt
+ROOT=${BINFMT_ROOT:-}
+BINMNT="$ROOT/proc/sys/fs/binfmt_misc"
+REGISTER="$BINMNT/register"
+STATUS="$BINMNT/status"
+
+# The three binfmt.d directories, lowest precedence first. Paths must not
+# contain whitespace; BINFMT_ROOT is either empty or a directory we control.
+conf_dirs() {
+  printf '%s\n' "$ROOT/usr/lib/binfmt.d" "$ROOT/etc/binfmt.d" "$ROOT/run/binfmt.d"
+}
+
+# Path of the winning (last existing) copy of binfmt.d name <base>; later
+# directories override earlier ones for the same file name.
+winner() {
+  base=$1
+  chosen=""
+  for d in $(conf_dirs); do
+    if [ -f "$d/$base" ]; then
+      chosen="$d/$base"
+    fi
+  done
+  printf '%s\n' "$chosen"
+}
+
+binfmt_mounted() {
+  mt="$ROOT/proc/mounts"
+  if [ ! -f "$mt" ]; then
+    mt=/proc/mounts
+  fi
+  grep -q 'binfmt_misc' "$mt" 2>/dev/null
+}
+
+binfmt_mount() {
+  if binfmt_mounted; then
+    return 0
+  fi
+  [ -d "$BINMNT" ] || mkdir -p "$BINMNT" 2>/dev/null
+  if mount -t binfmt_misc binfmt_misc "$BINMNT" 2>/dev/null; then
+    return 0
+  fi
+  printf 'WARN: cannot mount binfmt_misc on %s\n' "$BINMNT" >&2
+  return 1
+}
+
+# Feed one conf file to the register file. Line format is
+# :name:flags:type:magic:mask:interpreter[:offset]; comments (#) and blank
+# lines are skipped, as is anything already registered under the mount point.
+# Returns non-zero if any rule could not be written.
+register_conf() {
+  f=$1
+  bad=0
+  if [ ! -f "$f" ]; then
+    return 0
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      '' | '#'*) continue ;;
+    esac
+    case "$line" in
+      :*) ;;
+      *)
+        printf 'WARN: %s: line is not a binfmt rule: %s\n' "$f" "$line" >&2
+        continue
+        ;;
+    esac
+    name=$(printf '%s\n' "$line" | cut -d: -f2)
+    if [ -z "$name" ]; then
+      printf 'WARN: %s: rule has no name: %s\n' "$f" "$line" >&2
+      continue
+    fi
+    if [ -e "$BINMNT/$name" ]; then
+      continue
+    fi
+    if printf '%s\n' "$line" >> "$REGISTER"; then
+      : # registered
+    else
+      bad=1
+      printf 'WARN: %s: cannot register %s\n' "$f" "$name" >&2
+    fi
+  done < "$f"
+  return "$bad"
+}
+
+list_registered() {
+  if [ ! -d "$BINMNT" ]; then
+    printf '%s: no binfmt_misc mount point at %s\n' "$NAME" "$BINMNT" >&2
+    return 1
+  fi
+  n=0
+  for e in "$BINMNT"/*; do
+    [ -e "$e" ] || continue
+    base=${e##*/}
+    case "$base" in
+      register | status | off) continue ;;
+    esac
+    printf '%s\n' "$base"
+    n=$((n + 1))
+  done
+  if [ "$n" -eq 0 ]; then
+    printf '%s: no binfmt handlers registered\n' "$NAME" >&2
+  fi
+  return 0
+}
+
+case "${1:-}" in
+  start)
+    log_begin_msg "Registering binfmt_misc handlers"
+    rc=0
+    binfmt_mount || true
+    if [ ! -w "$REGISTER" ]; then
+      printf 'WARN: %s is not writable; binfmt handlers not loaded\n' "$REGISTER" >&2
+      rc=1
+    fi
+    for d in $(conf_dirs); do
+      [ -d "$d" ] || continue
+      for f in "$d"/*.conf; do
+        [ -f "$f" ] || continue
+        base=${f##*/}
+        if [ "$(winner "$base")" != "$f" ]; then
+          continue
+        fi
+        register_conf "$f" || rc=1
+      done
+    done
+    log_end_msg "$rc"
+    exit "$rc"
+    ;;
+  stop)
+    # Nothing to undo: the kernel drops the handlers when binfmt_misc is
+    # unmounted, and unmounting it would break handlers other software
+    # registered. Deliberately a no-op.
+    exit 0
+    ;;
+  restart)
+    "$0" stop
+    "$0" start
+    ;;
+  status)
+    if ! list_registered; then
+      exit 1
+    fi
+    if [ -f "$STATUS" ]; then
+      printf '%s: binfmt_misc is %s\n' "$NAME" "$(cat "$STATUS")"
+    fi
+    exit 0
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|status}" >&2
+    exit 2
+    ;;
+esac
+
+exit 0

@@ -1,3 +1,16 @@
+supermox-ve (0.1.6) unstable; urgency=medium
+
+  * Ship /etc/init.d/supermox-binfmt (debian/supermox-ve.supermox-binfmt.init,
+    installed with dh_installinit --name=supermox-binfmt). It mounts binfmt_misc
+    and feeds every binfmt.d/*.conf rule (usr/lib, /etc, /run; later directory
+    wins) to the register file, skipping handlers already registered. Debian's
+    qemu-user-binfmt only installs the conf files and relies on an init system
+    that loads them, which sysvinit does not.
+  * Recommend qemu-user-binfmt so foreign-architecture binaries (building or
+    booting a rootfs for another architecture) work out of the box.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 29 Oct 2026 00:15:00 -0700
+
 supermox-ve (0.1.5) unstable; urgency=medium
 
   * Ship /usr/sbin/supermox-node-caps: the per-node capability probe. It prints
