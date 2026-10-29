@@ -1,0 +1,238 @@
+#!/usr/bin/env python3
+"""supermox-join: create a cluster, invite a node, join a cluster, approve.
+
+Talks to the join daemon (src/supermox/joind.py) over TCP. Never prints
+the cluster phrase except once, when create generates it, and never brings
+the WireGuard interface up.
+"""
+
+import argparse
+import json
+import os
+import platform
+import sys
+
+try:
+    from supermox import joind
+    from supermox import identity as node_identity
+    from supermox import invite as invite_mod
+    from supermox import secret
+    from supermox import state as node_state
+except ImportError:  # repo checkout: bin/ sits next to src/
+    sys.path.insert(
+        0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+    from supermox import joind
+    from supermox import identity as node_identity
+    from supermox import invite as invite_mod
+    from supermox import secret
+    from supermox import state as node_state
+
+
+def _arch() -> str:
+    """Debian architecture name of this node (uname -m mapped)."""
+    machine = platform.uname().machine
+    names = {"x86_64": "amd64", "aarch64": "arm64", "i586": "amd64",
+             "armv7l": "armhf", "armv8l": "arm64", "mips64": "riscv64"}
+    return names.get(machine, machine)
+
+
+def _caps() -> list:
+    """Capability tiers, from supermox-node-caps --json when installed."""
+    import subprocess
+    try:
+        out = subprocess.run(["supermox-node-caps", "--json"],
+                             capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if out.returncode != 0:
+        return []
+    try:
+        data = json.loads(out.stdout)
+    except json.JSONDecodeError:
+        return []
+    return ["%s" % k for k, v in data.items()
+            if v is True or v == "yes"]
+
+
+def _state() -> node_state.NodeState:
+    """Load this node's state, creating the base directory if needed."""
+    st = node_state.NodeState()
+    st.load()
+    return st
+
+
+def _identity(st: node_state.NodeState) -> dict:
+    """This node's keypairs; generated and saved on first use."""
+    if st.identity is None:
+        st.identity = node_identity.new_identity()
+        node_identity.save(st.identity, st.path("identity"))
+    return st.identity
+
+
+def cmd_create(args) -> int:
+    st = _state()
+    if st.derived is not None:
+        print("this node already belongs to a cluster", file=sys.stderr)
+        return 1
+    phrase = secret.generate()
+    endpoints = [args.endpoint] if args.endpoint else []
+    st.create_cluster(phrase, args.name, endpoints, _arch(), _caps())
+    print("Cluster created. The 12 words below are the whole cluster secret.")
+    print("They are shown once, are not written to any file and are not")
+    print("backed up anywhere. Write them down off this machine, or use")
+    print("the recovery QR (supermox-join invite --recovery-qr) later.")
+    print()
+    print(phrase)
+    return 0
+
+
+def cmd_invite(args) -> int:
+    st = _state()
+    if st.derived is None:
+        print("no cluster here: run supermox-join create first", file=sys.stderr)
+        return 1
+    inv = st.new_invite(ttl=args.ttl)
+    uri = invite_mod.to_uri(inv)
+    print(uri)
+    print(invite_mod.render_text(uri))
+    if args.png:
+        invite_mod.render_png(uri, args.png)
+        print("wrote %s" % args.png)
+    return 0
+
+
+def cmd_join(args) -> int:
+    st = _state()
+    if st.derived is not None and st.membership:
+        for m in st.membership:
+            if m["name"] == args.name:
+                print("%s is already a member of this cluster" % args.name,
+                      file=sys.stderr)
+                return 1
+    ident = _identity(st)
+    caps = _caps() if args.caps is None else _split(args.caps)
+    if args.uri:
+        invite = invite_mod.parse_uri(args.uri)
+        ack = _run(joind.join_invite(args.endpoint, invite, ident,
+                                     args.name, args.arch, caps))
+        joind.apply_invite_ack(st, ack)
+    else:
+        if not args.words:
+            print("join needs --words or --uri", file=sys.stderr)
+            return 1
+        secret.validate(args.words)
+        derived = secret.derive(args.words)
+        derived["entropy"] = secret.entropy(args.words)
+        ack = _run(joind.join_phrase(args.endpoint, derived, ident,
+                                     args.name, args.arch, caps))
+        joind.apply_join_ack(st, ack)
+    path = joind.write_wg_conf(st)
+    print("joined as %s; wrote %s" % (args.name, path))
+    print("bring it up with: wg-quick up wg0")
+    if args.my_endpoint:
+        _run(joind.send_command(args.endpoint, {
+            "t": "endpoints", "node": args.name,
+            "endpoints": [args.my_endpoint]}))
+    return 0
+
+
+def cmd_pending(args) -> int:
+    st = _state()
+    if not st.pending:
+        print("no join requests waiting")
+        return 0
+    for rid, rec in sorted(st.pending.items()):
+        print("%s  %s (%s) caps=%s invite=%s"
+              % (rid, rec["name"], rec["arch"], ",".join(rec["caps"]),
+                 rec["invite_id"]))
+    return 0
+
+
+def cmd_decide(args) -> int:
+    st = _state()
+    if args.request_id not in st.pending:
+        print("%s is not a pending request" % args.request_id, file=sys.stderr)
+        return 1
+    reply = _run(joind.send_command(args.endpoint, {
+        "t": args.command, "request_id": args.request_id}))
+    if reply.get("t") != "resolved":
+        print("daemon did not resolve %s: %s"
+              % (args.request_id, reply.get("t", "?")), file=sys.stderr)
+        return 1
+    print("%s %s" % (args.command, args.request_id))
+    return 0
+
+
+def cmd_members(args) -> int:
+    st = _state()
+    if not st.membership:
+        print("no members: this node has no cluster")
+        return 1
+    for m in st.membership:
+        print("%-16s %-8s %-39s %s"
+              % (m["name"], m["arch"], m["overlay_addr"],
+                 ",".join(m.get("endpoints", [])) or "-"))
+    return 0
+
+
+def _split(text: str) -> list:
+    return [p for p in text.split(",") if p]
+
+
+def _run(coro):
+    """Run one coroutine to completion (the CLI is synchronous)."""
+    import asyncio
+    return asyncio.run(coro)
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="supermox-join")
+    sub = ap.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("create", help="create the cluster with this node")
+    p.add_argument("--name", required=True)
+    p.add_argument("--endpoint", default="%s:%d" % ("127.0.0.1",
+                                                    joind.DEFAULT_PORT))
+    p.set_defaults(func=cmd_create)
+
+    p = sub.add_parser("invite", help="create a single-use join invite")
+    p.add_argument("--ttl", type=int, default=900)
+    p.add_argument("--png", metavar="FILE")
+    p.set_defaults(func=cmd_invite)
+
+    p = sub.add_parser("join", help="join the cluster at --endpoint")
+    p.add_argument("--name", required=True)
+    p.add_argument("--endpoint", default="127.0.0.1")
+    p.add_argument("--words", metavar="PHRASE")
+    p.add_argument("--uri", metavar="supermox://...")
+    p.add_argument("--arch", default=_arch())
+    p.add_argument("--caps", default=None)
+    p.add_argument("--my-endpoint", metavar="host:port",
+                   help="advertise this node's join daemon to the cluster")
+    p.set_defaults(func=cmd_join)
+
+    p = sub.add_parser("pending", help="list join requests waiting for approval")
+    p.set_defaults(func=cmd_pending)
+
+    for name in ("approve", "deny"):
+        p = sub.add_parser(name, help="decide a pending join request")
+        p.add_argument("request_id")
+        p.add_argument("--endpoint", default="127.0.0.1")
+        p.set_defaults(func=cmd_decide, command=name)
+
+    p = sub.add_parser("members", help="list this cluster's members")
+    p.set_defaults(func=cmd_members)
+
+    args = ap.parse_args(argv)
+    try:
+        return args.func(args)
+    except joind.JoinError as exc:
+        print("supermox-join: %s" % exc, file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print("supermox-join: %s" % exc, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

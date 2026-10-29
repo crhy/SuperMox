@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""SuperMox join daemon entry point (installed as /usr/sbin/supermox-joind)."""
+import os as _os
+import sys as _sys
+
+_HERE = _os.path.dirname(_os.path.realpath(__file__))
+for _cand in (_os.path.join(_HERE, "..", "src"), "/usr/share/supermox/python"):
+    if _os.path.isdir(_cand) and _cand not in _sys.path:
+        _sys.path.insert(0, _cand)
+
+from supermox.joind import main  # noqa: E402
+
+if __name__ == "__main__":
+    raise SystemExit(main())

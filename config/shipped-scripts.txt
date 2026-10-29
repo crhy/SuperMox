@@ -3,3 +3,7 @@
 # its install path (relative to the package source root), mode 0755.
 # Format: <package name> <repo source path> <install path, no leading slash>
 supermox-ve scripts/supermox-node-caps.sh usr/sbin/supermox-node-caps
+# Cluster join CLI and daemon (src/supermox/*.py must be installed where these
+# look for them; see bin/supermox-join's sys.path fallback).
+supermox-ve bin/supermox-join usr/bin/supermox-join
+supermox-ve bin/supermox-joind usr/sbin/supermox-joind
