@@ -1,0 +1,5 @@
+# Scripts shipped by SuperMox packages. Single source of truth: the repo copy
+# under scripts/. vm-build-pkg.sh stages each entry into the packaging copy at
+# its install path (relative to the package source root), mode 0755.
+# Format: <package name> <repo source path> <install path, no leading slash>
+supermox-ve scripts/supermox-node-caps.sh usr/sbin/supermox-node-caps

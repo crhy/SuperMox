@@ -1,3 +1,12 @@
+supermox-ve (0.1.5) unstable; urgency=medium
+
+  * Ship /usr/sbin/supermox-node-caps: the per-node capability probe. It prints
+    arch, kvm, lxc, tcg_targets, cpus and mem_mb (--json for machines) so a
+    node can discover whether it is a KVM, TCG or LXC host. The probe is
+    dependency-free (no dpkg, no systemd) so it also runs on Android/LineageOS.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 28 Oct 2026 19:55:00 -0700
+
 supermox-ve (0.1.4) unstable; urgency=medium
 
   * Depend on supermox-tmpfiles: qemu-server ships debian/tmpfiles, so

@@ -1,0 +1,28 @@
+diff -ruN orig/src/PVE/QemuServer.pm new/src/PVE/QemuServer.pm
+--- a/src/PVE/QemuServer.pm	2026-10-28 13:16:12.501279574 -0700
++++ b/src/PVE/QemuServer.pm	2026-10-28 19:50:26.043492520 -0700
+@@ -3166,7 +3166,23 @@
+ 
+     my $machine_type = PVE::QemuServer::Machine::get_vm_machine($conf, $forcemachine);
+     my $machine_version = extract_version($machine_type, $kvmver);
+-    $kvm //= 1 if is_native_arch($arch);
++    # SuperMox: an unset kvm: option must not be fatal on a node without
++    # /dev/kvm (phones, old ARM boards, VMs nested in another VM). Upstream
++    # defaults kvm to 1 for a native-arch guest and then dies in the kvm_version
++    # check below; default to QEMU TCG software emulation instead and warn into
++    # the task log. An explicit kvm: 1 still fails loudly, and a cross-arch
++    # guest already defaults to TCG.
++    if (!defined($kvm) && is_native_arch($arch)) {
++        if (defined kvm_version()) {
++            $kvm = 1;
++        } else {
++            warn
++                "warning: no KVM virtualisation available on node '$nodename',"
++                . " defaulting VM '$vmid' to TCG software emulation (slow);"
++                . " set 'kvm: 1' in the VM configuration to make this an error\n";
++            $kvm = 0;
++        }
++    }
+ 
+     $machine_version =~ m/(\d+)\.(\d+)/;
+     my ($machine_major, $machine_minor) = ($1, $2);

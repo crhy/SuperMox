@@ -2,5 +2,10 @@
 %:
 	dh $@
 
+override_dh_auto_install:
+	mkdir -p debian/supermox-ve/usr/sbin
+	cp -a usr/sbin/supermox-node-caps debian/supermox-ve/usr/sbin/supermox-node-caps
+	chmod 0755 debian/supermox-ve/usr/sbin/supermox-node-caps
+
 override_dh_installinit:
 	dh_installinit --name=networking --no-start

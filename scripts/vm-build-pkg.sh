@@ -6,6 +6,7 @@ vm_ssh="$repo_root/scripts/vm-ssh.sh"
 VM_DIR="${SUPERMOX_VM_DIR:-/media/rhy/data/supermox-vm}"
 VM_SSH_PORT="${SUPERMOX_VM_SSH_PORT:-2223}"
 INIT_SCRIPTS="${INIT_SCRIPTS:-$repo_root/config/init-scripts.txt}"
+SHIPPED_SCRIPTS="${SHIPPED_SCRIPTS:-$repo_root/config/shipped-scripts.txt}"
 
 ssh_opts=(
   -o StrictHostKeyChecking=no
@@ -181,6 +182,21 @@ if [ "$is_packaging" -eq 1 ]; then
       mkdir -p "$src_local/debian"
       install -m 0755 "$repo_root/init.d/$svc" "$src_local/debian/$pkg.$svc.init"
     done < "$INIT_SCRIPTS"
+  fi
+  # Extra scripts shipped by a package: the repo copy (scripts/) is the only
+  # one; it is staged into the packaging copy at its install path.
+  if [ -f "$SHIPPED_SCRIPTS" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      line="${line%%#*}"
+      line="${line#"${line%%[![:space:]]*}"}"
+      line="${line%"${line##*[![:space:]]}"}"
+      [ -n "$line" ] || continue
+      read -r pkg src dest <<< "$line"
+      [ "$pkg" = "$component" ] || continue
+      [ -f "$repo_root/$src" ] || continue
+      mkdir -p "$src_local/$(dirname "$dest")"
+      install -m 0755 "$repo_root/$src" "$src_local/$dest"
+    done < "$SHIPPED_SCRIPTS"
   fi
 fi
 
