@@ -1,8 +1,8 @@
 #!/bin/sh
 ### BEGIN INIT INFO
 # Provides:          pve-cluster
-# Required-Start:    $network $time
-# Required-Stop:     $network $time
+# Required-Start:    $network $time corosync
+# Required-Stop:     $network $time corosync
 # Should-Start:      rrdcached
 # Should-Stop:       rrdcached
 # Default-Start:     2 3 4 5
@@ -14,9 +14,11 @@
 # upstream/pxvirt/packages/pve-cluster/pve-cluster/debian/pve-cluster.service
 # ExecStart=/usr/bin/pmxcfs  Type=forking  PIDFile=/run/pve-cluster.pid
 #
-# SuperMox runs single-node, so pmxcfs is started with -l (force local mode:
-# ignore corosync.conf, force quorum). This removes the corosync dependency:
-# /etc/pve is served from a local database, no cluster quorum needed.
+# pmxcfs runs in its normal (corosync) mode, NOT local mode. It does NOT spawn
+# corosync itself: it connects to a running corosync daemon over the corosync
+# quorum API. So corosync must be started first, and its state directory
+# /var/lib/corosync (plus the /run/corosync socket dir) must exist. The single-node
+# /etc/corosync/corosync.conf is written by the pve-cluster postinst.
 
 . /lib/lsb/init-functions
 
@@ -27,8 +29,11 @@ NAME=pve-cluster
 case "$1" in
   start)
     log_begin_msg "Starting $NAME"
-    mkdir -p /etc/pve
-    start-stop-daemon --start --quiet --pidfile "$PIDFILE" --exec "$DAEMON" -- -l
+    mkdir -p /etc/pve /var/lib/corosync /run/corosync
+    if [ -x /etc/init.d/corosync ]; then
+      /etc/init.d/corosync start >/dev/null 2>&1
+    fi
+    start-stop-daemon --start --quiet --pidfile "$PIDFILE" --exec "$DAEMON"
     log_end_msg $?
     ;;
   stop)

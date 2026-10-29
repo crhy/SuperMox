@@ -1,3 +1,14 @@
+supermox-ve (0.1.7) unstable; urgency=medium
+
+  * Remove debian/postinst. Its enable/start loop was a workaround for the
+    pve services never getting S-links. The real fix is upstream: pve-manager's
+    postinst/prerm now carry the #DEBHELPER# token (patch 0003-debhelper-token),
+    so debhelper's dh_installinit inserts the update-rc.d/invoke-rc.d snippets
+    and each package enables and starts its own services. supermox-ve no longer
+    has to do it.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 29 Oct 2026 02:45:00 +0000
+
 supermox-ve (0.1.6) unstable; urgency=medium
 
   * Ship /etc/init.d/supermox-binfmt (debian/supermox-ve.supermox-binfmt.init,

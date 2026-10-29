@@ -47,10 +47,11 @@ case "$1" in
     log_end_msg $?
     ;;
   status)
-    # pveproxy's pidfile lives in a pve-owned /run/pveproxy dir; start-stop-daemon
-    # refuses to match on a non-root pidfile alone, so also match on the daemon
-    # executable to make the match unambiguous.
-    start-stop-daemon --status --quiet --pidfile "$PIDFILE" --exec "$DAEMON"
+    # pveproxy setuid's its master process to www-data and writes its pidfile
+    # under a www-data-owned /run/pveproxy dir. start-stop-daemon will not trust
+    # a non-root pidfile on its own, so cross-check the real process owner
+    # (www-data), not the daemon executable.
+    start-stop-daemon --status --quiet --pidfile "$PIDFILE" --user www-data
     rc=$?
     if [ "$rc" -eq 0 ]; then
       log_success_msg "$NAME is running"
