@@ -81,4 +81,8 @@ corporate infrastructure.
 - **Upstream overrides.** `config/upstream-overrides.txt` pins components to upstream commits other
   than what PXVIRT's submodule records (currently `proxmox-perl-rs` at pve-rs 0.15.3). Follow-up: re-validate
   each override against PXVIRT's expected API on every upstream bump, and drop overrides once PXVIRT's
-  submodule advances past them.
+  submodule advances past them. `scripts/check-overrides.sh` (run by the gate via
+  `tests/test-check-overrides.sh`) keeps the file honest offline: it validates each line's format, confirms
+  the pinned commit exists in the local clone, and prints `override=<ver> pxvirt=<ver>` per component —
+  `WARN` flags an override PXVIRT's pin already meets or exceeds (droppable), `FAIL` a bad line or missing
+  commit. Currently `pve-http-server` is WARN (PXVIRT already pins 6.0.5).
