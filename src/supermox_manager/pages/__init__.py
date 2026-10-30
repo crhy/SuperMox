@@ -9,7 +9,7 @@ List the module in PAGES below, in sidebar order, and in config/shipped-scripts.
 """
 from importlib import import_module
 
-PAGES = ()
+PAGES = ("create",)
 
 
 def load():

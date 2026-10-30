@@ -52,7 +52,8 @@ entries under `/etc/supermox`; it never reads private cluster keys.
 | Start, shutdown, stop, reboot, suspend, resume | Native GTK, confirmation for disruptive actions |
 | Migration, named snapshots, backup submission | Native GTK forms; advanced options use Full management |
 | Recent tasks, status and log inspection | Native GTK |
-| Guest creation, restore, hardware/network editing, storage content management | Existing server interface in Full management |
+| Guest creation, clone, convert-to-template, delete | Native GTK forms; live API |
+| Restore, hardware/network editing, storage content management | Existing server interface in Full management |
 | Interactive consoles, cluster administration, permissions, HA, firewall and other advanced tools | Existing server interface in Full management |
 
 All real operations require the connected user's server-side privileges.

@@ -76,7 +76,7 @@ class Client:
             body = None
             target = "/api2/json" + path
             headers = {"Accept": "application/json"}
-            if method == "GET" and params:
+            if method in ("GET", "DELETE") and params:
                 target += "?" + urlencode(params)
             elif params is not None:
                 body = urlencode(params).encode("utf-8")
@@ -191,6 +191,14 @@ class DemoClient:
     def request(self, method, path, params=None):
         if method != "GET":
             return "Preview only: operation simulated"
+        if path == "/cluster/nextid":
+            return 103
+        if path.endswith("/storage"):
+            return [{"storage": "local"}]
+        if path.endswith("/network"):
+            return [{"bridge": "vmbr0"}]
+        if path.endswith("/content"):
+            return [{"volid": "local:iso/ubuntu-24.04.iso"}]
         if path.endswith("/config"):
             return {"cores": 4, "memory": 8192, "description": "Sample guest; no host is connected."}
         if path.endswith("/log"):

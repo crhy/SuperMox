@@ -8,6 +8,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk
 
 from . import api, logic, pages
+from .ops import create as create_ops, guests, tasks
 
 CSS = b"""
 window, dialog { background: #092b32; color: #eef5ef; }
@@ -465,6 +466,38 @@ class Manager:
             self.message("Operation submitted", task or "Check Tasks for completion.")
         self.refresh()
 
+    def clone(self):
+        if not self.selected or self.busy:
+            return
+        guest = dict(self.selected)
+        client = self.client
+        self.work(lambda: create_ops.clone(client, guest["node"], guest["vmid"],
+                                           guests.next_id(client)),
+                  lambda task: self.submitted(task, guest["node"]))
+
+    def make_template(self):
+        if not self.selected or self.busy:
+            return
+        guest = dict(self.selected)
+        if not self.confirm("Convert to template?", "{} on {}. The machine must be stopped first."
+                            .format(guest.get("name", ""), guest["node"])):
+            return
+        client = self.client
+        self.work(lambda: create_ops.make_template(client, guest["node"], guest["vmid"]),
+                  lambda task: self.submitted(task, guest["node"]))
+
+    def delete_guest(self):
+        if not self.selected or self.busy:
+            return
+        guest = dict(self.selected)
+        if not self.confirm("Delete machine {}?".format(guest["vmid"]),
+                            "Remove {} and its disks. This cannot be undone."
+                            .format(guest.get("name", ""))):
+            return
+        client = self.client
+        self.work(lambda: guests.destroy(client, guest["node"], guest["type"], guest["vmid"]),
+                  lambda task: self.submitted(task, guest["node"]))
+
     def more_actions(self):
         if not self.selected:
             return
@@ -475,7 +508,9 @@ class Manager:
             item.connect("activate", lambda _item, value=action: self.power(value))
             menu.append(item)
         for title, callback in (("Migrate…", self.migrate), ("Create snapshot…", self.snapshot),
-                                ("Back up now…", self.backup), ("Console / hardware / full settings", self.open_full)):
+                                ("Back up now…", self.backup), ("Clone…", self.clone),
+                                ("Convert to template…", self.make_template), ("Delete…", self.delete_guest),
+                                ("Console / hardware / full settings", self.open_full)):
             item = Gtk.MenuItem(label=title)
             item.connect("activate", lambda _item, cb=callback: cb())
             menu.append(item)
