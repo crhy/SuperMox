@@ -1,3 +1,21 @@
+supermox-ve (0.1.8) unstable; urgency=medium
+
+  * Ship /etc/init.d/supermox-sync and /usr/bin/supermox-sync: step 1 of the
+    home folder sync in docs/shared-home.md. The init script runs one Syncthing
+    instance per user in /etc/supermox/sync-users, as that user (start-stop-daemon
+    --chuid), on 127.0.0.1:8384, :8385, ... each with its own state directory
+    under /var/lib/supermox-sync/<user>. Once an instance answers on its API
+    socket, supermox-sync reconcile applies this node's signed membership list
+    to it: one device per member addressed over the WireGuard overlay
+    (tcp://[<overlay_addr>]:22000), one folder per person, global discovery,
+    local announcement, relays and NAT traversal off, staggered file versioning
+    and the built-in .stignore. No member ever accepts a host by hand and no
+    folder ever leaves the encrypted SuperMox network. supermox-sync status
+    reports per folder: state, devices in sync, conflicts.
+  * Depend on syncthing.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 29 Oct 2026 04:20:00 +0000
+
 supermox-ve (0.1.7) unstable; urgency=medium
 
   * Remove debian/postinst. Its enable/start loop was a workaround for the

@@ -7,5 +7,8 @@ supermox-ve scripts/supermox-node-caps.sh usr/sbin/supermox-node-caps
 # look for them; see bin/supermox-join's sys.path fallback).
 supermox-ve bin/supermox-join usr/bin/supermox-join
 supermox-ve bin/supermox-joind usr/sbin/supermox-joind
+# Home folder sync CLI (init.d/supermox-sync calls it at boot to apply the
+# membership list to each user's Syncthing instance).
+supermox-ve bin/supermox-sync usr/bin/supermox-sync
 # Android layer: the setup tool is a repo script, installed under sbin.
 supermox-android scripts/supermox-android-setup.sh usr/sbin/supermox-android-setup

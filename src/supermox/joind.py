@@ -233,7 +233,7 @@ class JoinDaemon:
 
     def _entry_from(self, msg: dict) -> dict:
         """Membership entry built from a JOIN_REQ or INVITE_REQ."""
-        return {
+        entry = {
             "name": msg["name"],
             "wg_pub": msg["wg_pub"],
             "ed_pub": msg["ed_pub"],
@@ -244,6 +244,12 @@ class JoinDaemon:
             "caps": list(msg.get("caps") or []),
             "role": "core",
         }
+        # Optional on the wire (older nodes do not send it): the member's
+        # Syncthing device id, used by supermox.sync. Missing means the
+        # member's Syncthing is not enrolled yet.
+        if msg.get("syncthing_id"):
+            entry["syncthing_id"] = msg["syncthing_id"]
+        return entry
 
     async def _join_req(self, conn, blob, writer) -> bool:
         """Phrase path: JOIN_REQ -> add member -> JOIN_ACK."""

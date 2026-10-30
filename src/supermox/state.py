@@ -15,6 +15,12 @@ does carry the 16 entropy bytes: a member must be able to compute a
 new node's overlay address (secret.node_address needs them), and the
 words themselves are always regenerated from entropy by BIP39, never
 stored. See the deviation note in .strata/notes-t48-joind.md.
+
+A membership entry may also carry "syncthing_id": that member's Syncthing
+device id, which supermox.sync uses to wire the home folder over the
+overlay (docs/shared-home.md). It is optional and backwards compatible:
+an entry without one just means that member's Syncthing is not enrolled
+yet.
 """
 
 import base64
@@ -185,6 +191,24 @@ class NodeState:
     def remove_member(self, name: str) -> list:
         """Drop a member and re-sign the list with this node's Ed25519 key."""
         self.membership = [m for m in self.membership if m["name"] != name]
+        self.save()
+        return list(self.membership)
+
+    def set_syncthing_id(self, name: str, syncthing_id: str) -> list:
+        """Record a member's Syncthing device id and re-sign the list.
+
+        Each node runs this for its own entry once Syncthing has generated
+        a device id (supermox-sync reconcile does it), then the new list
+        is broadcast, so members learn each other's ids without a human
+        accepting a host in the Syncthing GUI.
+        """
+        found = False
+        for m in self.membership:
+            if m["name"] == name:
+                m["syncthing_id"] = syncthing_id
+                found = True
+        if not found:
+            raise ValueError("%r is not a member of this cluster" % name)
         self.save()
         return list(self.membership)
 

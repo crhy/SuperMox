@@ -1,0 +1,178 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          supermox-sync
+# Required-Start:    $network $local_fs
+# Required-Stop:     $local_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: SuperMox home folder sync (Syncthing per user)
+### END INIT INFO
+
+# One Syncthing instance per SuperMox user listed in
+# /etc/supermox/sync-users, in that order: the first on 127.0.0.1:8384,
+# the next on :8385, ... each with its own state directory under
+# /var/lib/supermox-sync/<user>. The GUI is the control panel, so it stays
+# on, on localhost only. Once an instance is up, supermox-sync reconcile
+# applies this node's signed membership list to it: devices over the
+# overlay, the home folders, discovery/relays/NAT off, .stignore.
+#
+# No service manager, no sudo: each instance runs as its own user, started
+# with start-stop-daemon --chuid.
+#
+# Not a daemon of its own: syncthing is the daemon. This script starts,
+# stops and reports on the set of instances.
+
+. /lib/lsb/init-functions
+
+USERS_FILE=/etc/supermox/sync-users
+STATE_DIR=/var/lib/supermox-sync
+PID_DIR=/run/supermox-sync
+LOG_DIR=/var/log/supermox-sync
+BASE_PORT=8384
+SYNCTHING=/usr/bin/syncthing
+
+# reconcile waits this many seconds for an instance to write its config.xml
+# (the first run generates it) before giving up on it.
+CONF_WAIT=15
+
+users() {
+    # Users with a Syncthing instance on this node, in order.
+    [ -r "$USERS_FILE" ] || return 1
+    sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$USERS_FILE"
+}
+
+instance_dir() {
+    printf '%s/%s' "$STATE_DIR" "$1"
+}
+
+pid_file() {
+    printf '%s/%s.pid' "$PID_DIR" "$1"
+}
+
+log_file() {
+    printf '%s/%s.log' "$LOG_DIR" "$1"
+}
+
+prepare() {
+    # State directory per user, owned by that user: Syncthing keeps its key
+    # pair, device id and db there, and the folder UIDs come from it.
+    install -d -o "$1" -g "$1" -m 0700 "$(instance_dir "$1")" || return 1
+    install -d -o root -g root -m 0755 "$PID_DIR" "$LOG_DIR" || return 1
+    return 0
+}
+
+start_one() {
+    # One instance, as its own user, GUI on localhost only.
+    # $1 is the user, $2 the port.
+    if start-stop-daemon --start --quiet --okstart --background \
+        --make-pidfile --pidfile "$(pid_file "$1")" --chuid "$1" \
+        --chdir "$(instance_dir "$1")" --exec "$SYNCTHING" -- \
+        --port "127.0.0.1:$2" --state "$(instance_dir "$1")" \
+        >>"$(log_file "$1")" 2>&1; then
+        log_action_msg "supermox-sync: $1 running on 127.0.0.1:$2"
+        return 0
+    fi
+    log_failure_msg "supermox-sync: $1 could not start on 127.0.0.1:$2"
+    return 1
+}
+
+reconcile_one() {
+    # Apply the membership list once the instance answers on its API socket.
+    # A node that is not in a cluster yet has nothing to apply: that is not
+    # an error, the next start (or a supermox-join create) will.
+    rdir=$(instance_dir "$1")
+    ri=0
+    while [ ! -f "$rdir/config.xml" ] && [ "$ri" -lt "$CONF_WAIT" ]; do
+        sleep 1
+        ri=$((ri + 1))
+    done
+    if [ ! -f "$rdir/config.xml" ]; then
+        log_warning_msg "supermox-sync: no config.xml for $1, not reconciled"
+        return 0
+    fi
+    if ! su -c "supermox-sync --user '$1' --state '$rdir' reconcile" \
+        "$1" >>"$(log_file "$1")" 2>&1; then
+        log_warning_msg \
+            "supermox-sync: reconcile for $1 failed (see $(log_file "$1"))"
+    fi
+    return 0
+}
+
+do_start() {
+    ulist=$(users)
+    if [ -z "$ulist" ]; then
+        log_warning_msg "supermox-sync: no $USERS_FILE, nothing to start"
+        return 0
+    fi
+    ui=0
+    urc=0
+    for ustart in $ulist; do
+        prepare "$ustart" || { urc=1; continue; }
+        start_one "$ustart" $((BASE_PORT + ui)) || urc=1
+        ui=$((ui + 1))
+        reconcile_one "$ustart" &
+    done
+    wait
+    return $urc
+}
+
+do_stop() {
+    for suser in $(users); do
+        spod=$(pid_file "$suser")
+        [ -f "$spod" ] || continue
+        start-stop-daemon --stop --quiet --okstart --pidfile "$spod" \
+            --retry=TERM/10/KILL/5
+    done
+    rm -f "$PID_DIR"/*.pid 2>/dev/null
+    return 0
+}
+
+do_status() {
+    klist=$(users)
+    if [ -z "$klist" ]; then
+        echo "supermox-sync: no $USERS_FILE"
+        return 0
+    fi
+    ki=0
+    for kuser in $klist; do
+        kport=$((BASE_PORT + ki))
+        kpid=$(pid_file "$kuser")
+        if [ -f "$kpid" ] && kill -0 "$(cat "$kpid" 2>/dev/null)" 2>/dev/null; then
+            printf '%s: running on 127.0.0.1:%d (pid %s)\n' \
+                "$kuser" "$kport" "$(cat "$kpid")"
+        else
+            printf '%s: not running (would be 127.0.0.1:%d)\n' \
+                "$kuser" "$kport"
+        fi
+        ki=$((ki + 1))
+    done
+    return 0
+}
+
+case "$1" in
+    start)
+        do_start
+        ;;
+    stop)
+        do_stop
+        ;;
+    restart)
+        do_stop
+        do_start
+        ;;
+    force-reload)
+        # Re-apply the membership list without dropping the running instance's
+        # db: stop, start, reconcile again.
+        do_stop
+        do_start
+        ;;
+    status)
+        do_status
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|force-reload|status}" >&2
+        exit 1
+        ;;
+esac
+
+exit 0
