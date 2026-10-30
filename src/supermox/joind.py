@@ -83,6 +83,15 @@ def parse_endpoint(text: str) -> tuple:
         raise JoinError("bad endpoint: %r" % text)
 
 
+def wg_endpoint_for(endpoint: str) -> str:
+    """WireGuard endpoint of a node: its join host, at WG_LISTEN_PORT.
+
+    The join daemon's TCP port (8743) and the WireGuard tunnel port (UDP 51820)
+    are different services on the same host; wg0.conf must name the latter.
+    """
+    host, _ = parse_endpoint(endpoint)
+    return "%s:%d" % (host, WG_LISTEN_PORT)
+
 async def write_frame(writer, kind: int, payload: bytes) -> None:
     body = bytes((kind,)) + payload
     if len(body) > MAX_FRAME + 1:
@@ -249,6 +258,12 @@ class JoinDaemon:
         # member's Syncthing is not enrolled yet.
         if msg.get("syncthing_id"):
             entry["syncthing_id"] = msg["syncthing_id"]
+        # Also optional on the wire: this member's WireGuard endpoint
+        # (host:51820), the address wg0 must send the encrypted packet to.
+        # Never the join daemon's port; write_wg_conf falls back to the
+        # join host when an older node omits it.
+        if msg.get("wg_endpoint"):
+            entry["wg_endpoint"] = msg["wg_endpoint"]
         return entry
 
     async def _join_req(self, conn, blob, writer) -> bool:
@@ -464,6 +479,13 @@ class JoinDaemon:
             log.warning("endpoints refused: %r is not a member", name)
             return False
         entry["endpoints"] = list(obj.get("endpoints") or [])
+        # The WireGuard endpoint travels with the join endpoint: an explicit
+        # wg_endpoint in the control message wins, otherwise it follows the
+        # first advertised host (same host, port WG_LISTEN_PORT).
+        if obj.get("wg_endpoint"):
+            entry["wg_endpoint"] = obj["wg_endpoint"]
+        elif entry["endpoints"]:
+            entry["wg_endpoint"] = wg_endpoint_for(entry["endpoints"][0])
         self.state.save()
         membership = list(self.state.membership)
         await write_frame(writer, KIND_JSON, canonical_json(
@@ -538,14 +560,18 @@ async def connect(endpoint: str):
 
 
 async def join_phrase(endpoint: str, derived: dict, identity: dict,
-                      name: str, arch: str, caps: list) -> dict:
+                      name: str, arch: str, caps: list,
+                      wg_endpoint: str = None) -> dict:
     """Send a JOIN_REQ and return the opened JOIN_ACK.
 
     *derived* is secret.derive(phrase) plus the entropy bytes; the caller
-    keeps the phrase, this function never sees it.
+    keeps the phrase, this function never sees it. *wg_endpoint* is this
+    node's own WireGuard endpoint (host:51820), recorded in the membership
+    entry so the other members' wg0.conf can point at it.
     """
     async with _Client(endpoint) as c:
-        blob = joinproto.make_join_req(derived, identity, name, arch, caps)
+        blob = joinproto.make_join_req(derived, identity, name, arch, caps,
+                                       wg_endpoint=wg_endpoint)
         await write_frame(c.writer, KIND_BYTES, blob)
         kind, payload = await read_frame(c.reader)
         if kind != KIND_BYTES:
@@ -557,11 +583,13 @@ async def join_phrase(endpoint: str, derived: dict, identity: dict,
 
 
 async def join_invite(endpoint: str, invite: dict, identity: dict,
-                      name: str, arch: str, caps: list) -> dict:
+                      name: str, arch: str, caps: list,
+                      wg_endpoint: str = None) -> dict:
     """Run the invite handshake and return the opened INVITE_ACK.
 
     *invite* is the parsed invite (invite_mod.parse_uri). The returned dict
     carries the membership list and the derived keys the new node needs.
+    *wg_endpoint* is this node's own WireGuard endpoint (host:51820).
     """
     async with _Client(endpoint) as c:
         await write_frame(c.writer, KIND_JSON, canonical_json(
@@ -592,7 +620,8 @@ async def join_invite(endpoint: str, invite: dict, identity: dict,
         if json.loads(payload.decode("utf-8")).get("t") != "answer_ok":
             raise JoinError("challenge answer refused")
         blob = joinproto.make_invite_req(b64d(chal["wg_pub"]), invite,
-                                         identity, name, arch, caps)
+                                         identity, name, arch, caps,
+                                         wg_endpoint=wg_endpoint)
         await write_frame(c.writer, KIND_BYTES, blob)
         kind, payload = await read_frame(c.reader)
         if kind == KIND_JSON:
@@ -678,8 +707,11 @@ def write_wg_conf(state: node_state.NodeState, path: str = None) -> str:
     """Write the WireGuard config for this node: one [Peer] per other member.
 
     Every peer carries the cluster PresharedKey, its overlay address as
-    AllowedIPs and, when known, its join endpoint as Endpoint. The interface
-    is never brought up here.
+    AllowedIPs and its WireGuard endpoint (the membership entry's wg_endpoint,
+    host:51820) as Endpoint. The join daemon's TCP endpoint (8743) is never
+    used here: the kernel sends the encrypted UDP packet to the Endpoint, so
+    it must be the port the peer's wg0 listens on. The interface is never
+    brought up here.
     """
     path = path or os.path.join(state.base, "wg0.conf")
     me = state.find_member(state.my_name())
@@ -701,8 +733,9 @@ def write_wg_conf(state: node_state.NodeState, path: str = None) -> str:
             continue
         lines.append("# peer %s (%s)" % (m["name"], m["arch"]))
         lines.append("[Peer]")
-        for ep in m.get("endpoints", []):
-            lines.append("Endpoint = %s" % ep)
+        wg_ep = m.get("wg_endpoint") or _peer_wg_endpoint(m)
+        if wg_ep:
+            lines.append("Endpoint = %s" % wg_ep)
         lines.append("PublicKey = %s" % m["wg_pub"])
         lines.append("AllowedIPs = %s/128" % m["overlay_addr"])
         lines.append("PresharedKey = %s" % b64(state.derived["wg_psk"]))
@@ -717,6 +750,18 @@ def write_wg_conf(state: node_state.NodeState, path: str = None) -> str:
     os.replace(tmp, path)
     os.chmod(path, 0o600)
     return path
+
+
+def _peer_wg_endpoint(m: dict) -> str:
+    """WireGuard endpoint of a member whose entry has no wg_endpoint.
+
+    Older nodes only recorded join endpoints: use the first one's host at
+    WG_LISTEN_PORT. Empty string when the member advertises nothing, in
+    which case the [Peer] block gets no Endpoint and wg would reject it.
+    """
+    for ep in m.get("endpoints", []):
+        return wg_endpoint_for(ep)
+    return ""
 
 
 def main(argv=None) -> int:

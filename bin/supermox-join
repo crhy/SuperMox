@@ -76,7 +76,10 @@ def cmd_create(args) -> int:
         return 1
     phrase = secret.generate()
     endpoints = [args.endpoint] if args.endpoint else []
-    st.create_cluster(phrase, args.name, endpoints, _arch(), _caps())
+    wg_ep = None
+    if args.endpoint:
+        wg_ep = args.my_wg_endpoint or joind.wg_endpoint_for(args.endpoint)
+    st.create_cluster(phrase, args.name, endpoints, _arch(), _caps(), wg_ep)
     print("Cluster created. The 12 words below are the whole cluster secret.")
     print("They are shown once, are not written to any file and are not")
     print("backed up anywhere. Write them down off this machine, or use")
@@ -111,10 +114,15 @@ def cmd_join(args) -> int:
                 return 1
     ident = _identity(st)
     caps = _caps() if args.caps is None else _split(args.caps)
+    # This node's own endpoints: the join daemon (TCP 8743) and, separately,
+    # its WireGuard endpoint (same host, UDP 51820) for the other members'
+    # wg0.conf.
+    my_ep = args.my_endpoint or args.endpoint
+    wg_ep = args.my_wg_endpoint or joind.wg_endpoint_for(my_ep)
     if args.uri:
         invite = invite_mod.parse_uri(args.uri)
         ack = _run(joind.join_invite(args.endpoint, invite, ident,
-                                     args.name, args.arch, caps))
+                                     args.name, args.arch, caps, wg_ep))
         joind.apply_invite_ack(st, ack)
     else:
         if not args.words:
@@ -125,7 +133,7 @@ def cmd_join(args) -> int:
         derived["entropy"] = secret.entropy(args.words)
         st.derived = derived
         ack = _run(joind.join_phrase(args.endpoint, derived, ident,
-                                     args.name, args.arch, caps))
+                                     args.name, args.arch, caps, wg_ep))
         joind.apply_join_ack(st, ack)
     path = joind.write_wg_conf(st)
     print("joined as %s; wrote %s" % (args.name, path))
@@ -133,7 +141,8 @@ def cmd_join(args) -> int:
     if args.my_endpoint:
         _run(joind.send_command(args.endpoint, {
             "t": "endpoints", "node": args.name,
-            "endpoints": [args.my_endpoint]}))
+            "endpoints": [args.my_endpoint],
+            "wg_endpoint": wg_ep}))
     return 0
 
 
@@ -180,9 +189,10 @@ def cmd_members(args) -> int:
         print("no members: this node has no cluster")
         return 1
     for m in st.membership:
-        print("%-16s %-8s %-39s %s"
+        print("%-16s %-8s %-39s %s wg=%s"
               % (m["name"], m["arch"], m["overlay_addr"],
-                 ",".join(m.get("endpoints", [])) or "-"))
+                 ",".join(m.get("endpoints", [])) or "-",
+                 m.get("wg_endpoint") or "-"))
     return 0
 
 
@@ -204,6 +214,10 @@ def main(argv=None) -> int:
     p.add_argument("--name", required=True)
     p.add_argument("--endpoint", default="%s:%d" % ("127.0.0.1",
                                                     joind.DEFAULT_PORT))
+    p.add_argument("--my-wg-endpoint", metavar="host:51820",
+                   help="this node's WireGuard endpoint (default: the host "
+                        "of --endpoint at port %d)"
+                        % joind.WG_LISTEN_PORT)
     p.set_defaults(func=cmd_create)
 
     p = sub.add_parser("invite", help="create a single-use join invite")
@@ -220,6 +234,10 @@ def main(argv=None) -> int:
     p.add_argument("--caps", default=None)
     p.add_argument("--my-endpoint", metavar="host:port",
                    help="advertise this node's join daemon to the cluster")
+    p.add_argument("--my-wg-endpoint", metavar="host:51820",
+                   help="this node's WireGuard endpoint (default: the host "
+                        "of --my-endpoint/--endpoint at port %d)"
+                        % joind.WG_LISTEN_PORT)
     p.set_defaults(func=cmd_join)
 
     p = sub.add_parser("conf", help="regenerate this node's wg0.conf from state")

@@ -21,6 +21,12 @@ device id, which supermox.sync uses to wire the home folder over the
 overlay (docs/shared-home.md). It is optional and backwards compatible:
 an entry without one just means that member's Syncthing is not enrolled
 yet.
+
+A membership entry may also carry "wg_endpoint": that member's WireGuard
+endpoint (its host at WG_LISTEN_PORT 51820). It is separate from
+"endpoints", which is where the member's join daemon (TCP 8743) can be
+reached: wg0.conf writes the wg_endpoint as each [Peer] Endpoint, because
+the kernel sends the encrypted UDP packet there, never to the join port.
 """
 
 import base64
@@ -100,10 +106,13 @@ class NodeState:
     # --- creation -------------------------------------------------
 
     def create_cluster(self, phrase: str, name: str, endpoints: list,
-                      arch: str = None, caps: list = None) -> dict:
+                      arch: str = None, caps: list = None,
+                      wg_endpoint: str = None) -> dict:
         """Create the cluster: this node becomes the only member.
 
-        Returns this node's membership entry.
+        Returns this node's membership entry. wg_endpoint is this node's
+        WireGuard endpoint (host:51820), kept separate from the join
+        daemon's endpoints so wg0.conf never points at the join port.
         """
         secret.validate(phrase)
         self.derived = secret.derive(phrase)
@@ -123,6 +132,8 @@ class NodeState:
             "caps": list(caps),
             "role": "core",
         }
+        if wg_endpoint:
+            member["wg_endpoint"] = wg_endpoint
         self.membership = [member]
         self.save()
         return member

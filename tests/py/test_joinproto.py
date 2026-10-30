@@ -35,6 +35,24 @@ class JoinProtoTests(unittest.TestCase):
         self.assertEqual(msg["arch"], "amd64")
         self.assertEqual(msg["caps"], ["kvm", "lxc"])
 
+    def test_wg_endpoint_round_trip(self):
+        """A WireGuard endpoint travels alongside the join daemon endpoint."""
+        blob = joinproto.make_join_req(
+            self.derived, self.ident_a, "node-a", "amd64", ["kvm"],
+            endpoint="10.99.0.1:8743",
+            wg_endpoint="10.99.0.1:51820", now=1000000,
+        )
+        msg = joinproto.open_join_req(self.derived, blob, now=1000000,
+                                      seen_nonces={})
+        self.assertEqual(msg["endpoints"], ["10.99.0.1:8743"])
+        self.assertEqual(msg["wg_endpoint"], "10.99.0.1:51820")
+        # Absent when not supplied.
+        blob2 = joinproto.make_join_req(self.derived, self.ident_a, "node-a",
+                                        "amd64", ["kvm"], now=1000000)
+        msg2 = joinproto.open_join_req(self.derived, blob2, now=1000000,
+                                       seen_nonces={})
+        self.assertNotIn("wg_endpoint", msg2)
+
     def test_join_ack_round_trip(self):
         """make_join_ack -> open_join_ack succeeds."""
         membership = [

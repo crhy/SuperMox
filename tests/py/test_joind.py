@@ -57,10 +57,11 @@ class JoindBase(unittest.IsolatedAsyncioTestCase):
         return base
 
     def seeder(self, tag: str, endpoints: list, phrase: str = PHRASE,
-               name: str = "node-a") -> node_state.NodeState:
+               name: str = "node-a", wg_endpoint: str = None) -> node_state.NodeState:
         """A node that owns the cluster and advertises *endpoints*."""
         st = node_state.NodeState(self.node_dir(tag))
-        st.create_cluster(phrase, name, endpoints, "amd64", ["kvm"])
+        st.create_cluster(phrase, name, endpoints, "amd64", ["kvm"],
+                          wg_endpoint)
         return st
 
     def joiner(self, tag: str):
@@ -102,7 +103,9 @@ class PhraseJoinTests(JoindBase):
         b_dir, bident = self.joiner("b")
 
         ack = await joind.join_phrase(ep, self.derived(PHRASE), bident,
-                                      "node-b", "arm64", ["lxc"])
+                                      "node-b", "arm64", ["lxc"],
+                                      wg_endpoint="10.99.0.2:%d"
+                                      % joind.WG_LISTEN_PORT)
         self.assertIn("overlay_addr", ack)
         self.assertEqual(sorted(m["name"] for m in ack["membership"]),
                          ["node-a", "node-b"])
@@ -126,9 +129,12 @@ class PhraseJoinTests(JoindBase):
         self.assertIn("PrivateKey = ", conf)
         self.assertIn("PresharedKey = ", conf)
         self.assertIn("[Peer]", conf)
-        self.assertIn("Endpoint = %s" % ep, conf)
-        self.assertIn("PublicKey = %s" % a.identity["wg_pub"].hex()[:0]
-                      or "PublicKey = ", conf)
+        # The [Peer] Endpoint is the peer's WireGuard endpoint (UDP 51820),
+        # never the join daemon's TCP port. node-a never advertised a WireGuard
+        # endpoint, so it is derived from the host of its join endpoint.
+        self.assertIn("Endpoint = 127.0.0.1:%d" % joind.WG_LISTEN_PORT, conf)
+        self.assertNotIn("Endpoint = %s" % ep, conf)
+        self.assertIn("PublicKey = ", conf)
         # This node's own address is its overlay address, derived from its
         # own WireGuard public key.
         self.assertIn("Address = %s/128"
@@ -136,6 +142,14 @@ class PhraseJoinTests(JoindBase):
                       conf)
         # The seeder's overlay address is the peer's AllowedIPs, and both
         # addresses sit inside the cluster prefix.
+        # node-b's WireGuard endpoint reached node-a over the wire and is
+        # kept in the membership entry for the reverse tunnel.
+        a2 = node_state.NodeState(a.base)
+        a2.load()
+        bentry = [m for m in a2.membership if m["name"] == "node-b"][0]
+        self.assertEqual(bentry["wg_endpoint"],
+                         "10.99.0.2:%d" % joind.WG_LISTEN_PORT)
+
         net = ipaddress.IPv6Network(self.derived(PHRASE)["overlay_prefix"])
         peer_addr = secret.node_address(PHRASE, a.identity["wg_pub"])
         self.assertIn("AllowedIPs = %s/128" % peer_addr, conf)
@@ -154,7 +168,8 @@ class PhraseJoinTests(JoindBase):
         port_b = free_port()
         reply = await joind.send_command(ep, {
             "t": "endpoints", "node": "node-b",
-            "endpoints": ["127.0.0.1:%d" % port_b]})
+            "endpoints": ["127.0.0.1:%d" % port_b],
+            "wg_endpoint": "10.99.0.2:%d" % joind.WG_LISTEN_PORT})
         self.assertEqual(reply["t"], "endpoints_ok")
 
         a2 = node_state.NodeState(a.base)
@@ -162,6 +177,20 @@ class PhraseJoinTests(JoindBase):
         entry = [m for m in a2.membership if m["name"] == "node-b"][0]
         self.assertEqual(entry["endpoints"], ["127.0.0.1:%d" % port_b])
         self.assertEqual(entry["arch"], "amd64")
+        self.assertEqual(entry["wg_endpoint"],
+                         "10.99.0.2:%d" % joind.WG_LISTEN_PORT)
+
+        # A later refresh without wg_endpoint follows the first endpoint's
+        # host, so the tunnel keeps pointing at the node, not a stale address.
+        reply = await joind.send_command(ep, {
+            "t": "endpoints", "node": "node-b",
+            "endpoints": ["10.0.0.3:%d" % port_b]})
+        self.assertEqual(reply["t"], "endpoints_ok")
+        a2 = node_state.NodeState(a.base)
+        a2.load()
+        entry = [m for m in a2.membership if m["name"] == "node-b"][0]
+        self.assertEqual(entry["wg_endpoint"],
+                         "10.0.0.3:%d" % joind.WG_LISTEN_PORT)
 
     async def test_wrong_phrase_rejected(self):
         port = free_port()
@@ -220,7 +249,9 @@ class InviteJoinTests(JoindBase):
         seed = a.new_invite()
         b_dir, bident = self.joiner("join1")
         ack = await joind.join_invite(ep, seed, bident, "node-b", "arm64",
-                                      ["lxc"])
+                                      ["lxc"],
+                                      wg_endpoint="10.99.1.2:%d"
+                                      % joind.WG_LISTEN_PORT)
         self.assertEqual(sorted(m["name"] for m in ack["membership"]),
                          ["node-a", "node-b"])
         b = node_state.NodeState(b_dir)
@@ -233,7 +264,16 @@ class InviteJoinTests(JoindBase):
         self.assertEqual(b2.derived["cluster_id"], a.derived["cluster_id"])
         self.assertEqual(b2.derived["wg_psk"], a.derived["wg_psk"])
         conf = open(os.path.join(b_dir, "wg0.conf")).read()
-        self.assertIn("Endpoint = %s" % ep, conf)
+        self.assertIn("Endpoint = 127.0.0.1:%d" % joind.WG_LISTEN_PORT, conf)
+        self.assertNotIn("Endpoint = %s" % ep, conf)
+
+        # node-b's WireGuard endpoint is stored on node-a for the reverse
+        # tunnel (node-a -> node-b).
+        a2 = node_state.NodeState(a.base)
+        a2.load()
+        bentry = [m for m in a2.membership if m["name"] == "node-b"][0]
+        self.assertEqual(bentry["wg_endpoint"],
+                         "10.99.1.2:%d" % joind.WG_LISTEN_PORT)
 
         # The invite is single-use: a second node holding the same QR fails.
         c_dir, cident = self.joiner("join1b")
@@ -394,6 +434,15 @@ class MembershipBroadcastTests(JoindBase):
             self.assertEqual(sorted(m["name"] for m in adopted),
                              ["node-a", "node-b", "node-c"])
 
+        # Endpoint refreshes are broadcast cluster-wide, so B learns C's
+        # WireGuard endpoint and can rewrite wg0.conf with both peers.
+        for _ in range(40):
+            await asyncio.sleep(0.05)
+            if any(m["name"] == "node-c" and m.get("wg_endpoint")
+                   for m in b.membership):
+                break
+        joind.write_wg_conf(b)
+
         # B's and C's wg0.conf list the other two peers, each with the PSK.
         for st_dir, me in ((b_dir, bident), (c_dir, cident)):
             with open(os.path.join(st_dir, "wg0.conf")) as fh:
@@ -404,6 +453,17 @@ class MembershipBroadcastTests(JoindBase):
                     continue
                 addr = secret.node_address(PHRASE, other.identity["wg_pub"])
                 self.assertIn("AllowedIPs = %s/128" % addr, conf)
+            # Every [Peer] Endpoint is a WireGuard endpoint (UDP 51820);
+            # a join daemon's TCP port must never appear there.
+            endpoints = [ln.split(" = ", 1)[1]
+                         for ln in conf.splitlines()
+                         if ln.startswith("Endpoint = ")]
+            self.assertEqual(len(endpoints), 2)
+            for e in endpoints:
+                self.assertTrue(e.endswith(":%d" % joind.WG_LISTEN_PORT))
+                self.assertNotIn(":%d" % port_a, e)
+                self.assertNotIn(":%d" % port_b, e)
+                self.assertNotIn(":%d" % port_c, e)
 
         # The 12 words never touch the disk, in any node's scratch dir.
         for d in (a.base, b_dir, c_dir):

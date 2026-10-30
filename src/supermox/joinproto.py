@@ -28,8 +28,14 @@ def _canonical(obj) -> bytes:
 
 
 def make_join_req(derived: dict, identity: dict, name: str, arch: str,
-                  caps: list, now=None) -> bytes:
-    """Encrypt a JOIN_REQ message with the cluster join_key (SecretBox)."""
+                  caps: list, endpoint: str = None,
+                  wg_endpoint: str = None, now=None) -> bytes:
+    """Encrypt a JOIN_REQ message with the cluster join_key (SecretBox).
+
+    wg_endpoint is the joiner's own WireGuard endpoint (host:51820); it is
+    optional on the wire (older nodes do not send it) and is recorded in the
+    new member's entry so wg0.conf can point at it.
+    """
     if now is None:
         now = int(time.time())
     msg = {
@@ -43,6 +49,10 @@ def make_join_req(derived: dict, identity: dict, name: str, arch: str,
         "time": now,
         "nonce": _b64s(os.urandom(16)),
     }
+    if endpoint:
+        msg["endpoints"] = [endpoint]
+    if wg_endpoint:
+        msg["wg_endpoint"] = wg_endpoint
     box = SecretBox(derived["join_key"])
     return box.encrypt(_canonical(msg))
 
@@ -204,7 +214,8 @@ def check_challenge(fp: bytes, ed_pub: bytes, ch: bytes, sig: bytes) -> bool:
 
 def make_invite_req(member_curve_pub: bytes, invite: dict,
                     new_identity: dict, name: str, arch: str,
-                    caps: list) -> bytes:
+                    caps: list, endpoint: str = None,
+                    wg_endpoint: str = None) -> bytes:
     """Encrypt an invite request using a fresh ephemeral X25519 key.
 
     The ephemeral public key is prepended to the ciphertext so the
@@ -224,6 +235,10 @@ def make_invite_req(member_curve_pub: bytes, invite: dict,
         "arch": arch,
         "caps": caps,
     }
+    if endpoint:
+        msg["endpoints"] = [endpoint]
+    if wg_endpoint:
+        msg["wg_endpoint"] = wg_endpoint
 
     box = CurveBox(eph_priv, PublicKey(member_curve_pub))
     ct = box.encrypt(_canonical(msg))
