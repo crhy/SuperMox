@@ -43,8 +43,25 @@ using the same PVE API (`/api2/json`, ticket and CSRF login):
 Served by pveproxy as static files under `/supermox/`; the login redirects there. No new daemon. The top bar has a link to
 "Advanced (full interface)".
 
+## SuperMox Manager (the local desktop app)
+
+People manage SuperMox from a desktop app, not a browser tab.
+
+- `supermox-manager`: Python 3 + GTK 3 + WebKitGTK (`gir1.2-webkit2-4.1`, all in Devuan), packaged as a .deb, with a
+  menu entry and the SuperMox icon in the Spaced desktop's menu and panel.
+- It opens one window with the SuperMox (PVE-based) interface of the local node, `https://127.0.0.1:8006/`: SuperMox
+  Home once it exists, the dark-themed full interface until then. A node picker in the header bar switches to any
+  other member, using its overlay address from the membership list.
+- It accepts only the node's own TLS certificate. It reads the fingerprint from `/etc/pve/local/pveproxy-ssl.pem` (or
+  `pve-ssl.pem`) and allows exactly that certificate for that host (WebKit's `allow_tls_certificate_for_host`), so there
+  is no "unsafe certificate" page and no blanket ignoring of certificate errors. For remote members, the fingerprint
+  comes from the signed membership list.
+- Login is PVE's own (PAM realm by default). The app keeps nothing on disk except window size and the last node.
+- It never needs a browser installed, and works the same on every architecture.
+
 ## Build order
 
 1. `branding-assets.sh`, the `supermox-ui` package with `theme-supermox-dark.css`, and the pve-manager theme-default and
    rebranding patches.
-2. SuperMox Home: the read-only dashboard first (devices, guests, files), then actions, then add a device.
+2. SuperMox Manager (local app) showing the dark-themed interface.
+3. SuperMox Home: the read-only dashboard first (devices, guests, files), then actions, then add a device.
