@@ -9,6 +9,9 @@ VM_DIR="${SUPERMOX_VM_DIR:-/media/rhy/data/supermox-vm}"
 VM_RAM="${SUPERMOX_VM_RAM:-4096}"
 VM_CPUS="${SUPERMOX_VM_CPUS:-4}"
 VM_SSH_PORT="${SUPERMOX_VM_SSH_PORT:-2223}"
+# Optional extra hostfwd entries (comma-separated tcp:127.0.0.1:HOSTPORT-:GUESTPORT),
+# e.g. to expose the node's pveproxy port to the host for the desktop Manager's live tests.
+VM_FWD="${SUPERMOX_VM_FWD:-}"
 
 dry_run=0
 background=0
@@ -40,6 +43,18 @@ else
   cmd+=(-cpu max)
 fi
 
+nic="user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:${VM_SSH_PORT}-:22"
+if [ -n "$VM_FWD" ]; then
+  IFS=',' read -ra fwd_entries <<< "$VM_FWD"
+  for entry in "${fwd_entries[@]}"; do
+    if [[ ! "$entry" =~ ^tcp:127\.0\.0\.1:[0-9]+-:[0-9]+$ ]]; then
+      printf 'ERROR: invalid SUPERMOX_VM_FWD entry: %s (want tcp:127.0.0.1:HOSTPORT-:GUESTPORT)\n' "$entry" >&2
+      exit 2
+    fi
+    nic+=",hostfwd=$entry"
+  done
+fi
+
 cmd+=(
   -m "$VM_RAM"
   -smp "$VM_CPUS"
@@ -47,7 +62,7 @@ cmd+=(
   -initrd "$VM_DIR/initrd.img"
   -append "root=/dev/vda rw console=$console net.ifnames=0"
   -drive "file=$VM_DIR/rootfs.img,format=raw,if=virtio"
-  -nic "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:${VM_SSH_PORT}-:22"
+  -nic "$nic"
 )
 
 if [ "$background" -eq 1 ]; then
