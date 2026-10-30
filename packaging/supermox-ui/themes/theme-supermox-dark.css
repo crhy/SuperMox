@@ -1,0 +1,212 @@
+/* SuperMox dark theme.
+ * Derived from proxmox-widget-toolkit's theme-proxmox-dark.css (AGPL-3.0,
+ * upstream Proxmox VE code): selectors, layout and behaviour are upstream's,
+ * every colour value is replaced with the SuperMox palette from
+ * docs/ui-and-branding.md (background #092b32, deep #07252c, ink #12373b,
+ * text #eef5ef, muted #a4bcb9, accent teal #35d8b0, lines #ffffff20).
+ */
+:root{--pwt-panel-background: #092b32;--pwt-text-color: #eef5ef;--pwt-gauge-default: #1fae90;--pwt-gauge-back: #12373b;--pwt-gauge-warn: #ffae0b;--pwt-gauge-crit: #ce3c3c;--pwt-chart-primary: #1fae90;--pwt-chart-grid-stroke: #457176}
+.x-legend-container{background-color:#12373b}
+.x-legend-horizontal .x-legend-item{background-color:#12373b;color:#eef5ef;border-top:solid 1px #07252c;border-right:solid 1px #07252c;border-bottom:solid 1px #07252c}
+.x-legend-horizontal .x-legend-item:first-child{border-left:solid 1px #07252c}
+.x-tool .x-mask{backdrop-filter:none;background-color:#12373b;opacity:0.6}
+.x-grid-icon-custom.running,.x-tree-icon-custom.running,.x-tree-icon-custom,.fa-database::before,.fa-tags::before,.fa-file-o::before,.fa-building::before,.x-action-col-icon::before,.fa-shield::before,.fa-file-text-o::before,.fa-clock-o::before,.x-tab-icon-el-default,.pve-icon-verify-lettering::after,.x-tree-icon-custom.lock-migrate::after,.x-grid-icon-custom.lock-migrate::after,.x-tree-icon-leaf:not(.x-tree-icon-custom)::before,.x-tree-icon-parent:not(.x-tree-icon-custom)::before,.x-tree-icon-parent-expanded:not(.x-tree-icon-custom)::before,.x-grid-filters-filtered-column .x-column-header-text::after{color:#d8e8e2}
+.x-tree-icon-parent:not(.x-tree-icon-custom)::before,.x-tree-icon-parent-expanded:not(.x-tree-icon-custom)::before{filter:invert(90%)}
+.fa-ceph::before,.fa-sdn::before,.fa-network-wired::before,.pve-itype-treelist-item-icon-cdrom,.fa-chevron-right::before,.x-grid-row-console,.x-box-scroller-toolbar-default.x-box-scroller,.x-tree-elbow-img,.pve-itype-icon-qemu,.x-tree-node-computer,.x-grid-tree-node-expanded .x-tree-node-computer,.pbs-icon-tape,.pbs-icon-tape-drive,.x-tree-icon-leaf:not(.x-tree-icon-custom),.x-tree-icon-parent:not(.x-tree-icon-custom),.x-tree-icon-parent-expanded:not(.x-tree-icon-custom){filter:invert(90%)}
+.pve-itype-icon-cpu,.pve-itype-icon-cdrom,.pve-itype-icon-memory,.pve-itype-icon-pci,.pve-itype-icon-serial,.pve-itype-icon-die,.pmx-itype-icon-processor,.pmx-itype-icon-memory,.pve-itype-icon-storage,.x-tree-node-harddisk,.x-grid-tree-node-expanded .x-tree-node-harddisk{filter:invert(90%)}
+.pve-itype-icon-cpu .x-grid-cell-inner,.pve-itype-icon-cdrom .x-grid-cell-inner,.pve-itype-icon-memory .x-grid-cell-inner,.pve-itype-icon-pci .x-grid-cell-inner,.pve-itype-icon-serial .x-grid-cell-inner,.pve-itype-icon-die .x-grid-cell-inner,.pmx-itype-icon-processor .x-grid-cell-inner,.pmx-itype-icon-memory .x-grid-cell-inner,.pve-itype-icon-storage .x-grid-cell-inner,.x-tree-node-harddisk .x-grid-cell-inner,.x-grid-tree-node-expanded .x-tree-node-harddisk .x-grid-cell-inner{color:black}
+.x-keyboard-mode .pve-itype-icon-cpu.x-grid-item-focused,.x-keyboard-mode .pve-itype-icon-cdrom.x-grid-item-focused,.x-keyboard-mode .pve-itype-icon-memory.x-grid-item-focused,.x-keyboard-mode .pve-itype-icon-pci.x-grid-item-focused,.x-keyboard-mode .pve-itype-icon-serial.x-grid-item-focused,.x-keyboard-mode .pve-itype-icon-die.x-grid-item-focused,.x-keyboard-mode .pmx-itype-icon-processor.x-grid-item-focused,.x-keyboard-mode .pmx-itype-icon-memory.x-grid-item-focused,.x-keyboard-mode .pve-itype-icon-storage.x-grid-item-focused,.x-keyboard-mode .x-tree-node-harddisk.x-grid-item-focused,.x-keyboard-mode .x-grid-tree-node-expanded .x-tree-node-harddisk.x-grid-item-focused{background-color:#96b4b2}
+.x-keyboard-mode .pve-itype-icon-cpu.x-grid-item-focused .x-grid-cell-inner::before,.x-keyboard-mode .pve-itype-icon-cdrom.x-grid-item-focused .x-grid-cell-inner::before,.x-keyboard-mode .pve-itype-icon-memory.x-grid-item-focused .x-grid-cell-inner::before,.x-keyboard-mode .pve-itype-icon-pci.x-grid-item-focused .x-grid-cell-inner::before,.x-keyboard-mode .pve-itype-icon-serial.x-grid-item-focused .x-grid-cell-inner::before,.x-keyboard-mode .pve-itype-icon-die.x-grid-item-focused .x-grid-cell-inner::before,.x-keyboard-mode .pmx-itype-icon-processor.x-grid-item-focused .x-grid-cell-inner::before,.x-keyboard-mode .pmx-itype-icon-memory.x-grid-item-focused .x-grid-cell-inner::before,.x-keyboard-mode .pve-itype-icon-storage.x-grid-item-focused .x-grid-cell-inner::before,.x-keyboard-mode .x-tree-node-harddisk.x-grid-item-focused .x-grid-cell-inner::before,.x-keyboard-mode .x-grid-tree-node-expanded .x-tree-node-harddisk.x-grid-item-focused .x-grid-cell-inner::before{border-color:#e69962}
+.fa.black,.fa.black::after,.fa.black::before,.x-action-col-icon.fa-chevron-right::before{filter:none}
+.x-tree-arrows .x-tree-expander{filter:brightness(200%)}
+.x-tree-arrows .x-tree-expander-over .x-tree-expander{filter:brightness(0)}
+.x-form-checkbox-default,.x-form-radio-default,.x-column-header-checkbox .x-column-header-checkbox::after,.x-grid-checkcolumn::after,.x-menu-item-checked .x-menu-item-icon-default.x-menu-item-checkbox,.x-menu-item-unchecked .x-menu-item-icon-default.x-menu-item-checkbox{filter:invert(90%) hue-rotate(180deg) brightness(125%)}
+.x-tree-icon-custom,.x-grid-icon-custom{color:#d8e8e2}
+.x-tree-icon-custom::after,.x-grid-icon-custom::after{color:#d8e8e2;text-shadow:-1px 0 1px #092b32}
+.x-tree-icon-custom.stopped,.x-tree-icon-custom.offline,.x-tree-icon-custom.unknown::after,.x-grid-icon-custom.stopped,.x-grid-icon-custom.offline,.x-grid-icon-custom.unknown::after{color:#7fa3a3}
+.x-tree-icon-custom.locked::after,.x-grid-icon-custom.locked::after{color:#d8e8e2}
+.x-tree-icon-custom.lxc::after,.x-tree-icon-custom.qemu::after,.x-grid-icon-custom.lxc::after,.x-grid-icon-custom.qemu::after{background-color:#092b32;color:#d8e8e2}
+.pmx-tree-icon-custom::after{text-shadow:-1px 0 1px #092b32}
+.pmx-tree-icon-custom.maintenance::before{color:#7fa3a3}
+.pmx-tree-icon-custom.maintenance::after{color:#d8e8e2}
+.x-treelist-item-icon.lxc::after,.x-treelist-item-icon.qemu::after{background-color:#092b32;color:#d8e8e2}
+.x-grid-item .x-grid-icon-custom.lxc::after,.x-grid-item .x-grid-icon-custom.qemu::after{background-color:#092b32}
+.x-grid-item-alt .x-grid-icon-custom.lxc::after,.x-grid-item-alt .x-grid-icon-custom.qemu::after{background-color:#07252c}
+.x-treelist-item-selected .lxc::after,.x-treelist-item-selected .qemu::after{background-color:#1fae90;text-shadow:-1px 0 1px #1fae90}
+.x-grid-item-over .lxc::after,.x-grid-item-over .qemu::after,.x-treelist-item-over .lxc::after,.x-treelist-item-over .qemu::after,.x-grid-item-selected .lxc::after,.x-grid-item-selected .qemu::after,.x-keyboard-mode .x-grid-item-focused .lxc::after,.x-keyboard-mode .x-grid-item-focused .qemu::after{background-color:#4f7c80 !important;text-shadow:-1px 0 1px #4f7c80}
+.x-action-col-icon:hover::before,.x-action-col-icon:hover::after{text-shadow:-1px 0 1px #092b32}
+.fa.black{color:#d8e8e2}
+.usage-wrapper{border:1px solid #d8e8e2}
+.usage-negative{background-color:transparent}
+.usage{background-color:#d8e8e2}
+.x-btn-default-small{background-color:#1fae90;border-color:#1fae90}
+.x-btn-default-small.x-btn-over,.x-keyboard-mode .x-btn-default-small.x-btn-focus{background-color:#18b894;border-color:#18b894}
+.x-btn-default-small.x-btn.x-btn-disabled{background-color:#1fae90}
+.x-btn-default-small.x-btn.x-btn-pressed{background-color:#0d6b5c;border-color:#1fae90}
+.x-btn-default-toolbar-small{background-color:#3a666c;border-color:#4f7c80}
+.x-btn-default-toolbar-small .x-btn-inner-default-toolbar-small{color:#eef5ef}
+.x-btn-default-toolbar-small .x-btn-icon-el-default-toolbar-small{color:#eef5ef}
+.x-btn-default-toolbar-small .x-btn-wrap-default-toolbar-small.x-btn-arrow-right::after,.x-btn-default-toolbar-small .x-btn-wrap-default-toolbar-small.x-btn-split-right::after{filter:brightness(150%)}
+.x-btn-default-toolbar-small.x-btn-over,.x-keyboard-mode .x-btn-default-toolbar-small.x-btn-focus{background-color:#4f7c80;border-color:#4f7c80}
+.x-btn-default-toolbar-small.x-btn.x-btn-disabled{background-color:#3a666c}
+.x-btn-default-toolbar-small.x-btn.x-btn-menu-active,.x-btn-default-toolbar-small.x-btn.x-btn-pressed{background-color:#0d6b5c;border-color:#1fae90}
+.x-form-trigger-default{background-color:#12373b}
+.x-boundlist{background-color:#12373b;border-color:#12373b}
+.x-boundlist-item{background-color:#12373b;border-color:#12373b;color:#eef5ef}
+.x-boundlist-selected{background-color:#3f6d73}
+.x-boundlist-item-over{background-color:#4f7c80}
+.x-form-display-field-default{color:#eef5ef}
+.x-form-text-default{background-color:#12373b;color:#eef5ef}
+.x-form-trigger-wrap-default{border-color:#12373b}
+.x-form-trigger-wrap-default.x-form-trigger-wrap-focus{border-color:#0c7a66}
+.x-form-item-label-default{color:#eef5ef}
+.x-form-spinner-default{background-color:#12373b}
+.x-form-cb-label-default{color:#d8e8e2}
+.x-fieldset-default{border-color:#3a666c}
+.x-column-header{border-color:#3a666c}
+.x-grid-item,.x-column-header-default,.x-grid-cell-row-numberer{color:#eef5ef;background-color:#092b32}
+.x-column-header-trigger{border-color:#5f8b8e}
+.x-grid-cell-special{border-color:#3a666c}
+.x-grid-group-hd{background-color:#092b32;border-color:#3a666c}
+.x-grid-group-title{color:#eef5ef}
+.x-grid-header-ct{border:solid 1px #12373b;background-color:#12373b}
+.x-grid-item-alt{background-color:#07252c}
+.x-grid-with-row-lines .x-grid-item{border-color:#3a666c;border-right:0}
+.x-grid-with-row-lines .x-grid-item:last-child{border-color:#3a666c}
+.x-grid-with-row-lines .x-grid-item:first-child{border-color:#3a666c}
+.x-grid-with-row-lines .x-grid-item.x-grid-item-over,.x-grid-with-row-lines .x-grid-item.x-grid-item-selected{background-color:#4f7c80;border-color:#3a666c}
+.x-grid-with-row-lines .x-grid-item-selected+.x-grid-item,.x-grid-with-row-lines .x-grid-item-over+.x-grid-item{border-color:#3a666c}
+.x-grid-item-over,.x-grid-item-selected{background-color:#4f7c80}
+.x-column-header-over,.x-column-header-open,.x-column-header-last .x-column-header-over .x-column-header-trigger{background-color:#457176}
+.x-column-header-sort-ASC,.x-column-header-sort-DESC{background-color:#0b3a3f}
+.x-grid-row-summary .x-grid-cell,.x-grid-row-summary .x-grid-rowwrap,.x-grid-row-summary .x-grid-cell-rowbody{background-color:#092b32 !important;border-color:#3a666c}
+.x-grid-with-col-lines .x-grid-cell,.x-grid-with-col-lines .x-grid-item-over .x-grid-cell,.x-grid-with-col-lines .x-grid-item-selected .x-grid-cell{border-color:#3a666c}
+.x-dd-drag-proxy{background-color:#07252c;border-color:#3a666c;color:#eef5ef}
+.x-keyboard-mode .x-grid-item-focused{background-color:#4f7c80;color:#f4f8f6}
+.x-keyboard-mode .x-grid-item-focused .x-grid-cell-inner::before{border-color:#1fae90}
+.x-keyboard-mode .x-column-header.x-column-header-focus{color:#eef5ef}
+.x-keyboard-mode .x-column-header.x-column-header-focus .x-column-header-inner::after{border-color:#1fae90}
+.x-keyboard-mode .proxmox-invalid-row .x-grid-item-focused{background-color:#521414}
+.x-grid-empty{background-color:#092b32;color:#eef5ef}
+.x-menu-default{border-color:#12373b}
+.x-menu-body-default{background-color:#12373b}
+.x-menu-header{background-color:#1fae90}
+.x-menu-item-default.x-menu-item-separator{background-color:#12373b;border-color:#5f8b8e}
+.x-menu-item-default.x-menu-item-focus,.x-menu-item-default.x-menu-item-active{background-color:#4f7c80;color:#f4f8f6}
+.x-menu-item-text-default{color:#eef5ef}
+.x-menu-item-icon-default{color:#d8e8e2}
+.x-menu-icon-separator-default{background-color:#12373b;border-color:#5f8b8e}
+.x-panel-header-default{background-color:#12373b;border:none}
+.x-panel-header-default .x-tool-tool-el{background-color:transparent}
+.x-tool-img{filter:brightness(175%)}
+.x-tool-img.x-tool-expand,.x-tool-img.x-tool-collapse,.x-tool-img.x-tool-refresh{filter:brightness(125%)}
+.x-tool-img.x-tool-print{filter:invert(100%) hue-rotate(180deg) brightness(125%)}
+.x-tool-over .x-tool-img{filter:brightness(200%)}
+.x-tool-over .x-tool-img.x-tool-expand,.x-tool-over .x-tool-img.x-tool-collapse,.x-tool-over .x-tool-img.x-tool-refresh{filter:brightness(150%)}
+.x-tool-over .x-tool-img.x-tool-print{filter:invert(100%) hue-rotate(180deg) brightness(150%)}
+.x-panel-header-title-default{color:#7fe8d0}
+.x-panel-body-default{background-color:#092b32;border-color:#3a666c;color:#eef5ef}
+div[id^="pveResourceTree-"][id$="-body"]{border-color:#092b32}
+.x-progress-default{background-color:#12373b}
+.x-progress-default .x-progress-bar-default{background-color:#1fae90}
+.x-progress-default .x-progress-text{color:#eef5ef}
+.x-progress.warning .x-progress-bar{background-color:var(--pwt-gauge-warn)}
+.x-progress.critical .x-progress-bar{background-color:var(--pwt-gauge-crit)}
+.x-splitter{background-color:#07252c}
+.x-splitter-horizontal{background-color:#051b20}
+.x-keyboard-mode .x-splitter-focus::after{border-color:#1fae90}
+.x-layout-split-bottom{opacity:0.7}
+.x-tab-bar-default{background-color:#092b32}
+.x-tab-default.x-tab-over{background-color:#0d6b5c;border-color:#0d6b5c}
+.x-tab-default.x-tab.x-tab-active{background-color:#18b894;border-color:#18b894}
+.x-tab-default.x-tab.x-tab-disabled{background-color:#092b32;border-color:transparent;color:#eef5ef}
+.x-keyboard-mode .x-tab-default.x-tab-focus,.x-keyboard-mode .x-tab-default.x-tab-focus.x-tab-over,.x-keyboard-mode .x-tab-default.x-tab-focus.x-tab-active{background-color:#1fae90;border-color:#1fae90}
+.x-tab-default-top{background-color:#092b32;border-color:#092b32}
+.x-tab-inner-default{color:#eef5ef}
+.x-tip-default{background-color:#07252c;border-color:#3a666c}
+.x-tip-body-default{color:#eef5ef}
+.x-tip-form-invalid{background-color:#12373b;border-color:#3a666c}
+.x-tip-body-form-invalid{color:#eef5ef}
+.x-toolbar{background-color:#092b32}
+.x-toolbar-default{background-color:#092b32;border-color:#3a666c}
+.x-toolbar-default.x-docked-top{border-width:1px;border-color:#3a666c}
+.x-toolbar-default .x-toolbar-separator{border-color:#5f8b8e}
+.x-toolbar-text-default{color:#eef5ef}
+.x-treelist-item{background-color:#092b32}
+.x-treelist-item-text,.x-treelist-item-icon,.x-treelist-row-over .x-treelist-item-icon,.x-treelist-row-over .x-treelist-item-text{color:#eef5ef}
+.x-treelist-item-selected>.x-treelist-row{background-color:#1fae90}
+.x-treelist-row-over{background-color:#4f7c80}
+.x-treelist-pve-nav{background-color:#092b32;border-color:#5f8b8e}
+.x-window-default{background-color:#07252c;border-color:transparent}
+.x-window-header-default{background-color:#092b32;border-color:transparent}
+.x-window-header-default .x-mask{background-color:rgba(9,43,50,0.7)}
+.x-window-header-title-default{color:#7fe8d0}
+.x-window-body-default{background-color:#092b32;border-color:#3a666c;color:#eef5ef}
+.x-window-ghost{background-color:#092b32}
+.x-window-header-default .x-tool-img{background-color:transparent}
+.x-message-box .x-window-body{background-color:#12373b}
+:root{color-scheme:dark}
+.x-body{color:#eef5ef;background-color:#07252c}
+.x-viewport>.x-body{background-color:#07252c}
+body.x-border-layout-ct,div.x-border-layout-ct{background-color:#07252c}
+.x-mask{background-color:rgba(9,43,50,0.5)}
+.x-css-shadow{box-shadow:black 0 -1px 15px 5px !important}
+img[id^="proxmoxlogo-"][id$="-img"]{filter:invert(1) hue-rotate(180deg)}
+img[id^="proxmoxLogoSvg-"][id$="-img"]{filter:invert(1) hue-rotate(180deg)}
+div[id^="versioninfo-"]+div[id^="panel-"]>div[id^="panel-"][id$="-bodyWrap"]>div,div.eol-notice+div[id^="panel-"]>div[id^="panel-"][id$="-bodyWrap"]>div{background-color:transparent;border-color:transparent}
+.x-fieldset-header-default>.x-fieldset-header-text{color:#eef5ef}
+.proxmox-invalid-row{background-color:#521414}
+.proxmox-warning-row{background-color:#640}
+.proxmox-disabled-row td{color:#8faeac}
+.pmx-hint{background-color:#640}
+.pmx-hint a{color:#a9f0dd}
+.pmx-hint a:active{color:#7fe8d0}
+.pmx-unclickable{pointer-events:none}
+.pmx-journal-prio-0,.pmx-journal-prio-1,.pmx-journal-prio-2,.pmx-journal-prio-3{color:#ff7a7a}
+.pmx-journal-prio-4{color:#ffb454}
+.pmx-journal-prio-7,.pmx-journal-reboot{color:#9fc0be}
+.proxmox-inline-button{background-color:#9ab8b6;border-color:#a4bcb9;color:#07252c}
+.proxmox-inline-button.x-btn-over,.proxmox-inline-button.x-btn.x-btn-pressed.x-btn-default-toolbar-small,.x-keyboard-mode .proxmox-inline-button.x-btn-default-toolbar-small.x-btn-focus{background-color:#a4bcb9;border-color:#a4bcb9}
+.proxmox-inline-button .x-btn-inner,.proxmox-inline-button .x-btn-icon-el{color:#07252c}
+.x-grid-row-loading,.x-treelist-item-loading .x-treelist-item-icon,.x-treelist-nav .x-treelist-item-loading .x-treelist-item-icon,.x-mask-msg-text,.x-grid-tree-loading .x-tree-icon{filter:invert(90%);color:black}
+.x-keyboard-mode .x-grid-item-focused.x-grid-row-loading{background-color:#96b4b2}
+.x-keyboard-mode .x-grid-item-focused.x-grid-row-loading .x-grid-cell-inner::before{border-color:#e69962 !important}
+.x-mask-msg{background-color:#12373b;border:solid 1px #3a666c}
+.pmx-md code{background-color:#07252c}
+.pmx-md pre code{border-color:#3a666c}
+.pmx-md tbody tr td{border-color:#5f8b8e}
+.pmx-md tbody tr:nth-of-type(2n){background-color:#07252c}
+.pmx-md tbody tr:hover td{background-color:#457176}
+.pmx-md a{color:#7fe8d0}
+.pmx-md a:active{color:#a9f0dd}
+.proxmox-apt-repos .x-grid-group-hd{background-color:#07252c;border-color:#3a666c}
+.proxmox-apt-repos .x-grid-group-title{color:#eef5ef}
+:root{--pmg-spam-high-neg: #0a3a42;--pmg-spam-high-pos: #4f1717;--pmg-spam-mid-neg: #0f5f57;--pmg-spam-mid-pos: #722;--pmg-spam-low-neg: #12776a;--pmg-spam-low-pos: #9e2e2e}
+.info-blue{color:#7fe8d0 !important}
+.critical{color:#ff4d4d !important}
+tr.blocked,.x-keyboard-mode tr.blocked .x-grid-item-focused{background-color:#521414}
+tr.quarantine,.x-keyboard-mode tr.quarantine .x-grid-item-focused{background-color:#5c2c0a}
+tr.bounced,.x-keyboard-mode tr.bounced .x-grid-item-focused{background-color:#640}
+.pmg-mail-preview-themed div>iframe{filter:brightness(95%) invert(95%)}
+table.osds tr{border-color:#5f8b8e}
+table.osds td{border-color:#5f8b8e}
+.install-mask{background-color:#092b32;color:#eef5ef}
+.x-window.install-mask{box-shadow:black 0 -1px 5px 1px !important}
+div.monitor{border-color:#5f8b8e}
+.pve-edit-tag.editable span{background-color:#12373b;color:#eef5ef;border-color:#5f8b8e}
+.proxmox-tags-full .proxmox-tag-light,.proxmox-tags-full .proxmox-tag-dark,.proxmox-tags-circle .proxmox-tag-light,.proxmox-tags-circle .proxmox-tag-dark{outline:1px solid rgba(18,55,59,0.3)}
+.x-datepicker,.x-datepicker-column-header,.x-monthpicker{background-color:#092b32;color:#eef5ef;border-color:transparent}
+.x-datepicker-month .x-btn-over.x-btn-default-small{background-color:#4f7c80}
+.x-monthpicker-months{border-color:#3a666c}
+.x-datepicker-header{background-color:#07252c}
+.x-datepicker-cell,.x-monthpicker-item-inner{border-color:transparent}
+.x-datepicker-date,.x-monthpicker-item-inner{color:#eef5ef}
+.x-datepicker-prevday .x-datepicker-date,.x-datepicker-nextday .x-datepicker-date{color:#8faeac}
+.x-datepicker-footer,.x-monthpicker-buttons{background-color:#07252c}
+.x-datepicker-selected div.x-datepicker-date,.x-monthpicker-item a.x-monthpicker-selected,a.x-monthpicker-item-inner:hover,div.x-datepicker-date:hover{background-color:#4f7c80;color:#f4f8f6}
+.x-datepicker-disabled .x-datepicker-date{background-color:#07252c}
+.x-datepicker-disabled div.x-datepicker-date:hover{background-color:#092b32}
+
+
+/* SuperMox accents: charts and gauges carry the brand teal. */
+:root{--pwt-gauge-default:#35d8b0;--pwt-chart-primary:#35d8b0}
