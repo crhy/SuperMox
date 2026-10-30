@@ -1,0 +1,12 @@
+supermox-ui (10.26) supermox; urgency=medium
+
+  * Initial release: SuperMox web UI assets.
+  * Install the SuperMox dark theme (theme-supermox-dark.css) into the
+    widget toolkit themes directory so pveproxy serves it at
+    /pwt/themes/theme-supermox-dark.css.
+  * Render the SuperMox logo (256px) and favicon (48px) PNGs from the
+    SuperMox symbol SVG (staged by scripts/vm-build-pkg.sh, the same asset
+    scripts/branding-assets.sh renders) and install them under
+    /usr/share/supermox-ui/images/, served by pveproxy at /supermox/.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 29 Oct 2026 05:00:00 +0000

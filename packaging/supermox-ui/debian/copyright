@@ -1,0 +1,11 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: supermox-ui
+Upstream-Contact: SuperMox <noreply@supermox.me>
+Source: https://git.supermox.me/supermox
+
+Files: *
+Copyright: SuperMox contributors
+License: AGPLv3
+Comment: Our own packaging and branding assets. The dark theme CSS is a
+ recolour of the widget toolkit theme (upstream PXVIRT, AGPLv3); SuperMox
+ is a fork of PXVIRT (AGPLv3) and our additions are AGPLv3 as well.

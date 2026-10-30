@@ -1,0 +1,19 @@
+Source: supermox-ui
+Section: admin
+Priority: secondary
+Maintainer: SuperMox <noreply@supermox.me>
+Standards-Version: 4.6.2
+Build-Depends: debhelper-compat (= 13), rsvg-convert, imagemagick
+Rules-Requires-Root: no
+Homepage: https://supermox.org
+
+Package: supermox-ui
+Architecture: all
+Depends: proxmox-widget-toolkit,
+         ${misc:Depends}
+Description: SuperMox web UI assets (dark theme, logo, favicon)
+ Installs the SuperMox dark theme for the widget toolkit and the SuperMox
+ logo and favicon that pveproxy serves. The theme CSS is dropped into the
+ widget toolkit themes directory (served at /pwt/themes/ as theme-supermox-
+ dark.css) and the logo and favicon PNGs, rendered from the SuperMox symbol
+ SVG, into /usr/share/supermox-ui/images/ (served at /supermox/).

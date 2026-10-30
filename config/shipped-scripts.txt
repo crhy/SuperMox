@@ -27,3 +27,9 @@ supermox-manager src/supermox_manager/logic.py usr/lib/python3/dist-packages/sup
 supermox-manager src/supermox_manager/app.py usr/lib/python3/dist-packages/supermox_manager/app.py
 # Scalable app icon; debian/rules renders the PNG sizes from it.
 supermox-manager website/assets/supermox-symbol.svg usr/share/icons/hicolor/scalable/apps/supermox-manager.svg
+# SuperMox symbol for the web logo and favicon; debian/rules runs the staged
+# branding-assets.sh on it to render the PNGs (same asset scripts/branding-assets.sh
+# exports for the website). Both the script and the SVG are staged into the package
+# build; branding-assets.sh resolves the SVG relative to its own ../.
+supermox-ui scripts/branding-assets.sh scripts/branding-assets.sh
+supermox-ui website/assets/supermox-symbol.svg website/assets/supermox-symbol.svg

@@ -1,0 +1,82 @@
+diff -ruN orig/PVE/Service/pveproxy.pm new/PVE/Service/pveproxy.pm
+--- a/PVE/Service/pveproxy.pm	2026-10-28 13:16:12.760373444 -0700
++++ b/PVE/Service/pveproxy.pm	2026-10-30 00:41:21.287253035 -0700
+@@ -91,6 +91,7 @@
+     add_dirs($dirs, '/pwt/css/' => "$basedirs->{widgettoolkit}/css/");
+     add_dirs($dirs, '/pwt/images/' => "$basedirs->{widgettoolkit}/images/");
+     add_dirs($dirs, '/pwt/themes/' => "$basedirs->{widgettoolkit}/themes/");
++    add_dirs($dirs, '/supermox/' => '/usr/share/supermox-ui/images/');
+     add_dirs($dirs, '/xtermjs/' => "$basedirs->{xtermjs}/");
+     add_dirs($dirs, '/yew-mobile/', "$basedirs->{yew_mobile}/");
+     add_dirs($dirs, '/yew-mobile/i18n/', "$basedirs->{i18n_yew}/");
+@@ -209,7 +210,8 @@
+     my $lang;
+     my $username;
+     my $token = 'null';
+-    my $theme = "auto";
++    # SuperMox default theme when the browser sends no PVEThemeCookie.
++    my $theme = "supermox-dark";
+ 
+     if (my $cookie = $r->header('Cookie')) {
+         if (my $newlang = ($cookie =~ /(?:^|\s)PVELangCookie=([^;]*)/)[0]) {
+diff -ruN orig/www/index.html.tpl new/www/index.html.tpl
+--- a/www/index.html.tpl	2026-10-28 13:16:12.761278289 -0700
++++ b/www/index.html.tpl	2026-10-30 00:41:08.816146730 -0700
+@@ -4,9 +4,9 @@
+     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+     <meta http-equiv="X-UA-Compatible" content="IE=edge">
+     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+-    <title>[% nodename %] - Proxmox Virtual Environment</title>
+-    <link rel="icon" sizes="128x128" href="/pve2/images/logo-128.png" />
+-    <link rel="apple-touch-icon" sizes="128x128" href="/pve2/images/logo-128.png" />
++    <title>[% nodename %] - SuperMox</title>
++    <link rel="icon" sizes="256x256" href="/supermox/logo.png" />
++    <link rel="apple-touch-icon" sizes="256x256" href="/supermox/logo.png" />
+     <link rel="stylesheet" type="text/css" href="/pve2/ext6/theme-crisp/resources/theme-crisp-all.css?ver=7.0.0" />
+     <link rel="stylesheet" type="text/css" href="/pve2/ext6/crisp/resources/charts-all.css?ver=7.0.0" />
+     <link rel="stylesheet" type="text/css" href="/pve2/fa/css/font-awesome.css" />
+diff -ruN orig/www/manager6/window/LoginWindow.js new/www/manager6/window/LoginWindow.js
+--- a/www/manager6/window/LoginWindow.js	2026-10-28 13:16:12.774600362 -0700
++++ b/www/manager6/window/LoginWindow.js	2026-10-30 00:41:29.219763698 -0700
+@@ -349,7 +349,7 @@
+     resizable: false,
+     layout: 'auto',
+ 
+-    title: gettext('Proxmox VE Login'),
++    title: gettext('SuperMox Login'),
+ 
+     defaultFocus: 'usernameField',
+     defaultButton: 'loginButton',
+diff -ruN orig/www/manager6/Workspace.js new/www/manager6/Workspace.js
+--- a/www/manager6/Workspace.js	2026-10-28 13:16:12.761278289 -0700
++++ b/www/manager6/Workspace.js	2026-10-30 00:41:27.258359410 -0700
+@@ -9,7 +9,7 @@
+ Ext.define('PVE.Workspace', {
+     extend: 'Ext.container.Viewport',
+ 
+-    title: 'Proxmox Virtual Environment',
++    title: 'SuperMox',
+ 
+     loginData: null, // Data from last login call
+ 
+@@ -207,9 +207,9 @@
+ 
+         if (PVE.VersionInfo) {
+             let version = PVE.VersionInfo.version;
+-            ui.update('Virtual Environment ' + version);
++            ui.update('SuperMox ' + version);
+         } else {
+-            ui.update('Virtual Environment');
++            ui.update('SuperMox');
+         }
+         ui.updateLayout();
+     },
+@@ -345,7 +345,7 @@
+                         {
+                             minWidth: 150,
+                             id: 'versioninfo',
+-                            html: 'Virtual Environment',
++                            html: 'SuperMox',
+                             padding: '0 5',
+                             style: {
+                                 'font-size': '16px',

@@ -1,3 +1,11 @@
+supermox-ve (0.1.10) unstable; urgency=medium
+
+  * Depend on supermox-ui: the SuperMox dark theme, logo and favicon that
+    the patched pve-manager web UI loads by default (theme supermox-dark
+    when no theme cookie is set, logo and favicon served at /supermox/).
+
+ -- SuperMox <noreply@supermox.me>  Thu, 29 Oct 2026 05:00:00 +0000
+
 supermox-ve (0.1.9) supermox; version 0.1.9
 -- rhy <rhy@supermox.org>  Mon, 01 Sep 2025 00:00:00 +0000
 supermox-ve (0.1.8) unstable; urgency=medium

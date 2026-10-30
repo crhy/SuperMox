@@ -1,0 +1,29 @@
+#!/usr/bin/make -f
+# SuperMox web UI assets.
+#
+# scripts/branding-assets.sh and the SuperMox symbol SVG are staged into the
+# package build by scripts/vm-build-pkg.sh (see config/shipped-scripts.txt).
+# This rules file runs branding-assets.sh to render the logo and favicon PNGs,
+# installs them under /usr/share/supermox-ui/images/ (served by pveproxy at
+# /supermox/), and installs the dark theme CSS into the widget toolkit themes
+# directory (served at /pwt/themes/).
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	# render the branding PNGs with the staged branding-assets.sh: it resolves
+	# the symbol SVG relative to its own ../ and writes the sizes into the
+	# output dir given as its first argument.
+	bash scripts/branding-assets.sh build-branding
+	install -d debian/supermox-ui/usr/share/supermox-ui/images
+	install -m 0644 build-branding/logo-256.png \
+	    debian/supermox-ui/usr/share/supermox-ui/images/logo.png
+	install -m 0644 build-branding/favicon-48.png \
+	    debian/supermox-ui/usr/share/supermox-ui/images/favicon.png
+	install -m 0644 website/assets/supermox-symbol.svg \
+	    debian/supermox-ui/usr/share/supermox-ui/images/supermox-symbol.svg
+	# dark theme CSS into the widget toolkit themes dir (served at /pwt/themes/)
+	install -d debian/supermox-ui/usr/share/javascript/proxmox-widget-toolkit/themes
+	install -m 0644 themes/theme-supermox-dark.css \
+	    debian/supermox-ui/usr/share/javascript/proxmox-widget-toolkit/themes/theme-supermox-dark.css
