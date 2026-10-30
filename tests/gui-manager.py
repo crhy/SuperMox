@@ -38,7 +38,7 @@ def check():
     if manager.busy:
         return True
     assert manager.resources, "Preview never loaded"
-    for page in ("Machines", "Nodes", "Storage", "Full management", "Overview"):
+    for page in ("Machines", "Nodes", "Storage", *manager.pages, "Full management", "Overview"):
         manager.navigate(None, page)
         assert manager.current == page
         assert manager.nav[page].get_active()
