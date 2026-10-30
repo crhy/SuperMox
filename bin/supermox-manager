@@ -31,7 +31,7 @@ def main():
             parser.error(str(exc))
     try:
         from supermox_manager import app
-    except (ImportError, ValueError, AttributeError) as exc:
+    except (ImportError, ValueError, AttributeError):
         print("SuperMox Manager needs Python GObject and GTK 3. Install python3-gi "
               "and gir1.2-gtk-3.0. Full management also needs gir1.2-webkit2-4.1.", file=sys.stderr)
         return 1

@@ -21,7 +21,7 @@ headerbar { background: #07252c; border-bottom: 1px solid #24474c; color: #eef5e
 button { background-image: none; background-color: #12373b; color: #eef5ef; border: 1px solid #315459; border-radius: 7px; padding: 9px 14px; }
 button:hover { background-color: #24545b; }
 button.suggested-action { background-color: #35d8b0; color: #07252c; }
-.sidebar button { border: none; background: transparent; padding: 13px 18px; }
+.sidebar button { border: none; background: transparent; box-shadow: none; padding: 13px 18px; }
 .sidebar button:checked { background: #15474b; color: #35d8b0; }
 entry, combobox button, textview text { background: #07252c; color: #eef5ef; }
 treeview { background: #0d323a; color: #eef5ef; padding: 10px; }
@@ -61,6 +61,7 @@ class Manager:
         self.nodes = nodes or []
         self.resources = []
         self.current = "Overview"
+        self.navigating = False
         self.selected = None
         self.closed = False
         self.busy = False
@@ -70,7 +71,7 @@ class Manager:
         self.window = Gtk.Window(title="SuperMox Manager")
         self.window.set_wmclass("supermox-manager", "SuperMox Manager")
         self.window.set_icon_name("supermox-manager")
-        self.window.set_default_size(max(960, self.settings["width"]), max(640, self.settings["height"]))
+        self.window.set_default_size(max(1200, self.settings["width"]), max(800, self.settings["height"]))
         self.window.connect("destroy", self.close)
         css = Gtk.CssProvider()
         css.load_from_data(CSS)
@@ -192,7 +193,7 @@ class Manager:
         if self.busy:
             return False
         if self.nodes:
-            # The picker uses only signed public membership, never cluster private keys.
+            # The picker reads root-controlled public membership, never private keys.
             dialog = Gtk.Dialog(title="Choose a cluster node", transient_for=self.window, modal=True)
             dialog.add_buttons("Manual connection", 2, "Use node", Gtk.ResponseType.OK)
             picker = Gtk.ComboBoxText()
@@ -221,6 +222,11 @@ class Manager:
             except ValueError as exc:
                 self.message("Check connection details", str(exc))
                 return False
+
+            # Retain the validated target for interactive login through Full management.
+            # Disconnect the previous account before switching origins.
+            self.sign_out()
+            self.url, self.pin = client.url, client.pin
 
             def login():
                 try:
@@ -252,11 +258,13 @@ class Manager:
         self.render()
 
     def navigate(self, _button, name):
-        if name == self.current:
+        if self.navigating or name == self.current:
             return
         self.current = name
+        self.navigating = True
         for key, nav in self.nav.items():
             nav.set_active(key == name)
+        self.navigating = False
         self.render()
         if name == "Tasks" and self.client:
             self.refresh()
@@ -275,7 +283,7 @@ class Manager:
         self.render()
 
     def auto_refresh(self):
-        if not self.closed and self.client and self.current != "Full management":
+        if not self.closed and self.client and self.current == "Overview":
             self.refresh()
         return not self.closed
 
@@ -403,7 +411,8 @@ class Manager:
         if not self.selected:
             return
         guest = dict(self.selected)
-        self.work(lambda: self.client.request("GET", api.guest_path(guest) + "/config"),
+        client = self.client
+        self.work(lambda: client.request("GET", api.guest_path(guest) + "/config"),
                   lambda config: self.text_window("Machine {} · configuration".format(guest["vmid"]),
                                                   "\n".join("{}: {}".format(k, v) for k, v in sorted(config.items()))))
 

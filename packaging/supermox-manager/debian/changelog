@@ -1,3 +1,11 @@
+supermox-manager (10.26.1) supermox; urgency=medium
+
+  * Add a native GTK dashboard and direct API management actions.
+  * Separate desktop dependencies from the virtualization server.
+  * Retain the full server interface as an optional compatibility view.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 30 Oct 2026 12:00:00 +0000
+
 supermox-manager (10.26) supermox; urgency=medium
 
   * Initial release: SuperMox desktop manager.

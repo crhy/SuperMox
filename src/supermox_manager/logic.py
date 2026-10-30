@@ -8,7 +8,7 @@ Certificate pinning
 Every node has one fingerprint we trust, and one certificate we accept:
 
 * the local node: the fingerprint of the leaf certificate in
-  /etc/pve/local/pveproxy-ssl.pem (falling back to /etc/pve/pve-ssl.pem);
+  /etc/pve/local/pveproxy-ssl.pem (falling back to local/pve-ssl.pem);
 * a remote member: the ``tls_fingerprint`` of its entry in the signed
   membership list.
 
@@ -34,14 +34,14 @@ PVE_PORT = 8006
 LOCAL_HOST = "127.0.0.1"
 # Where the node's own pveproxy certificate lives, in preference order.
 PVE_DIR = "/etc/pve"
-CERT_NAMES = ("local/pveproxy-ssl.pem", "pve-ssl.pem")
+CERT_NAMES = ("local/pveproxy-ssl.pem", "local/pve-ssl.pem", "pve-ssl.pem")
 
 
 def cert_file(pve_dir: str = PVE_DIR) -> Optional[str]:
     """Path of the local node's pveproxy certificate, or None if absent.
 
     pveproxy prefers its own certificate (local/pveproxy-ssl.pem) over the
-    cluster-wide one (pve-ssl.pem), so the pin follows the same order.
+    generated local/pve-ssl.pem, so the pin follows the same order.
     """
     for name in CERT_NAMES:
         path = os.path.join(pve_dir, name)
@@ -147,7 +147,7 @@ def discover_nodes():
             if entry.get("name") and entry.get("overlay_addr") and entry.get("tls_fingerprint"):
                 rows.append((entry["name"], node_url(bare_host(entry["overlay_addr"])), entry["tls_fingerprint"]))
         return rows
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return []
 
 
@@ -228,8 +228,26 @@ def load_settings() -> dict:
     except (OSError, ValueError):
         stored = {}
     if isinstance(stored, dict):
-        data.update({k: v for k, v in stored.items() if k in DEFAULTS})
+        data.update(clean_settings(stored))
     return data
+
+
+def clean_settings(stored):
+    clean = {}
+    for key, default in DEFAULTS.items():
+        value = stored.get(key)
+        if isinstance(value, bool) or not isinstance(value, type(default)):
+            continue
+        if key in ("width", "height") and not 320 <= value <= 16384:
+            continue
+        if key == "text_size" and not 8 <= value <= 48:
+            continue
+        if key == "zoom" and not .5 <= value <= 3:
+            continue
+        if key == "node" and len(value) > 255:
+            continue
+        clean[key] = value
+    return clean
 
 
 def save_settings(data: dict) -> bool:
@@ -238,7 +256,7 @@ def save_settings(data: dict) -> bool:
         os.makedirs(os.path.dirname(path), mode=0o755, exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "w") as f:
-            json.dump(data, f, indent=2, sort_keys=True)
+            json.dump(clean_settings(data), f, indent=2, sort_keys=True)
         os.replace(tmp, path)
     except OSError:
         return False

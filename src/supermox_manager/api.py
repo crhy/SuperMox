@@ -119,8 +119,11 @@ class Client:
         if otp:
             params["otp"] = otp
         data = self.request("POST", "/access/ticket", params)
+        if not isinstance(data, dict):
+            raise APIError("The node returned an invalid login response.")
         ticket = data.get("ticket", "")
-        if not ticket or ticket.startswith("PVE:tfa!") or not data.get("CSRFPreventionToken"):
+        if (not isinstance(ticket, str) or not ticket or data.get("NeedTFA")
+                or "!tfa!" in ticket or ":tfa!" in ticket or not data.get("CSRFPreventionToken")):
             raise APIError("This login needs an interactive second factor. Use Full management to sign in.")
         self.ticket, self.csrf = ticket, data["CSRFPreventionToken"]
         self.username = data.get("username", username)

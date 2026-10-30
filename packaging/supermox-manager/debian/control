@@ -1,11 +1,11 @@
 Source: supermox-manager
 Section: admin
-Priority: secondary
+Priority: optional
 Standards-Version: 4.6.2
 Maintainer: SuperMox <noreply@supermox.me>
 Build-Depends: debhelper-compat (= 13), librsvg2-bin
 Rules-Requires-Root: no
-Homepage: https://supermox.org
+Homepage: https://supermox.me
 
 Package: supermox-manager
 Architecture: all
@@ -13,22 +13,13 @@ Depends: python3,
          python3-cryptography,
          python3-gi,
          gir1.2-gtk-3.0,
-         gir1.2-webkit2-4.1,
-         supermox-ve,
          ${misc:Depends}
-Description: SuperMox Manager - desktop app for a SuperMox cluster
- A GTK 3 window that shows the PVE web interface of one node of a SuperMox
- cluster, so you can manage the cluster from the desktop instead of from a
- terminal. The window chrome is SuperMox's: a node picker in the header bar
- picks which node to talk to, and the app trusts exactly that node's TLS
- certificate (its fingerprint comes from the signed membership list, or from
- the node's own certificate file when the node is this one) and nothing else.
- There is no "accept an unsafe certificate" prompt anywhere in the app.
- .
- Everything inside the window is the PVE web interface, so the user you see
- is the user PAM decides, and the actions available are the ones that user
- may perform. The app keeps nothing on disk except the window size and the
- last node you picked.
- .
- Run it as "supermox-manager"; it opens https://127.0.0.1:8006/ for the local
- node and https://<host>:8006/ for a remote one.
+Recommends: gir1.2-webkit2-4.1
+Description: SuperMox Manager - native desktop cluster management
+ A standalone GTK application for SuperMox-compatible virtualization servers.
+ Native screens provide cluster overview, searchable guest inventory, power
+ actions, migration, snapshots, backups and task logs over the HTTPS API.
+ The full server interface is available in an optional embedded WebKit window
+ for advanced operations. No virtualization server is needed on the desktop.
+ Credentials are kept in memory; native API connections pin the node's TLS
+ certificate before sending credentials. Only display preferences are saved.

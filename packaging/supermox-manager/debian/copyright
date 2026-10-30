@@ -4,6 +4,9 @@ Upstream-Name: supermox-manager
 Files: *
 Copyright: SuperMox contributors
 License: AGPLv3
-Comment: Our own code: the GTK 3 + WebKitGTK app in src/supermox_manager, the
+Comment: Our own code: the native GTK 3 app with optional WebKit compatibility
+ tools in src/supermox_manager, the
  launcher in bin/supermox-manager and this packaging. SuperMox is a fork of
  PXVIRT (AGPLv3) and our additions are AGPLv3 as well.
+ .
+ The complete license is installed in /usr/share/doc/supermox-manager/COPYING.

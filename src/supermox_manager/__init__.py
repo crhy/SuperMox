@@ -1,6 +1,5 @@
-"""SuperMox Manager: the local desktop app in front of the web interface.
+"""SuperMox Manager: native GTK management with optional compatibility tools.
 
-`app.py` is the GTK 3 + WebKitGTK window (docs/ui-and-branding.md, "SuperMox
-Manager"); `logic.py` is everything the window decides, kept free of GTK so
-the tests (tests/py/test_manager_pin.py) can exercise it headless.
+app.py implements desktop screens; api.py and logic.py work without GTK.
+advanced.py lazily loads WebKit for the existing server interface.
 """

@@ -27,6 +27,9 @@ supermox-manager bin/supermox-manager usr/bin/supermox-manager
 supermox-manager src/supermox_manager/__init__.py usr/lib/python3/dist-packages/supermox_manager/__init__.py
 supermox-manager src/supermox_manager/logic.py usr/lib/python3/dist-packages/supermox_manager/logic.py
 supermox-manager src/supermox_manager/app.py usr/lib/python3/dist-packages/supermox_manager/app.py
+supermox-manager src/supermox_manager/api.py usr/lib/python3/dist-packages/supermox_manager/api.py
+supermox-manager src/supermox_manager/advanced.py usr/lib/python3/dist-packages/supermox_manager/advanced.py
+supermox-manager src/supermox_manager/COPYING usr/share/doc/supermox-manager/COPYING
 # Scalable app icon; debian/rules renders the PNG sizes from it.
 supermox-manager website/assets/supermox-symbol.svg usr/share/icons/hicolor/scalable/apps/supermox-manager.svg
 # SuperMox symbol for the web logo and favicon; debian/rules runs the staged

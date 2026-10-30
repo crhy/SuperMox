@@ -126,6 +126,8 @@ wall-clock time, decides which record wins: a node that moves bumps `seq` and ev
 `digest` (node_id -> seq) and `wanted` make an exchange cost only two small summaries in steady state, since each node sends
 just the records its peer lacks or holds at an older seq; two rounds of that leave every node in a connected group agreeing.
 
+Layer 3 is `src/supermox/locator.py` (pure Python, no network and no DHT client yet): `locator_key(entropy, node_id, day)` is the 20-byte HKDF key above, `seal(record, join_key, identity)` refuses records the node did not itself sign and values over BEP44's 1000-byte cap, `open_sealed(blob, join_key, members)` decrypts and verifies against the membership list, and `keys_to_query(entropy, node_ids, now)` returns today's and yesterday's key per node so a record published just before midnight UTC is still found inside the 2-hour `EXPIRE_SECONDS` window (`REFRESH_SECONDS` is the 30-minute republish interval).
+
 ## Core and edge nodes (a Proxmox constraint)
 
 Proxmox clustering (corosync and pmxcfs) needs a low, stable round-trip time, roughly under 5 ms, between voting nodes.

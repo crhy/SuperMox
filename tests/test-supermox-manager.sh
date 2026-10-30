@@ -37,15 +37,22 @@ if printf '%s\n' "$depends" | grep -qi 'systemd'; then
   exit 1
 fi
 
-# The app is GTK 3 + WebKitGTK + PyGObject + cryptography; a package that
-# forgets one of these installs a launcher that cannot start.
-for dep in python3 python3-cryptography python3-gi gir1.2-gtk-3.0 \
-  gir1.2-webkit2-4.1 supermox-ve; do
+# Native screens need GTK, PyGObject and cryptography; WebKit is optional.
+for dep in python3 python3-cryptography python3-gi gir1.2-gtk-3.0; do
   if ! printf '%s\n' "$depends" | grep -q "$dep"; then
     echo "FAIL: Depends is missing $dep"
     fail=1
   fi
 done
+
+if printf '%s\n' "$depends" | grep -q 'supermox-ve'; then
+  echo "FAIL: standalone desktop must not depend on a virtualization server"
+  fail=1
+fi
+if ! grep -qx 'Recommends: gir1.2-webkit2-4.1' "$control"; then
+  echo "FAIL: full management component is not recommended"
+  fail=1
+fi
 
 if [ ! -x "$rules" ]; then
   echo "FAIL: $rules is not executable"
@@ -66,6 +73,8 @@ for entry in \
   "supermox-manager bin/supermox-manager usr/bin/supermox-manager" \
   "supermox-manager src/supermox_manager/__init__.py usr/lib/python3/dist-packages/supermox_manager/__init__.py" \
   "supermox-manager src/supermox_manager/logic.py usr/lib/python3/dist-packages/supermox_manager/logic.py" \
+  "supermox-manager src/supermox_manager/api.py usr/lib/python3/dist-packages/supermox_manager/api.py" \
+  "supermox-manager src/supermox_manager/advanced.py usr/lib/python3/dist-packages/supermox_manager/advanced.py" \
   "supermox-manager src/supermox_manager/app.py usr/lib/python3/dist-packages/supermox_manager/app.py" \
   "supermox-manager website/assets/supermox-symbol.svg usr/share/icons/hicolor/scalable/apps/supermox-manager.svg"; do
   if ! grep -qxF "$entry" config/shipped-scripts.txt; then
