@@ -39,7 +39,8 @@ lint_all_dir init.d
 
 if [ -d tests ]; then
   while IFS= read -r -d '' t; do
-    if ! bash "$t"; then
+    # A hung test must not stall the gate (and the queue behind it): 10 minutes each.
+    if ! timeout 600 bash "$t"; then
       echo "FAIL: test $t"
       fail=1
     fi

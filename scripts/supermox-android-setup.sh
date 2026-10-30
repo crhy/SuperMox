@@ -19,9 +19,11 @@ set -euo pipefail
 # Pinned launcher build. The package id is what the APK manifest declares
 # (this fork still ships as ch.deletescape.lawnchair), and it is the value
 # Waydroid stores in waydroid.active_apps to pick the home app.
-LAWNCHAIR_VERSION="1.2.0.1884"
-LAWNCHAIR_URL="https://github.com/LawnchairLauncher/lawnchair/releases/download/${LAWNCHAIR_VERSION}/Lawnchair-${LAWNCHAIR_VERSION}.apk"
-LAWNCHAIR_SHA256="47525c98210fe738414ec2d77d170a51f0ced555ed624499ae2ab9cf804d4865d"
+# Lawnchair 15 (current line, still tagged beta upstream); 1.2.0.1884, GitHub's "latest", is from 2018 (Android 8 era).
+# The checksum is the SHA-256 GitHub publishes for this asset, checked against a download on 2026-10-29.
+LAWNCHAIR_VERSION="15.0.0-beta3.0"
+LAWNCHAIR_URL="https://github.com/LawnchairLauncher/lawnchair/releases/download/v15.0.0-beta3.0/Lawnchair.15.0.0.Beta.3.0.apk"
+LAWNCHAIR_SHA256="d4200d0985169fd79ba1bd225d653f2a2fe7b50aa07cb0d05ca64c7623f86059"
 LAWNCHAIR_PACKAGE="ch.deletescape.lawnchair"
 
 variant="VANILLA"
@@ -51,7 +53,7 @@ run() {
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --dry-run) dry=1 ;;
+    --dry-run) dry=1; shift ;;
     --variant) [ "$#" -ge 2 ] || die "--variant needs VANILLA or MAINLINE"
       variant="$2"
       shift 2 ;;
