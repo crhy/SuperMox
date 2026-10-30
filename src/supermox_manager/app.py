@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk
 
-from . import api, logic
+from . import api, logic, pages
 
 CSS = b"""
 window, dialog { background: #092b32; color: #eef5ef; }
@@ -96,7 +96,8 @@ class Manager:
         sidebar.pack_start(label("SuperMox", "brand"), False, False, 8)
         sidebar.pack_start(label("MANAGER", "subtitle"), False, False, 12)
         self.nav = {}
-        for name in ("Overview", "Machines", "Nodes", "Storage", "Tasks", "Full management"):
+        self.pages = {page.TITLE: page for page in pages.load()}
+        for name in ("Overview", "Machines", "Nodes", "Storage", "Tasks", *self.pages, "Full management"):
             nav = Gtk.ToggleButton(label=name)
             nav.set_halign(Gtk.Align.FILL)
             nav.connect("clicked", self.navigate, name)
@@ -301,12 +302,16 @@ class Manager:
             "Tasks": "Recent operations and their results.",
             "Full management": "Complete server interface, inside the desktop app.",
         }
-        self.content.pack_start(label(subtitles[self.current], "subtitle"), False, False, 0)
+        page = self.pages.get(self.current)
+        subtitle = page.SUBTITLE if page else subtitles[self.current]
+        self.content.pack_start(label(subtitle, "subtitle"), False, False, 0)
         if self.current == "Full management":
             self.full_page()
         elif not self.client:
             self.content.pack_start(label("Connect to a node to see live resources."), False, False, 28)
             self.content.pack_start(button("Connect to a node", lambda *_: self.connect_dialog(), True), False, False, 0)
+        elif page:
+            page.render(self, self.content)
         elif self.current == "Overview":
             self.overview()
         elif self.current == "Tasks":
