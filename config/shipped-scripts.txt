@@ -12,3 +12,18 @@ supermox-ve bin/supermox-joind usr/sbin/supermox-joind
 supermox-ve bin/supermox-sync usr/bin/supermox-sync
 # Android layer: the setup tool is a repo script, installed under sbin.
 supermox-android scripts/supermox-android-setup.sh usr/sbin/supermox-android-setup
+# Python modules of the join protocol, installed into python3's system site-packages
+# so the CLI, the daemon and the desktop manager all import them without a PYTHONPATH.
+supermox-ve src/supermox/__init__.py usr/lib/python3/dist-packages/supermox/__init__.py
+supermox-ve src/supermox/identity.py usr/lib/python3/dist-packages/supermox/identity.py
+supermox-ve src/supermox/invite.py usr/lib/python3/dist-packages/supermox/invite.py
+supermox-ve src/supermox/join.py usr/lib/python3/dist-packages/supermox/join.py
+supermox-ve src/supermox/secret.py usr/lib/python3/dist-packages/supermox/secret.py
+supermox-ve src/supermox/state.py usr/lib/python3/dist-packages/supermox/state.py
+# SuperMox Manager: the desktop app (GTK 3 + WebKitGTK) and its modules.
+supermox-manager bin/supermox-manager usr/bin/supermox-manager
+supermox-manager src/supermox_manager/__init__.py usr/lib/python3/dist-packages/supermox_manager/__init__.py
+supermox-manager src/supermox_manager/logic.py usr/lib/python3/dist-packages/supermox_manager/logic.py
+supermox-manager src/supermox_manager/app.py usr/lib/python3/dist-packages/supermox_manager/app.py
+# Scalable app icon; debian/rules renders the PNG sizes from it.
+supermox-manager website/assets/supermox-symbol.svg usr/share/icons/hicolor/scalable/apps/supermox-manager.svg

@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""SuperMox Manager: open one cluster node's PVE web interface in a GTK 3
++ WebKitGTK window, trusting exactly that node's TLS certificate.
+
+The window chrome is ours (a node picker in the header bar); everything inside
+is the PVE web interface, so PAM decides who you are. See
+supermox_manager/app.py.
+"""
+import os
+import sys
+
+# From a checkout: src/ is importable. From a package install the modules
+# live in python3's system site-packages, so this insert is a no-op.
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+)
+
+from supermox_manager import app
+
+
+def main():
+    return app.run()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

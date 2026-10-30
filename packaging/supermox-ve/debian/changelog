@@ -1,3 +1,5 @@
+supermox-ve (0.1.9) supermox; version 0.1.9
+-- rhy <rhy@supermox.org>  Mon, 01 Sep 2025 00:00:00 +0000
 supermox-ve (0.1.8) unstable; urgency=medium
 
   * Ship /etc/init.d/supermox-sync and /usr/bin/supermox-sync: step 1 of the

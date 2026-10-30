@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SuperMox Manager
+GenericName=Cluster manager
+Comment=Manage a SuperMox cluster from the desktop
+Exec=supermox-manager
+Icon=supermox-manager
+Terminal=false
+Categories=System;
+Keywords=cluster;virtualization;storage;

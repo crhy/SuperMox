@@ -14,6 +14,8 @@ Depends: apt,
          openssh-client,
          openssh-server,
          proxmox-archive-keyring,
+         python3,
+         python3-cryptography,
          pve-manager (>= 8.0.4),
          pve-qemu-kvm,
          qemu-server (>= 9.0~),
@@ -22,7 +24,8 @@ Depends: apt,
          syncthing,
          linux-image-amd64 | linux-image-arm64 | linux-image-armmp-lpae | linux-image-riscv64 | linux-image-loong64,
          ${misc:Depends}
-Recommends: qemu-user-binfmt
+Recommends: qemu-user-binfmt,
+         supermox-manager
 Conflicts: systemd-sysv, systemd
 Replaces: ifupdown
 Provides: proxmox-ve

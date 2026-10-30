@@ -3,9 +3,17 @@
 	dh $@
 
 override_dh_auto_install:
-	mkdir -p debian/supermox-ve/usr/sbin
-	cp -a usr/sbin/supermox-node-caps debian/supermox-ve/usr/sbin/supermox-node-caps
-	chmod 0755 debian/supermox-ve/usr/sbin/supermox-node-caps
+	# Everything scripts/vm-build-pkg.sh staged (config/shipped-scripts.txt) goes
+	# in at its install path, relative to the package source root: the join CLI
+	# and daemon, the home folder sync tool, the node capability probe and the
+	# python modules they import.
+	mkdir -p debian/supermox-ve
+	cp -a usr debian/supermox-ve/
+	chmod 0755 debian/supermox-ve/usr/bin/supermox-join \
+	           debian/supermox-ve/usr/bin/supermox-sync \
+	           debian/supermox-ve/usr/sbin/supermox-joind \
+	           debian/supermox-ve/usr/sbin/supermox-node-caps
+	chmod 0644 debian/supermox-ve/usr/lib/python3/dist-packages/supermox/*.py
 
 override_dh_installinit:
 	dh_installinit --name=networking --no-start
