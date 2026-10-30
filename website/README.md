@@ -54,10 +54,17 @@ previous Weebly site so it remains useful after the switch.
 
 The production deployment is live at https://supermox.pages.dev/ (Pages project
 `supermox`, production branch `main`). Production assets are compared byte for
-byte with the staged files after deployment. The `supermox.me` zone has been
-added to Cloudflare, but the registrar nameserver change and Pages custom-domain
-connection are pending the owner's review. Keep the existing DNS unchanged until
-that switch is requested.
+byte with the staged files after deployment. The owner reported changing the
+GoDaddy nameservers on October 29, 2026. Cloudflare's assigned nameservers are
+`ganz.ns.cloudflare.com` and `sunny.ns.cloudflare.com`. Both `supermox.me` and
+`www.supermox.me` are associated with the Pages project, with proxied CNAME records
+targeting `supermox.pages.dev`. The two former apex website A records were replaced;
+the unrelated `_domainconnect` record was preserved. A pre-change DNS backup is
+stored locally at `build/website-tooling/dns-before-pages.json`.
+
+At the last check, public DNS still returned GoDaddy's nameservers and Cloudflare
+reported the zone and custom domains as pending. Verify zone activation, Pages
+custom-domain validation, and HTTPS before treating the domain migration as live.
 
 `cloudflaretoken` and the source ZIP are excluded in this checkout's
 `.git/info/exclude`. Keep credentials outside version control and never include
@@ -89,7 +96,7 @@ mnemonic and PyNaCl packages.
 Images are hosted locally and displayed without altering the originals:
 
 - `assets/screenshots/spaced-desktop.webp` (1600 × 900): Spaced Linux's Compiz workspace cube, from https://spacedlinux.com/assets/screenshots/desktop-compiz.webp.
-- `assets/screenshots/lineageos-calculator.webp` (512 × 555): official LineageOS Calculator light/dark screenshots, from https://lineageos.org/images/2024-02-14/calculator.webp, published in https://lineageos.org/Changelog-28/. Credited to LineageOS and labeled as an interface reference; SuperMox mobile integration remains planned.
+- `assets/screenshots/android-lawnchair.jpg` (728 × 1536): user-provided `LawnChairScreenShot.jpg`, showing an Android home screen with the Lawnchair launcher. Published unchanged with permission implied by the request to use it. Labeled as an Android interface reference; it is not identified as a LineageOS or SuperMox build.
 - `assets/screenshots/supermox-original-phone.png` (326 × 326): reference phone artwork from the original SuperMox homepage, https://supermox.weebly.com/uploads/7/4/4/8/74488167/published/phone.png?1572481059. Presented as archival artwork, not a current product screenshot.
 
 Sources reviewed October 29, 2026. Captions link to the original projects.
