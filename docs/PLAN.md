@@ -49,7 +49,8 @@ when VT-x/AMD-V is present. See docs/pc-edition.md.
 Any SuperMox node can join a cluster and talk to other nodes over an encrypted,
 authenticated WireGuard link. Join by typing a 12-word BIP39 phrase or scanning a QR
 invite. Crypto (BIP39, HKDF, libsodium secretbox, WireGuard PSK) and the join daemon
-(`supermox-joind`) are built and unit-tested. Real-link test between two VMs in progress.
+(`supermox-joind`) are built and unit-tested. A real WireGuard join of three nodes in the test VM
+(one by phrase, one by QR invite) passed on 2026-10-30 (t49d).
 See docs/node-join-architecture.md.
 
 ## M4 — arm64 and other architectures
