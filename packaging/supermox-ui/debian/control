@@ -3,7 +3,7 @@ Section: admin
 Priority: secondary
 Maintainer: SuperMox <noreply@supermox.me>
 Standards-Version: 4.6.2
-Build-Depends: debhelper-compat (= 13), rsvg-convert, imagemagick
+Build-Depends: debhelper-compat (= 13), librsvg2-bin, imagemagick
 Rules-Requires-Root: no
 Homepage: https://supermox.org
 

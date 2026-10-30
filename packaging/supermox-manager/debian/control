@@ -2,7 +2,8 @@ Source: supermox-manager
 Section: admin
 Priority: secondary
 Standards-Version: 4.6.2
-Build-Depends: debhelper-compat (= 13), rsvg-convert
+Maintainer: SuperMox <noreply@supermox.me>
+Build-Depends: debhelper-compat (= 13), librsvg2-bin
 Rules-Requires-Root: no
 Homepage: https://supermox.org
 

@@ -17,7 +17,9 @@ supermox-android scripts/supermox-android-setup.sh usr/sbin/supermox-android-set
 supermox-ve src/supermox/__init__.py usr/lib/python3/dist-packages/supermox/__init__.py
 supermox-ve src/supermox/identity.py usr/lib/python3/dist-packages/supermox/identity.py
 supermox-ve src/supermox/invite.py usr/lib/python3/dist-packages/supermox/invite.py
-supermox-ve src/supermox/join.py usr/lib/python3/dist-packages/supermox/join.py
+supermox-ve src/supermox/joinproto.py usr/lib/python3/dist-packages/supermox/joinproto.py
+supermox-ve src/supermox/joind.py usr/lib/python3/dist-packages/supermox/joind.py
+supermox-ve src/supermox/sync.py usr/lib/python3/dist-packages/supermox/sync.py
 supermox-ve src/supermox/secret.py usr/lib/python3/dist-packages/supermox/secret.py
 supermox-ve src/supermox/state.py usr/lib/python3/dist-packages/supermox/state.py
 # SuperMox Manager: the desktop app (GTK 3 + WebKitGTK) and its modules.

@@ -1,2 +1,11 @@
-supermox-manager (10.26) supermox; version 10.26
--- rhy <rhy@supermox.org>  Mon, 01 Sep 2025 00:00:00 +0000
+supermox-manager (10.26) supermox; urgency=medium
+
+  * Initial release: SuperMox desktop manager.
+  * Ship the launcher (usr/bin/supermox-manager), the python modules
+    (usr/lib/python3/dist-packages/supermox_manager) and the scalable menu
+    icon (usr/share/icons/hicolor/scalable/apps/supermox-manager.svg), all
+    staged by scripts/vm-build-pkg.sh (config/shipped-scripts.txt).
+  * Render the PNG icon sizes from the staged scalable icon and install the
+    menu entry.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 29 Oct 2026 05:00:00 +0000

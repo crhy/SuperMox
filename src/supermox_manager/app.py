@@ -14,7 +14,7 @@ gi.require_version("WebKit2", "4.1")
 
 import urllib.parse
 
-from gi.repository import Gtk, WebKit
+from gi.repository import Gtk, WebKit2
 
 from supermox_manager import logic
 
@@ -59,7 +59,7 @@ class Manager:
         self.window.set_default_size(self.settings["width"], self.settings["height"])
         self.window.set_titlebar(self.header())
 
-        self.view = WebKit.View()
+        self.view = WebKit2.WebView()
         self.view.connect("load-failed-with-tls-errors", self.on_tls_error)
         self.view.connect("load-failed", self.on_load_failed)
 
@@ -259,7 +259,8 @@ def run(argv=None):
 
     from supermox import state as pve_state
 
-    state = pve_state.NodeState.load()
+    state = pve_state.NodeState()
+    state.load()
     manager = Manager(state, state.my_name(), start=args.node, url=args.url)
     manager.window.show()
     Gtk.main()

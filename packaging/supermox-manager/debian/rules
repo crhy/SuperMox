@@ -1,17 +1,18 @@
 #!/usr/bin/make -f
 # SuperMox Manager.
 #
-# The launcher, the python modules and the icon are staged into debian/out/
-# by scripts/vm-build-pkg.sh (see config/shipped-scripts.txt); this rules
-# file copies them into place, renders the PNG icon sizes from the staged
-# scalable icon and installs the menu entry.
+# The launcher, the python modules and the icon are staged by scripts/vm-build-pkg.sh
+# (see config/shipped-scripts.txt) at their install path relative to the package
+# source root (usr/bin, usr/lib/python3/dist-packages, usr/share/icons); this rules
+# file copies that staged usr/ tree into place, renders the PNG icon sizes from
+# the staged scalable icon and installs the menu entry.
 
 %:
 	dh $@
 
 override_dh_auto_install:
 	install -d $(CURDIR)/debian/supermox-manager
-	cp -a debian/out/. $(CURDIR)/debian/supermox-manager/
+	cp -a usr $(CURDIR)/debian/supermox-manager/
 	set -e; svg="$(CURDIR)/debian/supermox-manager/usr/share/icons/hicolor/scalable/apps/supermox-manager.svg"; \
 	for size in 16 24 32 48 64 128 256 512; do \
 		dir="$(CURDIR)/debian/supermox-manager/usr/share/icons/hicolor/$${size}x$${size}/apps"; \
