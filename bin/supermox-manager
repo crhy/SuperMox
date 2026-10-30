@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
-"""SuperMox Manager: open one cluster node's PVE web interface in a GTK 3
-+ WebKitGTK window, trusting exactly that node's TLS certificate.
-
-The window chrome is ours (a node picker in the header bar); everything inside
-is the PVE web interface, so PAM decides who you are. See
-supermox_manager/app.py.
-"""
+"""Launch the native SuperMox Manager desktop application."""
+import argparse
 import os
 import sys
 
@@ -15,11 +10,32 @@ sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
 )
 
-from supermox_manager import app
-
-
 def main():
-    return app.run()
+    parser = argparse.ArgumentParser(description="SuperMox Manager — native desktop cluster management")
+    parser.add_argument("--demo", action="store_true", help="preview with sample data; no server required")
+    parser.add_argument("--url", help="HTTPS node origin, e.g. https://host:8006/")
+    parser.add_argument("--fingerprint", help="trusted node certificate SHA256 fingerprint")
+    parser.add_argument("--node", help="node from local public cluster membership")
+    args = parser.parse_args()
+    if args.url:
+        from supermox_manager.api import endpoint
+        try:
+            endpoint(args.url)
+        except ValueError as exc:
+            parser.error(str(exc))
+    if args.fingerprint:
+        from supermox_manager.api import fingerprint
+        try:
+            fingerprint(args.fingerprint)
+        except ValueError as exc:
+            parser.error(str(exc))
+    try:
+        from supermox_manager import app
+    except (ImportError, ValueError, AttributeError) as exc:
+        print("SuperMox Manager needs Python GObject and GTK 3. Install python3-gi "
+              "and gir1.2-gtk-3.0. Full management also needs gir1.2-webkit2-4.1.", file=sys.stderr)
+        return 1
+    return app.run(args)
 
 
 if __name__ == "__main__":

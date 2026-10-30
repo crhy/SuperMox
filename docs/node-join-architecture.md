@@ -114,6 +114,18 @@ public address, or a member's onion address; after that, layers 1-3 keep the clu
 A blockchain could still fit the whitepaper's later marketplace (paying strangers to use idle hardware), where
 strangers do need a shared ledger. That is a separate feature.
 
+### Implementation
+
+Layer 1 is `src/supermox/gossip.py` (pure Python, no network; not wired into `supermox-joind` yet). `make_record` signs
+`{node, endpoints, seq, time}` with the node's own Ed25519 key over the same canonical JSON `joinproto` uses, and `verify_record`
+checks it against the public key the signed membership list carries for that node, so membership is the root of trust for
+gossip. `merge(known, incoming, members)` accepts a record only when all of these hold: its `node` is a member; the signature
+verifies with that member's key; its `time` is not more than 10 minutes in the future; and its `seq` is **higher** than the
+seq already held for that node — an equal seq keeps the old record, so ties never flip-flop between two nodes. `seq`, not
+wall-clock time, decides which record wins: a node that moves bumps `seq` and every peer takes the new record exactly once.
+`digest` (node_id -> seq) and `wanted` make an exchange cost only two small summaries in steady state, since each node sends
+just the records its peer lacks or holds at an older seq; two rounds of that leave every node in a connected group agreeing.
+
 ## Core and edge nodes (a Proxmox constraint)
 
 Proxmox clustering (corosync and pmxcfs) needs a low, stable round-trip time, roughly under 5 ms, between voting nodes.

@@ -25,6 +25,7 @@ import json
 import os
 import socket
 import ssl
+import stat
 from typing import Optional
 
 # pveproxy's HTTPS port; the manager always talks HTTPS.
@@ -118,12 +119,36 @@ def decide(presented_fp: Optional[str], pinned_fp: Optional[str]):
 
 def bare_host(addr: str) -> str:
     """Host part of an overlay address ("10.0.0.5:12345" -> "10.0.0.5")."""
-    return addr.rsplit(":", 1)[0] if ":" in addr else addr
+    if addr.startswith("["):
+        return addr[1:addr.index("]")]
+    return addr.rsplit(":", 1)[0] if addr.count(":") == 1 else addr
 
 
 def node_url(host: str, port: int = PVE_PORT) -> str:
     """The pveproxy URL of a node, given its host."""
-    return "https://{}:{}/".format(host, port)
+    return "https://{}:{}/".format("[{}]".format(host) if ":" in host else host, port)
+
+
+def discover_nodes():
+    """Optional root-controlled public membership. Never read cluster secrets.
+
+    The local root-owned file is the trust anchor (as with the local TLS PEM).
+    Remote clients without this file use an explicit address and fingerprint.
+    """
+    path = os.path.join(os.environ.get("SUPERMOX_ETC", "/etc/supermox"), "membership.json")
+    try:
+        with open(path) as stream:
+            info = os.fstat(stream.fileno())
+            if info.st_uid != 0 or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+                return []
+            signed = json.load(stream)
+        rows = []
+        for entry in signed["list"]:
+            if entry.get("name") and entry.get("overlay_addr") and entry.get("tls_fingerprint"):
+                rows.append((entry["name"], node_url(bare_host(entry["overlay_addr"])), entry["tls_fingerprint"]))
+        return rows
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
 
 
 def membership(state):
