@@ -23,7 +23,7 @@ NAME=spiceproxy
 case "$1" in
   start)
     log_begin_msg "Starting $NAME"
-    "$DAEMON" start
+    /usr/lib/supermox/supermox-logpipe "$NAME" "$DAEMON" start
     log_end_msg $?
     ;;
   stop)

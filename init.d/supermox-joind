@@ -33,7 +33,7 @@ case "$1" in
       log_end_msg 1
       exit 1
     fi
-    start-stop-daemon --start --quiet --background --make-pidfile \
+    /usr/lib/supermox/supermox-logpipe "$NAME" start-stop-daemon --start --quiet --background --make-pidfile \
       --pidfile "$PIDFILE" --exec "$DAEMON" -- \
       --host "$JOIND_HOST" --port "$JOIND_PORT"
     log_end_msg $?

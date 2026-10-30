@@ -33,7 +33,7 @@ case "$1" in
     if [ -x /etc/init.d/corosync ]; then
       /etc/init.d/corosync start >/dev/null 2>&1
     fi
-    start-stop-daemon --start --quiet --pidfile "$PIDFILE" --exec "$DAEMON"
+    /usr/lib/supermox/supermox-logpipe "$NAME" start-stop-daemon --start --quiet --pidfile "$PIDFILE" --exec "$DAEMON"
     log_end_msg $?
     ;;
   stop)

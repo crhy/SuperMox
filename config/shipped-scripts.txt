@@ -7,6 +7,9 @@ supermox-ve scripts/supermox-node-caps.sh usr/sbin/supermox-node-caps
 # look for them; see bin/supermox-join's sys.path fallback).
 supermox-ve bin/supermox-join usr/bin/supermox-join
 supermox-ve bin/supermox-joind usr/sbin/supermox-joind
+# Forwards a sysvinit daemon's stderr to syslog (no journald). Used by the
+# init.d start lines of daemons whose stderr would otherwise be lost to /dev/null.
+supermox-ve scripts/supermox-logpipe usr/lib/supermox/supermox-logpipe
 # Home folder sync CLI (init.d/supermox-sync calls it at boot to apply the
 # membership list to each user's Syncthing instance).
 supermox-ve bin/supermox-sync usr/bin/supermox-sync

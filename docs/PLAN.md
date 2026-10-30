@@ -75,9 +75,14 @@ corporate infrastructure.
 ## Follow-ups
 - **Rust log routing (proxmox-perl-rs).** `patches/proxmox-perl-rs/0001-no-journald.patch` drops
   the `.journald()` sink from `common/src/logger.rs` (the single real file behind the `pmg-rs`/`pve-rs`
-  `common` symlinks), so `pve-rs`/`pmg-rs` log output goes to stderr only. Follow-up: ensure the
-  `init.d/` service scripts redirect daemon stderr into syslog (e.g. via `start-stop-daemon --stderr`
-  or a `logger` wrapper) so Rust-side logs remain visible in the system log without journald.
+  `common` symlinks), so `pve-rs`/`pmg-rs` log output goes to stderr only. Done (t57): a POSIX helper
+  `/usr/lib/supermox/supermox-logpipe TAG CMD...` runs the daemon with its stderr forwarded to syslog
+  (`logger -t TAG -p daemon.err`) through a FIFO, and every `init.d/` start line that had its stderr going
+  to `/dev/null` is wrapped in it. A FIFO (not a pipe) is used so the forking `start` returns immediately
+  while the daemon keeps the FIFO open for later lines. Rust-side logs (which never redirect stderr) are
+  thus fully captured; the Perl daemons re-point their own stderr to `/dev/null` after daemonising and log
+  to syslog natively, so the wrapper only adds their pre-daemonise startup stderr (crashes, config errors,
+  interpreter warnings) that would otherwise be lost. Pidfiles, `status` and `stop` are unaffected.
 - **Upstream overrides.** `config/upstream-overrides.txt` pins components to upstream commits other
   than what PXVIRT's submodule records (currently `proxmox-perl-rs` at pve-rs 0.15.3). Follow-up: re-validate
   each override against PXVIRT's expected API on every upstream bump, and drop overrides once PXVIRT's

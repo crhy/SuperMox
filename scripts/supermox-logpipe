@@ -1,0 +1,45 @@
+#!/bin/sh
+# supermox-logpipe TAG CMD [ARGS...]
+#
+# Run CMD with its standard error forwarded to syslog (facility daemon,
+# severity err) under tag TAG. Standard input and output are left untouched.
+#
+# Why: PVE's own daemonize() (PVE::Daemon) redirects a daemon's stdin and
+# stdout to /dev/null but leaves stderr inherited. Under sysvinit there is no
+# journald, so at boot the init script's stderr is /dev/null and every daemon's
+# stderr (crashes, Perl tracebacks, Rust panes from pve-rs) is silently lost.
+# Wrapping the service start line with this helper sends that stderr to syslog.
+#
+# A FIFO is used instead of a pipe on purpose: a forked daemon keeps its stderr
+# open for the whole service lifetime, so a plain `CMD | logger` pipeline would
+# not let the foreground start command return until the daemon exits. With a
+# FIFO the foreground CMD returns as soon as it exits while the daemonised child
+# keeps the FIFO open and later log lines still reach logger.
+#
+# The pidfile is unaffected: forking daemons write their own pidfile (the daemon
+# pid), and start-stop-daemon --make-pidfile records the pid of the process it
+# started, never this helper or logger.
+
+set -eu
+
+if [ "$#" -lt 2 ]; then
+  echo "usage: supermox-logpipe TAG CMD [ARGS...]" >&2
+  exit 2
+fi
+
+tag=$1
+shift
+
+fifo=/run/supermox-logpipe."$tag".fifo
+rm -f "$fifo"
+mkfifo "$fifo"
+
+# logger opens the FIFO for reading; the write below blocks until then, so the
+# two sides are synchronised and no log line is dropped.
+logger -t "$tag" -p daemon.err < "$fifo" &
+
+"$@" 2>"$fifo"
+
+# Unlink the FIFO; the daemon still holds it open, so its writes keep flowing
+# to logger until the daemon itself exits.
+rm -f "$fifo"
