@@ -21,7 +21,10 @@
 # start-stop-daemon records the pid in /run and TERM is what stop sends.
 #
 # Refusing to start when the image is not initialized is deliberate:
-# without /var/lib/waydroid/waydroid.cfg the container would fail anyway,
+# without the image files under /var/lib/waydroid/images the container would
+# fail anyway (its LXC config loop-mounts them), and the daemon would still
+# park on its D-Bus listener, so a start that looks fine reports success while
+# the Android layer is dead.
 # and the fix (run /usr/sbin/supermox-android-setup) is not something a
 # boot script should do by itself, because it downloads about 1 GB.
 
@@ -31,6 +34,7 @@ NAME=waydroid-container
 DAEMON=${WAYDROID_BIN:-/usr/bin/waydroid}
 PIDFILE=${WAYDROID_PIDFILE:-/run/waydroid-container.pid}
 CONF=${WAYDROID_CONF:-/var/lib/waydroid/waydroid.cfg}
+IMG_DIR=${WAYDROID_IMG_DIR:-/var/lib/waydroid/images}
 
 # waydroid's container manager bind-mounts with the binder API; without the
 # module the container dies on start. Load it here as well as through
@@ -51,8 +55,12 @@ case "$1" in
       log_end_msg 1
       exit 1
     fi
-    if [ ! -f "$CONF" ]; then
-      printf '%s: %s not initialized (%s missing); run supermox-android-setup first\n' "$NAME" "$NAME" "$CONF" >&2
+    missing=""
+    for f in "$CONF" "$IMG_DIR/system.img" "$IMG_DIR/vendor.img"; do
+      [ -f "$f" ] || missing="$missing $f"
+    done
+    if [ -n "$missing" ]; then
+      printf '%s: %s not initialized (%s missing); run supermox-android-setup first\n' "$NAME" "$NAME" "$missing" >&2
       log_end_msg 1
       exit 1
     fi
@@ -81,8 +89,12 @@ case "$1" in
       start-stop-daemon --stop --quiet --retry=TERM/20/KILL/5 --pidfile "$PIDFILE"
       rc=$?
     else
-      # No live pid: the container may still be up (started by hand).
+      # No live pid: the container may still be up (started by hand), and so
+      # may the service daemon itself - /run is cleared on reboot, and a
+      # daemon left behind keeps its D-Bus name, which makes a later start
+      # fail with "already running".
       "$DAEMON" container stop >/dev/null 2>&1 || true
+      pkill -f "$DAEMON container start" 2>/dev/null || true
       rc=0
     fi
     rm -f "$PIDFILE"
@@ -95,6 +107,13 @@ case "$1" in
   status)
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
       printf '%s is running (pid %s)\n' "$NAME" "$(cat "$PIDFILE")"
+      exit 0
+    fi
+    # The daemon outlives /run across a reboot, so a missing pidfile does not
+    # mean not running; match the daemon's own command line.
+    orphan=$(pgrep -f "$DAEMON container start" | head -1)
+    if [ -n "$orphan" ]; then
+      printf '%s is running (pid %s, no pidfile)\n' "$NAME" "$orphan"
       exit 0
     fi
     printf '%s is not running\n' "$NAME"

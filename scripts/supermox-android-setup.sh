@@ -115,14 +115,23 @@ fi
 # ---------------------------------------------------------------------------
 step "2/5 Waydroid image ($variant)"
 img_dir="/var/lib/waydroid/images"
-if [ -f /var/lib/waydroid/waydroid.cfg ] && [ -f "$img_dir/system.img" ]; then
+cfg="/var/lib/waydroid/waydroid.cfg"
+if [ -f "$cfg" ] && [ -f "$img_dir/system.img" ] && [ -f "$img_dir/vendor.img" ]; then
   printf '   image already initialized (%s)\n' "$img_dir/system.img"
 else
+  # waydroid's own "already initialized" check only looks at waydroid.cfg and
+  # the rootfs directory, both of which a half-finished setup leaves behind,
+  # so a plain init on a node with a cfg but no images prints "Already
+  # initialized" and downloads nothing. --force is only added in that case.
+  init_cmd=(waydroid init -s "$variant")
+  if [ -f "$cfg" ]; then
+    init_cmd+=(--force)
+  fi
   if [ "$dry" -eq 1 ]; then
-    printf '   plan: waydroid init -s %s (downloads about 1 GB, the slow step)\n' "$variant"
+    printf '   plan: %s (downloads about 1 GB, the slow step)\n' "${init_cmd[*]}"
   else
     printf '   downloading the image; this is the slow step, re-run if interrupted\n'
-    run waydroid init -s "$variant"
+    run "${init_cmd[@]}"
   fi
 fi
 
@@ -174,6 +183,9 @@ if [ "$want_lawnchair" -eq 1 ]; then
       run waydroid prop set waydroid.active_apps "$home_app"
     else
       printf '   Android session is not running (no Wayland compositor here).\n'
+      # The container's LXC config bind-mounts the Wayland socket into the
+      # rootfs, so without a live compositor the container itself cannot start
+      # either; seatd keeps weston's seat alive on a headless node.
       printf '   APK is staged at %s\n' "$apk"
       printf '   once a compositor is up, run:\n'
       printf '     waydroid start\n'
