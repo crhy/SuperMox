@@ -1,0 +1,9 @@
+{
+  "name": "supermox-website",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Buildless SuperMox website",
+  "scripts": {
+    "dev": "node dev-server.mjs"
+  }
+}
