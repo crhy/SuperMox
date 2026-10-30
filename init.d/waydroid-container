@@ -41,10 +41,13 @@ IMG_DIR=${WAYDROID_IMG_DIR:-/var/lib/waydroid/images}
 # /etc/modules-load.d/waydroid.conf, so a node that just installed the
 # package does not have to reboot.
 load_binder() {
-  if [ -e /dev/binder ]; then
-    return 0
+  if [ ! -e /dev/binder ]; then
+    modprobe binder_linux devices=binder,hwbinder,vndbinder 2>/dev/null
   fi
-  modprobe binder_linux devices=binder,hwbinder,vndbinder 2>/dev/null
+  # Android's init opens these nodes as non-root UIDs; the kernel creates them
+  # 0600 (root-only), so the opens fail with EACCES and init aborts. Match
+  # Android/waydroid binderfs nodes and make them world-accessible.
+  chmod 666 /dev/binder /dev/hwbinder /dev/vndbinder 2>/dev/null
   return 0
 }
 

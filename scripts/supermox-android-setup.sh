@@ -111,6 +111,13 @@ fi
 if [ ! -f /etc/modules-load.d/waydroid.conf ]; then
   printf '   WARNING: /etc/modules-load.d/waydroid.conf missing; binder_linux will not load at next boot\n'
 fi
+# Android's init opens the binder API nodes as non-root UIDs (media.metrics,
+# keystore2, idmap2d, ...). The kernel creates them 0600 (root-only), so those
+# opens fail with EACCES and init aborts the container. Android proper and
+# waydroid's own binderfs path expose them world-readable/writable; match that.
+if [ "$dry" -eq 0 ]; then
+  chmod 666 /dev/binder /dev/hwbinder /dev/vndbinder 2>/dev/null || true
+fi
 
 # ---------------------------------------------------------------------------
 step "2/5 Waydroid image ($variant)"
