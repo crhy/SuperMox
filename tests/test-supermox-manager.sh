@@ -100,6 +100,26 @@ if grep -rqi 'proxmox' "$pkg"; then
   fail=1
 fi
 
+# Every Python module of the app (pages/ and ops/ included) must be shipped.
+while IFS= read -r module; do
+  entry="supermox-manager $module usr/lib/python3/dist-packages/${module#src/}"
+  if ! grep -qxF "$entry" config/shipped-scripts.txt; then
+    echo "FAIL: config/shipped-scripts.txt missing: $entry"
+    fail=1
+  fi
+done < <(find src/supermox_manager -name '*.py' -not -path '*/__pycache__/*' | sort)
+
+# Native GUI smoke test in preview mode: every page must open without an exception.
+if command -v xvfb-run >/dev/null 2>&1; then
+  if ! timeout 120 xvfb-run -a python3 tests/gui-manager.py > build/gui-manager.out 2>&1; then
+    echo "FAIL: tests/gui-manager.py (see build/gui-manager.out)"
+    tail -20 build/gui-manager.out
+    fail=1
+  fi
+else
+  echo "SKIP: xvfb-run missing, GUI smoke test not run"
+fi
+
 if [ "$fail" -ne 0 ]; then
   exit 1
 fi
