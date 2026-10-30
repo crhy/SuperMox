@@ -123,6 +123,7 @@ def cmd_join(args) -> int:
         secret.validate(args.words)
         derived = secret.derive(args.words)
         derived["entropy"] = secret.entropy(args.words)
+        st.derived = derived
         ack = _run(joind.join_phrase(args.endpoint, derived, ident,
                                      args.name, args.arch, caps))
         joind.apply_join_ack(st, ack)
@@ -133,6 +134,16 @@ def cmd_join(args) -> int:
         _run(joind.send_command(args.endpoint, {
             "t": "endpoints", "node": args.name,
             "endpoints": [args.my_endpoint]}))
+    return 0
+
+
+def cmd_conf(args) -> int:
+    st = _state()
+    if st.derived is None:
+        print("no cluster here: run supermox-join create first", file=sys.stderr)
+        return 1
+    path = joind.write_wg_conf(st)
+    print("wrote %s" % path)
     return 0
 
 
@@ -210,6 +221,9 @@ def main(argv=None) -> int:
     p.add_argument("--my-endpoint", metavar="host:port",
                    help="advertise this node's join daemon to the cluster")
     p.set_defaults(func=cmd_join)
+
+    p = sub.add_parser("conf", help="regenerate this node's wg0.conf from state")
+    p.set_defaults(func=cmd_conf)
 
     p = sub.add_parser("pending", help="list join requests waiting for approval")
     p.set_defaults(func=cmd_pending)

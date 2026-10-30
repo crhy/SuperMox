@@ -46,6 +46,7 @@ KIND_JSON = 1
 KIND_BYTES = 2
 APPROVAL_TIMEOUT = 300.0          # seconds a pending invite waits for a decision
 WG_CONF_PATH = "/etc/supermox/wg0.conf"
+WG_LISTEN_PORT = 51820            # WireGuard tunnel port (UDP), same on every node
 
 log = logging.getLogger("supermox-joind")
 
@@ -685,7 +686,7 @@ def write_wg_conf(state: node_state.NodeState, path: str = None) -> str:
         "[Interface]",
         "Address = %s/128" % me["overlay_addr"],
         "PrivateKey = %s" % b64(state.identity["wg_priv"]),
-        "ListenPort = 51820",
+        "ListenPort = %d" % WG_LISTEN_PORT,
         "PresharedKey = %s" % b64(state.derived["wg_psk"]),
         "",
     ]
