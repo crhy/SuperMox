@@ -33,7 +33,7 @@ From the repository root, stage the public assets:
 bash scripts/build-website.sh
 ```
 
-Deploy only `build/website/`. It contains the HTML, CSS, JavaScript, SVG,
+Deploy only `build/website/`. It contains the HTML, CSS, JavaScript, SVG, screenshots,
 whitepaper, and Cloudflare security headers. Do not upload the repository root:
 it contains private local credentials and unrelated operating system sources.
 No framework or build command is needed on Cloudflare.
@@ -53,13 +53,11 @@ records, including email records. The “Original website” link points to the
 previous Weebly site so it remains useful after the switch.
 
 The production deployment is live at https://supermox.pages.dev/ (Pages project
-`supermox`, production branch `main`). All five served files were downloaded and
-compared byte for byte with the staged files; the security headers were checked.
-The `supermox.me` domain connection is pending. Its nameservers currently point
-to GoDaddy (`ns57.domaincontrol.com` and `ns58.domaincontrol.com`), and the API
-token cannot create the required Cloudflare zone. Add the domain to this
-Cloudflare account, review the imported DNS records, and update the nameservers
-at the registrar before completing the Pages custom-domain connection.
+`supermox`, production branch `main`). Production assets are compared byte for
+byte with the staged files after deployment. The `supermox.me` zone has been
+added to Cloudflare, but the registrar nameserver change and Pages custom-domain
+connection are pending the owner's review. Keep the existing DNS unchanged until
+that switch is requested.
 
 `cloudflaretoken` and the source ZIP are excluded in this checkout's
 `.git/info/exclude`. Keep credentials outside version control and never include
@@ -85,3 +83,17 @@ The repository gate (`bash scripts/check.sh`) was attempted in this development
 runtime but could not pass because required tools and runtime dependencies are
 missing, including ShellCheck, rsync, dpkg, LSB init helpers, and the Python
 mnemonic and PyNaCl packages.
+
+## Screenshot sources
+
+Images are hosted locally and displayed without altering the originals:
+
+- `assets/screenshots/spaced-desktop.webp` (1600 × 900): Spaced Linux's Compiz workspace cube, from https://spacedlinux.com/assets/screenshots/desktop-compiz.webp.
+- `assets/screenshots/lineageos-calculator.webp` (512 × 555): official LineageOS Calculator light/dark screenshots, from https://lineageos.org/images/2024-02-14/calculator.webp, published in https://lineageos.org/Changelog-28/. Credited to LineageOS and labeled as an interface reference; SuperMox mobile integration remains planned.
+- `assets/screenshots/supermox-original-phone.png` (326 × 326): reference phone artwork from the original SuperMox homepage, https://supermox.weebly.com/uploads/7/4/4/8/74488167/published/phone.png?1572481059. Presented as archival artwork, not a current product screenshot.
+
+Sources reviewed October 29, 2026. Captions link to the original projects.
+
+The screenshot update was reviewed in Chromium at 1440px and 390px: all images
+loaded, no horizontal overflow, and no JavaScript errors. The deployed public
+files matched the staged files byte for byte after publishing.
