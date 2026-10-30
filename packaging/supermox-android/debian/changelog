@@ -1,0 +1,16 @@
+supermox-android (0.1.0) unstable; urgency=medium
+
+  * Initial release: the Android layer of SuperMox. Waydroid runs a full
+    Android system in an LXC container that shares the node kernel, so a
+    phone (or any node) keeps its own kernel, network and storage stack
+    while Android provides the userspace on top.
+  * init.d/waydroid-container: sysvinit service script for
+    `waydroid container start`. Upstream ships only a unit file for an
+    init system we do not use, and the rootfs build drops unit files at
+    install time, so nothing else started the container.
+  * /etc/modules-load.d/waydroid.conf: loads binder_linux with the
+    binder/hwbinder/vndbinder device arguments Android's bind mounts need.
+  * /usr/sbin/supermox-android-setup: idempotent setup, pinned Lawnchair
+    APK verified by sha256, --dry-run prints the whole plan.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 28 Oct 2026 18:10:00 -0700

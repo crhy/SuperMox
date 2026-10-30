@@ -1,0 +1,8 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: supermox-android
+Upstream-Contact: SuperMox <noreply@supermox.me>
+Source: https://git.supermox.me/supermox
+
+Files: *
+Copyright: SuperMox contributors
+License: AGPLv3

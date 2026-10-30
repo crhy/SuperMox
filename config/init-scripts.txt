@@ -25,3 +25,4 @@ supermox-ve supermox-ve networking
 supermox-ve supermox-ve supermox-binfmt
 supermox-tmpfiles supermox-tmpfiles supermox-tmpfiles
 supermox-ve supermox-ve supermox-joind
+supermox-android supermox-android waydroid-container

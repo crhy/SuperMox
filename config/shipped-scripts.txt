@@ -7,3 +7,5 @@ supermox-ve scripts/supermox-node-caps.sh usr/sbin/supermox-node-caps
 # look for them; see bin/supermox-join's sys.path fallback).
 supermox-ve bin/supermox-join usr/bin/supermox-join
 supermox-ve bin/supermox-joind usr/sbin/supermox-joind
+# Android layer: the setup tool is a repo script, installed under sbin.
+supermox-android scripts/supermox-android-setup.sh usr/sbin/supermox-android-setup

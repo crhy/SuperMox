@@ -1,0 +1,24 @@
+Source: supermox-android
+Section: admin
+Priority: secondary
+Maintainer: SuperMox <noreply@supermox.me>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: supermox-android
+Architecture: all
+Depends: supermox-ve,
+         waydroid (>= 1.6.3),
+         ${misc:Depends}
+Recommends: squashfs-tools
+Description: SuperMox Android layer (Waydroid container + Lawnchair)
+ Runs a full Android system in a Waydroid LXC container on a SuperMox
+ node, so the phone's own kernel and network stack stay in charge and
+ Android is the userspace on top. Upstream waydroid only knows how to
+ start through an init system SuperMox does not use, and the unit file
+ it ships is dropped at install time; this package supplies the sysvinit
+ service script for the container, the kernel module configuration for
+ the binder mounts Android needs, and supermox-android-setup, which
+ fetches the image, installs the pinned Lawnchair launcher (verified
+ by sha256) and makes it the Android home app.

@@ -1,0 +1,14 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_install:
+	mkdir -p debian/supermox-android/usr/sbin
+	mkdir -p debian/supermox-android/etc/modules-load.d
+	cp -a usr/sbin/supermox-android-setup debian/supermox-android/usr/sbin/supermox-android-setup
+	chmod 0755 debian/supermox-android/usr/sbin/supermox-android-setup
+	cp -a etc/modules-load.d/waydroid.conf debian/supermox-android/etc/modules-load.d/waydroid.conf
+	chmod 0644 debian/supermox-android/etc/modules-load.d/waydroid.conf
+
+override_dh_installinit:
+	dh_installinit --name=waydroid-container
