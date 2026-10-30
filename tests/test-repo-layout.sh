@@ -3,7 +3,7 @@
 # Catches stray copies of patched trees, downloads and unrelated folders before the queue's auto-commit adds them.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-allowed=' .gitignore AGENTS.md README.md bin config cron docs init.d packaging patches scripts src tests website '
+allowed=' .gitignore AGENTS.md CHANGELOG.md README.md bin config cron docs init.d packaging patches scripts src tests website '
 allowed+=' smhome.png theapp.png supermox_white_paper_1.pdf website '
 bad=0
 while IFS= read -r entry; do

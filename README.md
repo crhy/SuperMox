@@ -71,6 +71,55 @@ SuperMox is **in active development** — it is being built piece by piece as an
 4. QR-code node onboarding for every supported device.
 5. Optional sharing with family/friends, and real-time crypto payments for shared resources.
 
+## Status (10.26)
+
+All verified on 2026-10-29:
+
+- Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13, pve-container 6.1.15) built from source on Devuan Ceres.
+- Running under sysvinit with no systemd anywhere (checked by `scripts/check-no-systemd.sh` on the running system).
+- Web UI on port 8006, survives reboot.
+- Node join with a 12-word phrase or QR invite (`supermox-join`, `supermox-joind`) built and unit-tested.
+- amd64 first; all architectures planned.
+
+## Install (PC edition)
+
+1. Boot the SuperMox ISO on bare metal or a VM.
+2. Follow the installer (Calamares-based, Spaced Linux desktop).
+3. Open `https://<host>:8006` in a browser.
+
+## Build from source
+
+Fetch upstream sources:
+
+```bash
+bash scripts/fetch-upstream.sh
+```
+
+Build the rootfs and start the build VM:
+
+```bash
+bash scripts/build-rootfs.sh
+bash scripts/vm-start.sh --background
+bash scripts/vm-smoke.sh
+```
+
+Set up repos and build packages inside the VM:
+
+```bash
+bash scripts/vm-setup-proxmox-repos.sh
+bash scripts/vm-build-pkg.sh pve-cluster
+bash scripts/vm-build-pkg.sh pve-common
+bash scripts/vm-build-pkg.sh pve-manager
+bash scripts/vm-build-pkg.sh qemu-server
+bash scripts/vm-build-pkg.sh supermox-ve
+```
+
+Build the PC-edition ISO (requires a Spaced checkout):
+
+```bash
+bash scripts/build-iso.sh
+```
+
 ## Philosophy
 
 > It's time that we make computers work for you, rather than forcing you to work for your computers. And it's time to take our data back and eliminate even the possibility of Big Brother, whether that be corporate or governmental.
