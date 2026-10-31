@@ -182,3 +182,45 @@ class ManagerAPI(unittest.TestCase):
         self.assertIn('Preview only', demo.action(guest, 'start'))
         self.assertEqual(next(row for row in demo.resources() if row.get('vmid') == 102)['status'], 'running')
         self.assertEqual(self.server.requests, [])
+
+    def test_use_token_sets_state(self):
+        client = api.Client("https://x.invalid", "0" * 64)
+        client.ticket = "PVE::..."
+        client.use_token("t74u@pve!t74t", "11111111-2222-3333-4444-555555555555")
+        self.assertEqual(client.token, ("t74u@pve!t74t", "11111111-2222-3333-4444-555555555555"))
+        self.assertIsNone(client.ticket)
+        self.assertIsNone(client.csrf)
+        self.assertIsNone(client.username)
+
+    def test_use_token_needs_both(self):
+        client = api.Client("https://x.invalid", "0" * 64)
+        self.assertRaises(ValueError, client.use_token, "t74u@pve!t74t", "")
+        self.assertRaises(ValueError, client.use_token, "", "secret")
+
+    def test_logout_clears_token(self):
+        client = api.Client("https://x.invalid", "0" * 64)
+        client.use_token("t74u@pve!t74t", "secret")
+        client.logout()
+        self.assertIsNone(client.token)
+
+    def test_token_header_is_sent_without_cookie(self):
+        client = api.Client("https://x.invalid", "0" * 64)
+        client.use_token("t74u@pve!t74t", "secret-uuid")
+        captured = {}
+
+        class FakeConnection:
+            def request(self, method, target, body=None, headers=None):
+                captured["method"] = method
+                captured["headers"] = headers
+                raise AssertionError("stop before network")
+            def close(self):
+                pass
+
+        client._connect = lambda: FakeConnection()
+        try:
+            client.request("GET", "/version")
+        except AssertionError:
+            pass
+        self.assertEqual(captured["headers"]["Authorization"],
+                         "PVEAPIToken=t74u@pve!t74t=secret-uuid")
+        self.assertNotIn("Cookie", captured["headers"])

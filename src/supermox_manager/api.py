@@ -91,9 +91,22 @@ class Client:
         self.ticket = None
         self.csrf = None
         self.username = None
+        self.token = None
 
     def logout(self):
+        self.ticket = self.csrf = self.username = self.token = None
+
+    def use_token(self, tokenid, secret):
+        """Authenticate as an API token instead of a login session.
+
+        ``tokenid`` is the full token id (``userid!name``) and ``secret`` the
+        UUID returned once at creation. The token travels in the Authorization
+        header; it is held in memory only and cleared by logout().
+        """
+        if not tokenid or not secret:
+            raise ValueError("Give the full token id and its secret.")
         self.ticket = self.csrf = self.username = None
+        self.token = (tokenid, secret)
 
     def _connect(self):
         """Open a connection and verify the pinned certificate before sending.
@@ -141,6 +154,9 @@ class Client:
         target = "/api2/json" + path
         body = None
         headers = {"Accept": "application/json"}
+        if self.token:
+            # PVE splits the token value on '=', not ':'.
+            headers["Authorization"] = "PVEAPIToken={}={}".format(self.token[0], self.token[1])
         if method in ("GET", "DELETE") and params:
             target += "?" + urlencode(params)
         elif params is not None:
