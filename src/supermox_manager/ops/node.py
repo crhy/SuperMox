@@ -43,7 +43,7 @@ def service_action(client, node, service, action):
         raise ValueError("Unknown service action: {}".format(action))
     return client.request(
         "POST",
-        "/nodes/{}/{}/{}".format(api.segment(node), api.segment(service), action))
+        "/nodes/{}/services/{}/{}".format(api.segment(node), api.segment(service), action))
 
 
 def syslog(client, node, start=0, limit=500, service=None, since=None, until=None):
