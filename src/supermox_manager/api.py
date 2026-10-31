@@ -304,7 +304,20 @@ class DemoClient:
         if path.endswith("/storage"):
             return [{"storage": "local"}]
         if path.endswith("/network"):
-            return [{"bridge": "vmbr0"}]
+            return [{"iface": "eth0", "type": "eth", "active": 1, "autostart": 1,
+                     "address": "192.168.1.1"},
+                    {"iface": "vmbr0", "type": "bridge", "active": 1, "autostart": 1,
+                     "address": "10.0.0.1"}]
+        if path.endswith("/disks/list"):
+            return [{"devpath": "/dev/sda", "type": "hdd", "health": "OK",
+                     "model": "Sample disk", "size": 512 * gib, "used": 120 * gib,
+                     "mounted": 0}]
+        if path.endswith("/disks/smart"):
+            return {"health": "OK"}
+        if path.endswith("/disks/directory"):
+            return [{"devpath": "/dev/sda1", "mountpoint": "/var/lib/pve-cluster",
+                     "fstype": "ext4", "size": 100 * gib, "used_on_mnt": 30 * gib,
+                     "used_percent": 30}]
         if path.endswith("/content"):
             return [{"volid": "local:iso/ubuntu-24.04.iso"}]
         if path.endswith("/config"):

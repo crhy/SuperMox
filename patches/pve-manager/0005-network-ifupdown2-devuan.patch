@@ -1,0 +1,12 @@
+diff -ruN a/PVE/API2/Network.pm b/PVE/API2/Network.pm
+--- a/PVE/API2/Network.pm	2026-10-31 07:56:04.892833084 -0700
++++ b/PVE/API2/Network.pm	2026-10-31 07:56:04.899656888 -0700
+@@ -876,7 +876,7 @@
+     my ($v, $pve, $v_str) = ifupdown2_version();
+     die
+         "incompatible 'ifupdown2' package version '$v_str'! Did you install from Proxmox repositories?\n"
+-        if $v < (1 * 100000 + 2 * 1000 + 8 * 10) || !$pve;
++        if $v < (1 * 100000 + 2 * 1000 + 8 * 10);
+ }
+ 
+ __PACKAGE__->register_method({
