@@ -9,6 +9,7 @@ import http.client
 import json
 import random
 import re
+import socket
 import ssl
 from urllib.parse import quote, urlencode, urlsplit
 
@@ -57,6 +58,31 @@ def guest_path(guest):
         segment(guest["node"]), guest["type"], int(guest["vmid"]))
 
 
+def pinned_socket(host, port, pin, timeout=15):
+    """Return a connected TLS socket whose leaf certificate matches ``pin``.
+
+    The handshake happens before any application data is written; the leaf
+    certificate (DER bytes) is hashed on the actual connection and compared
+    with the SHA256 fingerprint before the socket is handed back. No redirects
+    and no proxy environment variables: credentials never leave this origin.
+    api.Client and the terminal websocket share this one check.
+    """
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    plain = socket.create_connection((host, port), timeout=timeout)
+    try:
+        sock = context.wrap_socket(plain, server_hostname=host)
+        cert = sock.getpeercert(binary_form=True)
+        if not cert or hashlib.sha256(cert).hexdigest() != fingerprint(pin):
+            raise APIError("Certificate mismatch. No credentials were sent. "
+                           "Verify the node fingerprint.")
+    except Exception:
+        plain.close()
+        raise
+    return sock
+
+
 class Client:
     def __init__(self, url, pin, timeout=15):
         self.url, self.host, self.port = endpoint(url)
@@ -73,22 +99,15 @@ class Client:
         """Open a connection and verify the pinned certificate before sending.
 
         No redirects or proxy environment variables: credentials never leave
-        this origin. The leaf certificate is checked on the actual connection
-        before any data is written.
+        this origin. The TLS handshake and the leaf-certificate check live in
+        pinned_socket(), so the terminal websocket verifies exactly the same
+        way; http.client is handed the already-verified socket and never opens
+        its own connection.
         """
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        connection = http.client.HTTPSConnection(
-            self.host, self.port, timeout=self.timeout, context=context)
-        try:
-            connection.connect()
-            cert = connection.sock.getpeercert(binary_form=True)
-            if not cert or hashlib.sha256(cert).hexdigest() != self.pin:
-                raise APIError("Certificate mismatch. No credentials were sent. Verify the node fingerprint.")
-        except Exception:
-            connection.close()
-            raise
+        connection = http.client.HTTPConnection(self.host, self.port,
+                                                timeout=self.timeout)
+        connection.sock = pinned_socket(self.host, self.port, self.pin,
+                                        self.timeout)
         return connection
 
     def _read_response(self, connection, method, target):
