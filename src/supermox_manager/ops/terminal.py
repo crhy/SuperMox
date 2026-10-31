@@ -70,12 +70,11 @@ class Session:
         never overflows the frame limit or arrives reordered.
         """
         for chunk in self._chunks(data):
-            self._send_text("0:{}:{}".format(len(chunk),
-                                             chunk.decode("latin-1")))
+            self._send_frame(b"0:%d:" % len(chunk) + chunk)
 
     def resize(self, cols, rows):
         """Tell the node the terminal size (``1:<cols>:<rows>:``)."""
-        self._send_text("1:{}:{}:".format(int(cols), int(rows)))
+        self._send_frame("1:{}:{}:".format(int(cols), int(rows)).encode("ascii"))
 
     def recv(self, timeout=None):
         """Return the next bytes of terminal output.
@@ -102,10 +101,13 @@ class Session:
     def closed(self):
         return self._stop.is_set()
 
-    def _send_text(self, text):
+    def _send_frame(self, payload):
+        """One message per call, as a text frame of exactly these bytes."""
         if self._stop.is_set():
             raise api.APIError("This terminal session is closed.")
-        self._ws.send_text(text)
+        if isinstance(payload, str):
+            payload = payload.encode("utf-8")
+        self._ws.send(payload, opcode=0x1)
 
     def _pump(self):
         while True:
@@ -122,20 +124,26 @@ class Session:
     def _keepalive(self):
         while not self._stop.wait(KEEPALIVE_SECONDS):
             try:
-                self._ws.send_text("2")
+                self._send_frame("2")
             except Exception:  # noqa: BLE001 - the reader reports the failure
                 return
 
     @staticmethod
     def _chunks(data):
+        """Split into chunks of at most CHUNK bytes, never inside a UTF-8
+        character, so a large paste keeps its byte order and its characters.
+        """
         if isinstance(data, str):
-            out = []
-            while data:
-                piece, data = data[:CHUNK], data[CHUNK:]
-                out.append(piece.encode("utf-8"))
-            return out
-        return [data[offset:offset + CHUNK]
-                for offset in range(0, len(data), CHUNK)]
+            data = data.encode("utf-8")
+        out = []
+        offset = 0
+        while offset < len(data):
+            end = min(offset + CHUNK, len(data))
+            while end < len(data) and (data[end] & 0xC0) == 0x80:
+                end -= 1  # back off to a character boundary
+            out.append(data[offset:end])
+            offset = end
+        return out
 
 
 def open_session(client, node, vmid=None, kind="ssh"):
@@ -159,7 +167,7 @@ def open_session(client, node, vmid=None, kind="ssh"):
                            cookie="PVEAuthCookie=" + api.quote(
                                client.ticket, safe=""),
                            timeout=client.timeout, subprotocol="binary")
-    ws.send_text("{}:{}\n".format(user, ticket))
+    ws.send("{}:{}\n".format(user, ticket).encode("utf-8"), opcode=0x1)
     try:
         _, answer = ws.recv()
     except (websocket.WebSocketError, OSError) as exc:
@@ -181,8 +189,8 @@ def _base_path(node, vmid, kind):
         raise ValueError("Unknown terminal kind: {}.".format(kind))
     if vmid is None:
         raise ValueError("A guest console needs a vmid.")
-    return "/nodes/{}/{}".format(api.segment(node), api.segment(kind))
-
+    return "/nodes/{}/{}/{}".format(api.segment(node), api.segment(kind),
+                                     api.segment(str(vmid)))
 
 def paste_lines(text):
     """Number of lines a clipboard paste would type into the terminal.
