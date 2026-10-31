@@ -171,6 +171,10 @@ class WebSocket:
             return
         self._write_frame(encode_frame(data, opcode, os.urandom(4)))
 
+    def send_text(self, text):
+        """Send ``text`` as one UTF-8 text frame (what a browser sends)."""
+        self.send(text.encode("utf-8"), opcode=0x1)
+
     def ping(self, data=b"supermox"):
         self.send(data, opcode=0x9)
 
