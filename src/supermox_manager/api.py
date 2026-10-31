@@ -353,6 +353,16 @@ class DemoClient:
                      "used_percent": 30}]
         if path.endswith("/content"):
             return [{"volid": "local:iso/ubuntu-24.04.iso"}]
+        if path.endswith("/firewall/rules"):
+            return [{"action": "ACCEPT", "type": "in", "source": "10.0.0.1",
+                     "comment": "Sample incoming rule"}]
+        if path.endswith("/firewall/options"):
+            return {"enable": 0, "policy_in": "ACCEPT", "policy_out": "ACCEPT",
+                    "policy_forward": "ACCEPT"}
+        if path.endswith("/firewall/aliases"):
+            return [{"name": "lab", "cidr": "10.0.0.1", "comment": "Sample alias"}]
+        if path.endswith("/firewall/ipset"):
+            return [{"name": "blocklist", "comment": "Sample IP set"}]
         if path.endswith("/config"):
             return {"cores": 4, "memory": 8192, "description": "Sample guest; no host is connected."}
         if path.endswith("/log"):

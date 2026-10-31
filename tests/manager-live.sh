@@ -28,6 +28,8 @@ export SUPERMOX_LIVE_URL="https://127.0.0.1:18006/"
 export SUPERMOX_LIVE_PIN="$pin"
 export SUPERMOX_LIVE_USER="root@pam"
 export SUPERMOX_LIVE_PASSWORD="supermox"
+# Some live tests read the shorter name; keep both in sync.
+export SUPERMOX_LIVE_PASS="$SUPERMOX_LIVE_PASSWORD"
 
 # The live test dir is not a package (hyphen in the name), so make it the
 # top-level dir for discovery; supermox_manager comes in via src on the path.

@@ -44,6 +44,7 @@ supermox-manager src/supermox_manager/pages/network.py usr/lib/python3/dist-pack
 supermox-manager src/supermox_manager/pages/disks.py usr/lib/python3/dist-packages/supermox_manager/pages/disks.py
 supermox-manager src/supermox_manager/pages/permissions.py usr/lib/python3/dist-packages/supermox_manager/pages/permissions.py
 supermox-manager src/supermox_manager/pages/node.py usr/lib/python3/dist-packages/supermox_manager/pages/node.py
+supermox-manager src/supermox_manager/pages/firewall.py usr/lib/python3/dist-packages/supermox_manager/pages/firewall.py
 # ops/: pure-Python API operations (no GTK); pages and live tests share them.
 supermox-manager src/supermox_manager/ops/__init__.py usr/lib/python3/dist-packages/supermox_manager/ops/__init__.py
 supermox-manager src/supermox_manager/ops/tasks.py usr/lib/python3/dist-packages/supermox_manager/ops/tasks.py
@@ -60,6 +61,7 @@ supermox-manager src/supermox_manager/ops/access.py usr/lib/python3/dist-package
 supermox-manager src/supermox_manager/ops/jobs.py usr/lib/python3/dist-packages/supermox_manager/ops/jobs.py
 supermox-manager src/supermox_manager/ops/pools.py usr/lib/python3/dist-packages/supermox_manager/ops/pools.py
 supermox-manager src/supermox_manager/ops/ha.py usr/lib/python3/dist-packages/supermox_manager/ops/ha.py
+supermox-manager src/supermox_manager/ops/firewall.py usr/lib/python3/dist-packages/supermox_manager/ops/firewall.py
 supermox-manager src/supermox_manager/COPYING usr/share/doc/supermox-manager/COPYING
 # Scalable app icon; debian/rules renders the PNG sizes from it.
 supermox-manager website/assets/supermox-symbol.svg usr/share/icons/hicolor/scalable/apps/supermox-manager.svg
