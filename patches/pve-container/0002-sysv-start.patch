@@ -1,0 +1,21 @@
+--- a/src/PVE/LXC.pm	2026-10-30 20:04:28.604805946 -0700
++++ b/src/PVE/LXC.pm	2026-10-30 20:04:28.661213029 -0700
+@@ -3217,9 +3217,16 @@
+     unlink "/run/pve/ct-$vmid.stderr"; # systemd does not truncate log files
+ 
+     my $is_debug = $debug || (!defined($debug) && $conf->{debug});
+-    my $base_unit = $is_debug ? 'pve-container-debug' : 'pve-container';
+ 
+-    my $cmd = ['systemctl', 'start', "$base_unit\@$vmid"];
++    # SuperMox: no systemd on the node. The pve-container@<vmid> unit only ever
++    # ran `/usr/bin/lxc-start -F -n <vmid>` (debug: plus `-l DEBUG -o /dev/stderr`)
++    # with the container's stderr in /run/pve/ct-<vmid>.stderr; start the
++    # container detached here and keep the same log file.
++    my $ctlog = "/run/pve/ct-$vmid.stderr";
++    my $cmd = ['/bin/sh', '-c',
++               ($is_debug
++                ? "/usr/bin/lxc-start -d -n $vmid -l DEBUG -o $ctlog 2>> $ctlog"
++                : "/usr/bin/lxc-start -d -n $vmid 2>> $ctlog")];
+ 
+     PVE::GuestHelpers::exec_hookscript($conf, $vmid, 'pre-start', 1);
+     eval {

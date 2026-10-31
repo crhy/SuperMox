@@ -1,0 +1,82 @@
+diff -ruN orig/src/PVE/Systemd.pm new/src/PVE/Systemd.pm
+--- orig/src/PVE/Systemd.pm	2026-10-30 19:47:17.706301528 -0700
++++ new/src/PVE/Systemd.pm	2026-10-30 19:47:35.316061452 -0700
+@@ -10,6 +10,8 @@
+ use POSIX qw(EINTR);
+ use Socket qw(SOCK_DGRAM);
+ 
++use Cwd qw(abs_path);
++
+ use PVE::Cmd qw(run);
+ use PVE::Exception qw(raise_param_exc);
+ use PVE::File qw(file_set_contents file_get_contents);
+@@ -288,16 +290,25 @@
+     file_set_contents($filename, $content);
+ }
+ 
+-# Use systemds timedatectl for managing timezone settings
+-sub get_timezone {
+-    my $timezone;
+-
+-    run(
+-        ['timedatectl', 'show', '--property=Timezone', '--value'],
+-        outfunc => sub { $timezone //= shift },
+-    );
++# SuperMox: there is no systemd on this host, so there is no timedatectl. The
++# system timezone is the zoneinfo file /etc/localtime resolves to, and the set
++# of valid zone names is the zoneinfo tree itself. Same answers, no service
++# manager and no DBus.
++my $ZONEINFO_DIR = '/usr/share/zoneinfo';
++
++# zoneinfo carries bookkeeping files next to the zone files; those are not
++# zone names (README, *.tab, *.json, *.md, leapseconds, localtime).
++sub _is_zone_name {
++    my ($zone) = @_;
++    return 0 if $zone =~ /\.(tab|json|md|xml|auth)$/;
++    return 0 if $zone =~ /(^|\/)(README.*|leapseconds|localtime|ChangeLog)$/;
++    return 1;
++}
+ 
+-    return $timezone;
++sub get_timezone {
++    my $path = abs_path('/etc/localtime');
++    return undef if ! defined($path) || $path !~ m|^\Q$ZONEINFO_DIR\E/(.+)$|;
++    return $1;
+ }
+ 
+ sub set_timezone {
+@@ -306,17 +317,31 @@
+     raise_param_exc({ 'timezone' => "No such timezone" })
+         if (!grep { $_ eq $timezone } list_timezones());
+ 
+-    run(['timedatectl', 'set-timezone', $timezone]);
++    my $target = "$ZONEINFO_DIR/$timezone";
++    my $tmp = '/etc/localtime.supermox.tmp';
++    unlink($tmp);
++    symlink($target, $tmp);
++    rename($tmp, '/etc/localtime') or do {
++        unlink($tmp);
++        die "failed to point /etc/localtime at $target\n";
++    };
+ }
+ 
+ sub list_timezones {
+     my @timezones = ();
+ 
+     run(
+-        ['timedatectl', 'list-timezones'], outfunc => sub { push(@timezones, shift); },
++        ['find', $ZONEINFO_DIR, '-type', 'f'],
++        outfunc => sub {
++            my ($file) = @_;
++            return if $file !~ m|^\Q$ZONEINFO_DIR\E/(.+)$|;
++            my ($zone) = ($1);
++            return if !_is_zone_name($zone);
++            push(@timezones, $zone);
++        },
+     );
+ 
+-    return @timezones;
++    return sort @timezones;
+ }
+ 
+ =head3 notify()
