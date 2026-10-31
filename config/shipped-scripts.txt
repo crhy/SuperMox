@@ -33,6 +33,10 @@ supermox-manager src/supermox_manager/app.py usr/lib/python3/dist-packages/super
 supermox-manager src/supermox_manager/api.py usr/lib/python3/dist-packages/supermox_manager/api.py
 supermox-manager src/supermox_manager/advanced.py usr/lib/python3/dist-packages/supermox_manager/advanced.py
 supermox-manager src/supermox_manager/pages/__init__.py usr/lib/python3/dist-packages/supermox_manager/pages/__init__.py
+supermox-manager src/supermox_manager/pages/_view.py usr/lib/python3/dist-packages/supermox_manager/pages/_view.py
+supermox-manager src/supermox_manager/pages/backups.py usr/lib/python3/dist-packages/supermox_manager/pages/backups.py
+supermox-manager src/supermox_manager/pages/pools.py usr/lib/python3/dist-packages/supermox_manager/pages/pools.py
+supermox-manager src/supermox_manager/pages/ha.py usr/lib/python3/dist-packages/supermox_manager/pages/ha.py
 supermox-manager src/supermox_manager/pages/create.py usr/lib/python3/dist-packages/supermox_manager/pages/create.py
 supermox-manager src/supermox_manager/pages/containers.py usr/lib/python3/dist-packages/supermox_manager/pages/containers.py
 supermox-manager src/supermox_manager/pages/storage.py usr/lib/python3/dist-packages/supermox_manager/pages/storage.py
@@ -53,6 +57,9 @@ supermox-manager src/supermox_manager/ops/disks.py usr/lib/python3/dist-packages
 supermox-manager src/supermox_manager/ops/websocket.py usr/lib/python3/dist-packages/supermox_manager/ops/websocket.py
 supermox-manager src/supermox_manager/ops/terminal.py usr/lib/python3/dist-packages/supermox_manager/ops/terminal.py
 supermox-manager src/supermox_manager/ops/access.py usr/lib/python3/dist-packages/supermox_manager/ops/access.py
+supermox-manager src/supermox_manager/ops/jobs.py usr/lib/python3/dist-packages/supermox_manager/ops/jobs.py
+supermox-manager src/supermox_manager/ops/pools.py usr/lib/python3/dist-packages/supermox_manager/ops/pools.py
+supermox-manager src/supermox_manager/ops/ha.py usr/lib/python3/dist-packages/supermox_manager/ops/ha.py
 supermox-manager src/supermox_manager/COPYING usr/share/doc/supermox-manager/COPYING
 # Scalable app icon; debian/rules renders the PNG sizes from it.
 supermox-manager website/assets/supermox-symbol.svg usr/share/icons/hicolor/scalable/apps/supermox-manager.svg

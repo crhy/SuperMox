@@ -51,6 +51,23 @@ def volume(value):
     return quote(str(value), safe=":/")
 
 
+def _form(params):
+    """Serialise API parameters for a form body or query string.
+
+    PVE list options travel as comma-separated values, so a list or tuple
+    value is joined with ',' (urlencode would otherwise stringify the
+    Python list and send a nonsense value). Everything else is passed
+    through unchanged.
+    """
+    out = {}
+    for key, value in params.items():
+        if isinstance(value, (list, tuple)):
+            out[key] = ",".join(str(item) for item in value)
+        else:
+            out[key] = value
+    return out
+
+
 def guest_path(guest):
     if guest.get("type") not in ("qemu", "lxc"):
         raise ValueError("Select a virtual machine or container.")
@@ -158,9 +175,9 @@ class Client:
             # PVE splits the token value on '=', not ':'.
             headers["Authorization"] = "PVEAPIToken={}={}".format(self.token[0], self.token[1])
         if method in ("GET", "DELETE") and params:
-            target += "?" + urlencode(params)
+            target += "?" + urlencode(_form(params))
         elif params is not None:
-            body = urlencode(params).encode("utf-8")
+            body = urlencode(_form(params)).encode("utf-8")
             headers["Content-Type"] = "application/x-www-form-urlencoded"
         if self.ticket:
             headers["Cookie"] = "PVEAuthCookie=" + quote(self.ticket, safe="")
