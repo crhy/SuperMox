@@ -43,19 +43,31 @@ entries under `/etc/supermox`; it never reads private cluster keys.
 
 ## Current coverage
 
+Native pages are separate modules under `src/supermox_manager/pages/` (registered in
+`pages/__init__.py`), with the API logic in `src/supermox_manager/ops/`. Status as of
+2026-10-31 (the newer pages were written by the local Strata model in tasks t65-t76 and are
+committed as "pending review"):
+
 | Workflow | Implementation |
 | --- | --- |
 | Cluster overview, node/machine counts, memory | Native GTK, live API |
 | VM/container search, sorting and selection | Native GTK |
-| Node and storage inventory | Native GTK, read only |
 | Guest configuration inspection | Native GTK, read only |
 | Start, shutdown, stop, reboot, suspend, resume | Native GTK, confirmation for disruptive actions |
 | Migration, named snapshots, backup submission | Native GTK forms; advanced options use Full management |
 | Recent tasks, status and log inspection | Native GTK |
 | Guest creation, clone, convert-to-template, delete | Native GTK forms; live API |
-| Restore, hardware/network editing, storage content management | Existing server interface in Full management |
-| Users, groups, roles, permissions and API tokens | Native GTK tabs, live API; token secrets shown once |
-| Interactive consoles, cluster administration, HA, firewall and other advanced tools | Existing server interface in Full management |
+| **Create** a virtual machine step by step (t66) | Native page `create.py`, `ops/create.py` |
+| **Templates**: create containers from images (t67) | Native page `containers.py`, `ops/containers.py` |
+| **Storage**: capacity, content, upload/delete ISOs and templates (t69) | Native page `storage.py`, `ops/storage.py` |
+| **Node**: health, services, syslog, updates, DNS/hosts/time settings (t72) | Native page `node.py`, `ops/node.py` |
+| **Network** interfaces and **Disks** with SMART health (t73) | Native pages `network.py`, `disks.py` |
+| **Permissions**: users, groups, roles, ACLs, API tokens (t74) | Native page `permissions.py`, `ops/access.py`; token secrets shown once |
+| **Backups** (scheduled vzdump jobs), **Pools**, **HA** resources and rules (t75) | Native pages `backups.py`, `pools.py`, `ha.py` |
+| **Firewall**: rules, options, aliases, IP sets at datacenter, node and guest level (t76) | Native page `firewall.py`, `ops/firewall.py` |
+| Node shell over termproxy (t70) | Protocol done (`ops/websocket.py` RFC 6455 client with the same certificate pin, `ops/terminal.py`); the VTE terminal window with copy/paste is in progress (t70b, parked) |
+| Guest consoles (VNC/SPICE, t71) | In progress (parked); use Full management |
+| Restore, hardware/network editing of guests, cluster administration | Existing server interface in Full management |
 
 All real operations require the connected user's server-side privileges.
 Server versions and guest types may impose additional restrictions on actions.
@@ -103,8 +115,12 @@ API tests use a local HTTPS fixture to check certificate rejection before
 credentials, login/CSRF, expired sessions, TFA challenges, redirects, resource
 queries and error handling. The GUI smoke check exercises native preview
 navigation and machine selection and writes `build/supermox-manager-preview.png`.
-Live cluster operations and WebKit console workflows still require integration
-testing against a running node; they have not been validated by those fixtures.
+Live operations are tested against a running test VM by `bash tests/manager-live.sh`
+(t65): it reads the VM's certificate fingerprint over ssh, connects through the
+forwarded API port (127.0.0.1:18006 -> 8006) and runs `tests/manager-live/test_*.py`
+(create VM/CT, storage, node, network, disks, permissions, backup jobs, HA, firewall).
+It is not part of the gate and skips when no test VM is running. WebKit console
+workflows are not covered.
 
 The client is AGPLv3. The complete license is in
 `src/supermox_manager/COPYING` and is included in the package. SuperMox's

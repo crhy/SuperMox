@@ -71,15 +71,30 @@ SuperMox is **in active development** — it is being built piece by piece as an
 4. QR-code node onboarding for every supported device.
 5. Optional sharing with family/friends, and real-time crypto payments for shared resources.
 
+## Documentation
+
+Everything about how SuperMox works and how to build it is in **[docs/](docs/README.md)**:
+start with the [architecture overview](docs/architecture.md) and the
+[development guide](docs/development.md).
+
 ## Status (10.26)
 
-All verified on 2026-10-29:
+Verified on 2026-10-29:
 
 - Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13, pve-container 6.1.15) built from source on Devuan Ceres.
 - Running under sysvinit with no systemd anywhere (checked by `scripts/check-no-systemd.sh` on the running system).
 - Web UI on port 8006, survives reboot.
 - Node join with a 12-word phrase or QR invite (`supermox-join`, `supermox-joind`) built and unit-tested.
 - amd64 first; all architectures planned.
+
+Added since (2026-10-30/31, written by the local model and committed as "pending review"):
+
+- Discovery: signed gossip of node endpoints and a DHT locator so nodes find each other
+  across networks.
+- Daemon stderr goes to syslog under sysvinit; an offline check keeps upstream overrides honest.
+- SuperMox Manager native pages: create VMs and containers, storage, node administration,
+  network, disks, permissions and API tokens, backup jobs, pools, HA and firewall, with live
+  tests against a running VM. Node shell and guest consoles are in progress.
 
 ## Install (PC edition)
 
