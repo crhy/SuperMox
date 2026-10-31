@@ -1,5 +1,6 @@
 """Exercise the native client against a real local TLS endpoint, no GTK needed."""
 import http.server
+import io
 import json
 import ssl
 import threading
@@ -39,7 +40,12 @@ class ManagerAPI(unittest.TestCase):
                 self.respond()
 
             def respond(self):
-                params = parse_qs(self.rfile.read(int(self.headers.get('Content-Length', 0))).decode())
+                length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(length) if length else b''
+                self.server.last_body = body
+                ctype = self.headers.get('Content-Type', '')
+                params = (parse_qs(body.decode('utf-8', 'replace'))
+                          if 'x-www-form-urlencoded' in ctype else {})
                 self.server.requests.append((self.command, self.path, dict(self.headers), params))
                 status, result = self.server.reply
                 self.send_response(status)
@@ -64,6 +70,7 @@ class ManagerAPI(unittest.TestCase):
 
     def setUp(self):
         self.server.requests = []
+        self.server.last_body = b''
         self.server.reply = (200, {'data': []})
         self.client = api.Client(self.url, self.pin)
 
@@ -141,6 +148,28 @@ class ManagerAPI(unittest.TestCase):
             api.fingerprint('abc')
         with self.assertRaises(ValueError):
             self.client.action({'type': 'qemu'}, 'destroy')
+
+    def test_upload_streams_multipart_and_csrf(self):
+        self.login()
+        self.server.reply = (200, {'data': 'UPID:upload'})
+        content = b'A' * (1024 * 1024 + 4096)
+        fields = {'content': 'iso'}
+        result = self.client.upload('/nodes/atlas/storage/local/upload',
+                                    fields, 't.iso', io.BytesIO(content), len(content))
+        self.assertEqual(result, 'UPID:upload')
+        method, path, headers, params = self.server.requests[-1]
+        self.assertEqual((method, path), ('POST', '/api2/json/nodes/atlas/storage/local/upload'))
+        self.assertEqual(headers['CSRFPreventionToken'], 'csrf')
+        self.assertEqual(headers['Cookie'], 'PVEAuthCookie=PVE%3Atest%2Bticket')
+        self.assertIn('multipart/form-data; boundary=', headers['Content-Type'])
+        boundary = headers['Content-Type'].split('boundary=', 1)[1]
+        expected = (
+            '--{b}\r\nContent-Disposition: form-data; name="content"\r\n\r\niso\r\n'
+            '--{b}\r\nContent-Disposition: form-data; name="filename"; filename="t.iso"\r\n'
+            'Content-Type: application/octet-stream\r\n\r\n'
+        ).format(b=boundary).encode('utf-8') + content + ('\r\n--{}--\r\n'.format(boundary).encode('utf-8'))
+        self.assertEqual(self.server.last_body, expected)
+        self.assertEqual(int(headers['Content-Length']), len(expected))
 
     def test_preferences_never_save_credentials(self):
         cleaned = logic.clean_settings({'width': 'bad', 'height': -1, 'password': 'secret',

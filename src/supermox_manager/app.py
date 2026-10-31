@@ -98,7 +98,8 @@ class Manager:
         sidebar.pack_start(label("MANAGER", "subtitle"), False, False, 12)
         self.nav = {}
         self.pages = {page.TITLE: page for page in pages.load()}
-        for name in ("Overview", "Machines", "Nodes", "Storage", "Tasks", *self.pages, "Full management"):
+        for name in dict.fromkeys(("Overview", "Machines", "Nodes", "Storage", "Tasks",
+                                   *self.pages, "Full management")):
             nav = Gtk.ToggleButton(label=name)
             nav.set_halign(Gtk.Align.FILL)
             nav.connect("clicked", self.navigate, name)

@@ -7,6 +7,7 @@ Every request verifies the leaf on the actual connection before sending data.
 import hashlib
 import http.client
 import json
+import random
 import re
 import ssl
 from urllib.parse import quote, urlencode, urlsplit
@@ -40,6 +41,15 @@ def segment(value):
     return quote(str(value), safe="")
 
 
+def volume(value):
+    """Encode a volume id for the URL path, keeping ':' and '/' intact.
+
+    The node parses the volume as a raw path (a percent-encoded ':' is rejected),
+    so only genuinely unsafe characters such as spaces are escaped.
+    """
+    return quote(str(value), safe=":/")
+
+
 def guest_path(guest):
     if guest.get("type") not in ("qemu", "lxc"):
         raise ValueError("Select a virtual machine or container.")
@@ -59,10 +69,13 @@ class Client:
     def logout(self):
         self.ticket = self.csrf = self.username = None
 
-    def request(self, method, path, params=None):
-        if method not in ("GET", "POST", "PUT", "DELETE") or not path.startswith("/"):
-            raise ValueError("Invalid API request")
-        # No redirects or proxy environment variables: credentials never leave this origin.
+    def _connect(self):
+        """Open a connection and verify the pinned certificate before sending.
+
+        No redirects or proxy environment variables: credentials never leave
+        this origin. The leaf certificate is checked on the actual connection
+        before any data is written.
+        """
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
@@ -73,45 +86,121 @@ class Client:
             cert = connection.sock.getpeercert(binary_form=True)
             if not cert or hashlib.sha256(cert).hexdigest() != self.pin:
                 raise APIError("Certificate mismatch. No credentials were sent. Verify the node fingerprint.")
-            body = None
-            target = "/api2/json" + path
-            headers = {"Accept": "application/json"}
-            if method in ("GET", "DELETE") and params:
-                target += "?" + urlencode(params)
-            elif params is not None:
-                body = urlencode(params).encode("utf-8")
-                headers["Content-Type"] = "application/x-www-form-urlencoded"
-            if self.ticket:
-                headers["Cookie"] = "PVEAuthCookie=" + quote(self.ticket, safe="")
-                if method != "GET":
-                    headers["CSRFPreventionToken"] = self.csrf
-            connection.request(method, target, body=body, headers=headers)
-            response = connection.getresponse()
-            payload = response.read(16 * 1024 * 1024 + 1)
-            if len(payload) > 16 * 1024 * 1024:
-                raise APIError("The node returned too much data.")
-            if response.status == 401:
-                self.logout()
-                raise APIError("Sign in again: the session expired or the credentials were rejected.")
-            if response.status == 403:
-                raise APIError("Your account does not have permission for this operation.")
+        except Exception:
+            connection.close()
+            raise
+        return connection
+
+    def _read_response(self, connection, method, target):
+        """Read one HTTP response and return the API 'data' value."""
+        response = connection.getresponse()
+        payload = response.read(16 * 1024 * 1024 + 1)
+        if len(payload) > 16 * 1024 * 1024:
+            raise APIError("The node returned too much data.")
+        if response.status == 401:
+            self.logout()
+            raise APIError("Sign in again: the session expired or the credentials were rejected.")
+        if response.status == 403:
+            raise APIError("Your account does not have permission for this operation.")
+        try:
+            decoded = json.loads(payload)
+        except (ValueError, UnicodeError):
+            raise APIError("The node returned an invalid API response.") from None
+        if not 200 <= response.status < 300:
+            # Do not echo server text: it can contain request parameters or secrets.
+            fields = decoded.get("errors", {}) if isinstance(decoded, dict) else {}
+            names = ", ".join(str(k) for k in fields) if isinstance(fields, dict) else ""
+            raise APIError("Operation failed (HTTP {}).{}".format(
+                response.status, " Check fields: " + names if names else ""))
+        if not isinstance(decoded, dict) or "data" not in decoded:
+            raise APIError("The node returned an invalid API response.")
+        return decoded["data"]
+
+    def request(self, method, path, params=None):
+        if method not in ("GET", "POST", "PUT", "DELETE") or not path.startswith("/"):
+            raise ValueError("Invalid API request")
+        target = "/api2/json" + path
+        body = None
+        headers = {"Accept": "application/json"}
+        if method in ("GET", "DELETE") and params:
+            target += "?" + urlencode(params)
+        elif params is not None:
+            body = urlencode(params).encode("utf-8")
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        if self.ticket:
+            headers["Cookie"] = "PVEAuthCookie=" + quote(self.ticket, safe="")
+            if method != "GET":
+                headers["CSRFPreventionToken"] = self.csrf
+        try:
+            connection = self._connect()
             try:
-                decoded = json.loads(payload)
-            except (ValueError, UnicodeError):
-                raise APIError("The node returned an invalid API response.") from None
-            if not 200 <= response.status < 300:
-                # Do not echo server text: it can contain request parameters or secrets.
-                fields = decoded.get("errors", {}) if isinstance(decoded, dict) else {}
-                names = ", ".join(str(k) for k in fields) if isinstance(fields, dict) else ""
-                raise APIError("Operation failed (HTTP {}).{}".format(
-                    response.status, " Check fields: " + names if names else ""))
-            if not isinstance(decoded, dict) or "data" not in decoded:
-                raise APIError("The node returned an invalid API response.")
-            return decoded["data"]
+                connection.request(method, target, body=body, headers=headers)
+                return self._read_response(connection, method, target)
+            finally:
+                connection.close()
         except (OSError, http.client.HTTPException) as exc:
             raise APIError("Cannot reach the node over HTTPS: {}".format(type(exc).__name__)) from None
-        finally:
-            connection.close()
+
+    UPLOAD_CHUNK = 1024 * 1024
+
+    def upload(self, path, fields, filename, fileobj, size):
+        """POST a file as multipart/form-data to ``path``.
+
+        ``fields`` are sent as ordinary form fields; the file travels as the
+        ``filename`` part (the name the node's upload handler requires) with
+        the given ``filename``. ``fileobj`` is read
+        and streamed in 1 MiB chunks so large files never sit in memory whole.
+        ``size`` must be the exact byte length of the file (used for
+        Content-Length). Returns the API 'data' value (a task UPID).
+        """
+        if not path.startswith("/"):
+            raise ValueError("Invalid API request")
+        boundary = "----SuperMoxUpload%016x" % random.getrandbits(64)
+        prefix = self._multipart_prefix(boundary, fields, filename)
+        suffix = ("\r\n--%s--\r\n" % boundary).encode("utf-8")
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "multipart/form-data; boundary=%s" % boundary,
+            "Content-Length": str(len(prefix) + size + len(suffix)),
+        }
+        if self.ticket:
+            headers["Cookie"] = "PVEAuthCookie=" + quote(self.ticket, safe="")
+            headers["CSRFPreventionToken"] = self.csrf
+        target = "/api2/json" + path
+        try:
+            connection = self._connect()
+            try:
+                connection.putrequest("POST", target)
+                for name, value in headers.items():
+                    connection.putheader(name, value)
+                connection.endheaders()
+                connection.send(prefix)
+                remaining = size
+                while remaining > 0:
+                    chunk = fileobj.read(min(self.UPLOAD_CHUNK, remaining))
+                    if not chunk:
+                        break
+                    connection.send(chunk)
+                    remaining -= len(chunk)
+                connection.send(suffix)
+                return self._read_response(connection, "POST", target)
+            finally:
+                connection.close()
+        except (OSError, http.client.HTTPException) as exc:
+            raise APIError("Cannot reach the node over HTTPS: {}".format(type(exc).__name__)) from None
+
+    @staticmethod
+    def _multipart_prefix(boundary, fields, filename):
+        quoted = str(filename).replace("\\", "\\\\").replace('"', '\\"')
+        parts = []
+        for name, value in fields.items():
+            parts.append("--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n"
+                         "\r\n%s\r\n" % (boundary, name, value))
+        parts.append("--%s\r\nContent-Disposition: form-data; name=\"filename\"; "
+                     'filename="%s"\r\n'
+                     "Content-Type: application/octet-stream\r\n\r\n"
+                     % (boundary, quoted))
+        return "".join(parts).encode("utf-8")
 
     def login(self, username, password, otp=""):
         self.logout()
