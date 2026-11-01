@@ -35,6 +35,11 @@ DAEMON=${WAYDROID_BIN:-/usr/bin/waydroid}
 PIDFILE=${WAYDROID_PIDFILE:-/run/waydroid-container.pid}
 CONF=${WAYDROID_CONF:-/var/lib/waydroid/waydroid.cfg}
 IMG_DIR=${WAYDROID_IMG_DIR:-/var/lib/waydroid/images}
+LXC_DIR=${WAYDROID_LXC_DIR:-/var/lib/waydroid/lxc}
+ROOTFS=${WAYDROID_ROOTFS:-/var/lib/waydroid/rootfs}
+NET_SH=${WAYDROID_NET_SH:-/usr/lib/waydroid/data/scripts/waydroid-net.sh}
+LXC_BIN=${WAYDROID_LXC_BIN:-/usr/bin/lxc-start}
+CONT_PIDFILE=${WAYDROID_CONTAINER_PIDFILE:-/run/waydroid-container.lxc.pid}
 
 # waydroid's container manager bind-mounts with the binder API; without the
 # module the container dies on start. Load it here as well as through
@@ -48,6 +53,49 @@ load_binder() {
   # 0600 (root-only), so the opens fail with EACCES and init aborts. Match
   # Android/waydroid binderfs nodes and make them world-accessible.
   chmod 666 /dev/binder /dev/hwbinder /dev/vndbinder 2>/dev/null
+  return 0
+}
+
+# The container's LXC config (lxc.net.0.link = waydroid0, lxc.rootfs.path =
+# rootfs) needs two host-side prerequisites that upstream only creates inside
+# the container manager's do_start(): the waydroid0 veth bridge (waydroid-net.sh
+# start) and the loop-mounted Android rootfs (mount_rootfs). do_start() only
+# runs when a Wayland session calls Start() on id.waydro.Container, and the
+# session manager refuses to start without a live Wayland compositor. So on a
+# headless node the container is never brought up at all: lxc-start aborts at
+# once ("Failed to attach veth ... bridge interface doesn't exist", then the
+# tmpfs /dev mount on an empty rootfs). Create the prerequisites here so the
+# container can run headless; only the GUI session layer needs a compositor.
+prepare_container() {
+  [ -x "$NET_SH" ] && "$NET_SH" start
+  if ! mountpoint -q "$ROOTFS"; then
+    mkdir -p "$ROOTFS" "$ROOTFS/vendor"
+    mount -o loop "$IMG_DIR/system.img" "$ROOTFS" || return 1
+    mount -o loop "$IMG_DIR/vendor.img" "$ROOTFS/vendor" || return 1
+  fi
+  return 0
+}
+
+# Start the container directly (headless). The container shares this node's
+# kernel and needs no compositor; we deliberately do NOT go through the session
+# layer, whose generate_session_lxc_config() bind-mounts the host Wayland and
+# pulse sockets ($XDG_RUNTIME_DIR/$WAYLAND_DISPLAY, .../pulse/native) that do
+# not exist on a headless node and would make LXC's mount setup fail.
+start_container() {
+  start-stop-daemon --start --quiet --background --make-pidfile \
+    --pidfile "$CONT_PIDFILE" \
+    --exec "$LXC_BIN" -- -n waydroid -P "$LXC_DIR" -F -- /init
+}
+
+stop_container() {
+  if [ -f "$CONT_PIDFILE" ] && kill -0 "$(cat "$CONT_PIDFILE")" 2>/dev/null; then
+    start-stop-daemon --stop --quiet --retry=TERM/20/KILL/5 --pidfile "$CONT_PIDFILE"
+  fi
+  lxc-stop -n waydroid -P "$LXC_DIR" 2>/dev/null || true
+  umount "$ROOTFS/vendor" 2>/dev/null || true
+  umount "$ROOTFS" 2>/dev/null || true
+  [ -x "$NET_SH" ] && "$NET_SH" stop
+  rm -f "$CONT_PIDFILE"
   return 0
 }
 
@@ -68,6 +116,11 @@ case "$1" in
       exit 1
     fi
     load_binder
+    if ! prepare_container; then
+      log_end_msg 1
+      exit 1
+    fi
+    start_container
     start-stop-daemon --start --quiet --background --make-pidfile \
       --pidfile "$PIDFILE" --exec "$DAEMON" -- container start
     rc=$?
@@ -100,6 +153,7 @@ case "$1" in
       pkill -f "$DAEMON container start" 2>/dev/null || true
       rc=0
     fi
+    stop_container
     rm -f "$PIDFILE"
     log_end_msg "$rc"
     ;;
