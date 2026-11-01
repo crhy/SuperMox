@@ -2,8 +2,9 @@
 """Live tests for resource pools against a running SuperMox node.
 
 Skipped unless SUPERMOX_LIVE_URL points at a reachable node.  Creates a
-pool, adds a guest, refuses to delete it while it has members, removes
-the member, and deletes the pool.  Cleans up before and after.
+pool, adds a guest it created itself, refuses to delete it while it has
+members, removes the member, and deletes the pool.  Cleans up before and
+after, so the node is left with nothing behind.
 """
 import os
 import sys
@@ -15,13 +16,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
 from supermox_manager import api
 from supermox_manager.ops import pools
 
+import guestfixture
+
 LIVE_URL = os.environ.get("SUPERMOX_LIVE_URL")
 LIVE_PIN = os.environ.get("SUPERMOX_LIVE_PIN")
 LIVE_USER = os.environ.get("SUPERMOX_LIVE_USER", "root@pam")
 LIVE_PASS = os.environ.get("SUPERMOX_LIVE_PASS", "")
 
 POOL = "t75pool"
-VMID = 9950
+NODE = "supermox"
+VMID = 9952
+NAME = "t-79-pool"
 
 
 class PoolsLive(unittest.TestCase):
@@ -67,6 +72,14 @@ class PoolsLive(unittest.TestCase):
 
     def test_create_add_members_delete(self):
         self._cleanup(self.client)
+        guestfixture.destroy(self.client, NODE, "qemu", VMID)
+        try:
+            guestfixture.create_vm(self.client, NODE, VMID, NAME)
+            self._members()
+        finally:
+            guestfixture.destroy(self.client, NODE, "qemu", VMID)
+
+    def _members(self):
         pools.create_pool(self.client, POOL, comment="t75")
         self.assertIn(POOL, [p["poolid"] for p in pools.pools(self.client)])
 

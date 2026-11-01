@@ -1,3 +1,11 @@
+supermox-manager (10.26.2) supermox; urgency=medium
+
+  * Add the native cluster management page and the live CPU/memory graphs.
+  * Fix a crash when an operation finished while no machine table was showing.
+  * Live API tests create and remove their own guests, so they repeat cleanly.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 01 Nov 2026 12:00:00 +0000
+
 supermox-manager (10.26.1) supermox; urgency=medium
 
   * Add a native GTK dashboard and direct API management actions.

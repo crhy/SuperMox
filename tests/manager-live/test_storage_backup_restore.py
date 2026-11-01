@@ -12,10 +12,17 @@ import unittest
 from supermox_manager import api
 from supermox_manager.ops import guests, storage, tasks
 
+import guestfixture
+
 LIVE_URL = os.environ.get("SUPERMOX_LIVE_URL")
 LIVE_PIN = os.environ.get("SUPERMOX_LIVE_PIN", "")
 LIVE_USER = os.environ.get("SUPERMOX_LIVE_USER", "root@pam")
 LIVE_PASSWORD = os.environ.get("SUPERMOX_LIVE_PASSWORD", "supermox")
+
+NODE = "supermox"
+CTID = 9954
+RESTORE_ID = 9955
+NAME = "t-79-restore"
 
 
 @unittest.skipUnless(LIVE_URL, "SUPERMOX_LIVE_URL is not set (no VM running)")
@@ -33,23 +40,25 @@ class BackupRestore(unittest.TestCase):
         except Exception:  # noqa: BLE001 - best effort
             pass
 
-    def _guests(self):
-        return [r for r in self.client.request("GET", "/cluster/resources")
-                if r["type"] in ("qemu", "lxc")]
-
     def _backup_volumes(self):
         return sorted(row["volid"] for row in storage.content(self.client, self.node, "local",
                                                               content_type="backup"))
 
     def test_backup_then_restore(self):
-        guests_here = self._guests()
-        if not guests_here:
-            self.skipTest("no guest to back up on this node")
-        guest = next((g for g in guests_here if g["type"] == "lxc"), guests_here[0])
-        kind = guest["type"]
-        vmid = int(guest["vmid"])
+        # Back up a guest we created ourselves, then restore the volume into
+        # another id we own. Never borrow a guest from a previous run.
+        guestfixture.destroy(self.client, NODE, "lxc", CTID)
+        guestfixture.destroy(self.client, NODE, "lxc", RESTORE_ID)
+        try:
+            guestfixture.create_ct(self.client, NODE, CTID, NAME, LIVE_PASSWORD)
+            self._backup_and_restore()
+        finally:
+            guestfixture.destroy(self.client, NODE, "lxc", CTID)
+            guestfixture.destroy(self.client, NODE, "lxc", RESTORE_ID)
 
-        upid = storage.backup(self.client, self.node, vmid, storage="local", mode="snapshot")
+    def _backup_and_restore(self):
+        upid = storage.backup(self.client, self.node, CTID, storage="local",
+                              mode="snapshot")
         self.assertTrue(upid.startswith("UPID:"))
         tasks.wait_task(self.client, self.node, upid, timeout=300)
 
@@ -57,15 +66,14 @@ class BackupRestore(unittest.TestCase):
         self.assertTrue(before, "the backup should have produced a volume")
         volume = before[-1]
 
-        new_id = int(guests.next_id(self.client))
         try:
-            restore = storage.restore(self.client, self.node, kind, new_id, volume)
+            restore = storage.restore(self.client, self.node, "lxc",
+                                      RESTORE_ID, volume)
             self.assertTrue(restore.startswith("UPID:"))
             tasks.wait_task(self.client, self.node, restore, timeout=300)
-            state = guests.status(self.client, self.node, kind, new_id)
-            self.assertEqual(int(state["vmid"]), new_id)
+            state = guests.status(self.client, self.node, "lxc", RESTORE_ID)
+            self.assertEqual(int(state["vmid"]), RESTORE_ID)
         finally:
-            guests.destroy(self.client, self.node, kind, new_id)
             storage.delete_volume(self.client, self.node, "local", volume)
 
 

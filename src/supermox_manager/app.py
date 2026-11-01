@@ -65,6 +65,7 @@ class Manager:
         self.current = "Overview"
         self.navigating = False
         self.selected = None
+        self.action_buttons = []
         self.closed = False
         self.busy = False
         self.generation = 0
@@ -297,6 +298,7 @@ class Manager:
             self.content.remove(child)
             child.destroy()
         self.selected = None
+        self.action_buttons = []
         self.machine_graphs = None
         self.content.pack_start(label(self.current, "title"), False, False, 0)
         subtitles = {

@@ -45,7 +45,7 @@ entries under `/etc/supermox`; it never reads private cluster keys.
 
 Native pages are separate modules under `src/supermox_manager/pages/` (registered in
 `pages/__init__.py`), with the API logic in `src/supermox_manager/ops/`. Status as of
-2026-10-31 (the newer pages were written by the local Strata model in tasks t65-t76 and are
+2026-11-01 (the newer pages were written by the local Strata model in tasks t65-t78 and are
 committed as "pending review"):
 
 | Workflow | Implementation |
@@ -65,11 +65,16 @@ committed as "pending review"):
 | **Permissions**: users, groups, roles, ACLs, API tokens (t74) | Native page `permissions.py`, `ops/access.py`; token secrets shown once |
 | **Backups** (scheduled vzdump jobs), **Pools**, **HA** resources and rules (t75) | Native pages `backups.py`, `pools.py`, `ha.py` |
 | **Firewall**: rules, options, aliases, IP sets at datacenter, node and guest level (t76) | Native page `firewall.py`, `ops/firewall.py` |
+| **Cluster management**: quorum, nodes, cluster log, datacenter options (t78) | Native page `cluster.py`, `ops/cluster.py` |
+| **Graphs**: live CPU and memory curves for one machine or one node (t77) | Native `pages/graphs.py` over `ops/metrics.py`; embedded under Machines and under the Node page |
+| Hardware inventory of a guest (t68) | Not in this build: the probes and the API shape are recorded in the task notes, the page was never committed; use Full management |
 | Node shell over termproxy (t70) | Protocol done (`ops/websocket.py` RFC 6455 client with the same certificate pin, `ops/terminal.py`); the VTE terminal window with copy/paste is in progress (t70b, parked) |
 | Guest consoles (VNC/SPICE, t71) | In progress (parked); use Full management |
-| Restore, hardware/network editing of guests, cluster administration | Existing server interface in Full management |
+| Restore, cluster-wide administration beyond the cluster page | Existing server interface in Full management |
 
 All real operations require the connected user's server-side privileges.
+Every page row above has a live test in `tests/manager-live/` for the API calls
+it makes; the three rows marked "not in this build" have none.
 Server versions and guest types may impose additional restrictions on actions.
 Failures are displayed; the client does not claim successful completion merely
 because an asynchronous task was submitted. Task details expose status and log.
@@ -78,6 +83,8 @@ Full management requires `gir1.2-webkit2-4.1` and a separate login. Its ephemera
 browser context supports same-origin console windows and explicit download
 destinations. External identity-provider navigation is blocked, so external
 SSO is not currently supported. Closing its window discards browser cookies.
+The VTE terminal (t70b) and the VNC/SPICE console (t71) are not in this build, so
+the package does not depend on `gir1.2-vte-2.91` or `gir1.2-gtk-vnc-2.0`.
 
 ## Session and TLS handling
 
@@ -102,8 +109,8 @@ bash scripts/build-manager.sh
 ```
 
 The package is written under `build/`. Install the resulting `.deb` through the
-system package manager to get the application menu entry and icons. WebKit is
-a recommended dependency; native screens work without it. This package has no
+system package manager to get the application menu entry and icons. WebKit is a
+recommended dependency; the native screens work without it. This package has no
 dependency on the server package or an init system.
 
 ```sh
@@ -118,8 +125,15 @@ navigation and machine selection and writes `build/supermox-manager-preview.png`
 Live operations are tested against a running test VM by `bash tests/manager-live.sh`
 (t65): it reads the VM's certificate fingerprint over ssh, connects through the
 forwarded API port (127.0.0.1:18006 -> 8006) and runs `tests/manager-live/test_*.py`
-(create VM/CT, storage, node, network, disks, permissions, backup jobs, HA, firewall).
-It is not part of the gate and skips when no test VM is running. WebKit console
+(create VM/CT, storage content, node, network, disks, pools, permissions, backup
+jobs, backup and restore, HA, firewall, cluster, metrics/graphs, basics). Each
+test creates the guest it needs through
+`tests/manager-live/guestfixture.py` and removes it again, so the suite is repeatable
+and leaves the node clean apart from the container template it keeps. It is not part
+of the gate and skips when no test VM is running. Two live gaps are known and are
+server-side, not client-side: starting a VM fails in `qemu-server`'s own
+`systemd-wrapper` (an upstream call into systemd that this project does not install),
+and starting a container fails on a missing `bridge` in the test image. WebKit console
 workflows are not covered.
 
 The client is AGPLv3. The complete license is in

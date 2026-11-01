@@ -40,6 +40,13 @@ def check():
         return True
     assert manager.resources, "Preview never loaded"
     if stage[0] == 0:
+        # A freshly launched app has no client, so its first render draws no
+        # machine table; the first operation that finishes must still be able
+        # to call refresh_actions() (this crashed before t79).
+        fresh = Manager("https://127.0.0.1:8006/")
+        assert fresh.action_buttons == []
+        fresh.refresh_actions()
+        fresh.window.destroy()
         for page in ("Machines", "Nodes", "Storage", *manager.pages, "Full management", "Overview"):
             manager.navigate(None, page)
             assert manager.current == page
@@ -66,6 +73,8 @@ def check():
     assert manager.selected is None
     assert not any(w.get_sensitive() for w in manager.action_buttons)
     manager.navigate(None, "Tasks")
+    assert manager.action_buttons == [], "render() must drop the old buttons"
+    manager.refresh_actions()
     GLib.timeout_add(100, finish)
     return False
 
