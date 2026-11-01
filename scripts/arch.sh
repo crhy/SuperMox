@@ -32,6 +32,22 @@ supermox_kernel_pkg() {
   esac
 }
 
+# Debian arch -> the name binfmt_misc registers for that emulator's userspace helper.
+# The kernel names the entry after the QEMU emulator, not after the Debian arch: this
+# PC has qemu-aarch64 / qemu-arm / qemu-riscv64 / qemu-loongarch64 registered, and there
+# is no "qemu-arm64" or "qemu-armhf". Checking /proc/sys/fs/binfmt_misc/qemu-$SUPERMOX_ARCH
+# therefore fails for arm64 and armhf even though emulation works.
+supermox_binfmt_name() {
+  case "$SUPERMOX_ARCH" in
+    amd64)   printf 'x86_64\n' ;;
+    arm64)   printf 'aarch64\n' ;;
+    armhf)   printf 'arm\n' ;;
+    riscv64) printf 'riscv64\n' ;;
+    loong64) printf 'loongarch64\n' ;;
+    *) supermox_arch_known ;;
+  esac
+}
+
 # Debian arch -> QEMU emulator binary.
 supermox_qemu_bin() {
   case "$SUPERMOX_ARCH" in

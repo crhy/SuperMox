@@ -50,8 +50,10 @@ done
 # Do not install anything: tell the operator what is missing and stop. Skipped for --dry-run.
 if [ "$dry_run" -ne 1 ]; then
   host_arch="$(dpkg --print-architecture)"
-  if [ "$SUPERMOX_ARCH" != "$host_arch" ] && [ ! -e "/proc/sys/fs/binfmt_misc/qemu-$SUPERMOX_ARCH" ]; then
+  binfmt_name="$(supermox_binfmt_name)"
+  if [ "$SUPERMOX_ARCH" != "$host_arch" ] && [ ! -e "/proc/sys/fs/binfmt_misc/qemu-$binfmt_name" ]; then
     printf 'ERROR: building a %s rootfs on a %s host needs foreign-arch execution via binfmt_misc.\n' "$SUPERMOX_ARCH" "$host_arch" >&2
+    printf 'No /proc/sys/fs/binfmt_misc/qemu-%s (binfmt entries are named after the QEMU emulator, not the Debian arch).\n' "$binfmt_name" >&2
     printf 'Install the qemu-user-binfmt package on the build host (apt install qemu-user-binfmt), then re-run.\n' >&2
     exit 2
   fi
