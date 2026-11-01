@@ -304,7 +304,7 @@ class Manager:
             "Machines": "Virtual machines and containers, together in one place.",
             "Nodes": "The devices powering your infrastructure.",
             "Storage": "Capacity and content across your cluster.",
-            "Tasks": "Recent operations and their results.",
+            "Tasks": "Every node's operations in one answer, newest first.",
             "Full management": "Complete server interface, inside the desktop app.",
         }
         page = self.pages.get(self.current)
@@ -588,6 +588,10 @@ class Manager:
                 self.task_detail(task)
         tree.connect("row-activated", activated)
         self.content.pack_start(label("Double-click a task to read its current status and log.", "subtitle"), False, False, 0)
+        self.content.pack_start(label(
+            "This is /cluster/tasks: one answer covering every node in the "
+            "cluster, newest first. The endpoint has no limit parameter, so the "
+            "node decides how far back it goes.", "subtitle"), False, False, 0)
 
     def show_tasks(self, rows):
         if self.current != "Tasks":

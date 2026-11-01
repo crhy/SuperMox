@@ -339,6 +339,26 @@ class DemoClient:
             return "Preview only: operation simulated"
         if path == "/cluster/nextid":
             return 103
+        # The cluster page asks before the guest-shaped /status and /log answers
+        # below, so these exact paths come first.
+        if path == "/cluster/status":
+            return [{"id": "cluster", "name": "preview", "nodes": 2, "quorate": 1,
+                     "type": "cluster", "version": 1},
+                    {"id": "node/atlas", "name": "atlas", "nodeid": 1, "ip": "10.0.2.15",
+                     "local": 1, "online": 1, "level": "", "type": "node"},
+                    {"id": "node/orbit", "name": "orbit", "nodeid": 2, "ip": "10.0.2.16",
+                     "local": 0, "online": 1, "level": "", "type": "node"}]
+        if path == "/cluster/log":
+            now = int(time.time())
+            return [{"id": "1:atlas", "node": "atlas", "pid": 1, "pri": 6, "tag": "pvedaemon",
+                     "uid": "1", "user": "root@pam", "time": now - 60,
+                     "msg": "successful auth for user 'root@pam'"},
+                    {"id": "2:orbit", "node": "orbit", "pid": 2, "pri": 3, "tag": "corosync",
+                     "uid": "2", "user": "root@pam", "time": now - 30,
+                     "msg": "node 'orbit' lost quorum"}]
+        if path == "/cluster/options":
+            return {"allowed-tags": [], "description": "Preview cluster",
+                    "mac_prefix": "00:16:3e"}
         if path.endswith("/storage"):
             return [{"storage": "local"}]
         if path.endswith("/network"):

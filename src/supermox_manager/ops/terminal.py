@@ -24,6 +24,7 @@ connection before the session cookie is written.
 """
 
 import queue
+import re
 import socket
 import threading
 
@@ -214,3 +215,30 @@ def one_line(text):
     the pasted lines one by one.
     """
     return " ".join(text.split())
+
+
+# The node sends raw terminal bytes: colours, cursor moves, the prompt's own
+# control characters. A TextView shows none of that, so only printable text
+# and line breaks are kept.
+_ANSI_RE = re.compile(
+    r"\x1b\[[0-?]*[ -/]*[@-~]"                       # CSI: colours, moves
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"          # OSC: title, hyperlinks
+    r"|(\x1b[PX^_][ -~]*\x1b\\)"                     # DCS: passthrough
+    r"|\x1b[()#][0-9A-B]"                        # charset designator
+    r"|\x1b.")                                     # any other escape
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def readable(data):
+    """Turn terminal bytes into text a window can display.
+
+    Escape sequences are dropped whole (a colour change must not leave its
+    letters behind), CR and CRLF both become one line break, and the
+    remaining control characters are removed. Bytes are decoded with
+    'replace' so a split multi-byte character never kills the transcript.
+    """
+    if isinstance(data, bytes):
+        data = data.decode("utf-8", "replace")
+    text = _ANSI_RE.sub("", data)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return _CONTROL_RE.sub("", text)

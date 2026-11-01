@@ -45,6 +45,7 @@ supermox-manager src/supermox_manager/pages/disks.py usr/lib/python3/dist-packag
 supermox-manager src/supermox_manager/pages/permissions.py usr/lib/python3/dist-packages/supermox_manager/pages/permissions.py
 supermox-manager src/supermox_manager/pages/node.py usr/lib/python3/dist-packages/supermox_manager/pages/node.py
 supermox-manager src/supermox_manager/pages/firewall.py usr/lib/python3/dist-packages/supermox_manager/pages/firewall.py
+supermox-manager src/supermox_manager/pages/cluster.py usr/lib/python3/dist-packages/supermox_manager/pages/cluster.py
 supermox-manager src/supermox_manager/pages/graphs.py usr/lib/python3/dist-packages/supermox_manager/pages/graphs.py
 # ops/: pure-Python API operations (no GTK); pages and live tests share them.
 supermox-manager src/supermox_manager/ops/__init__.py usr/lib/python3/dist-packages/supermox_manager/ops/__init__.py
@@ -62,6 +63,7 @@ supermox-manager src/supermox_manager/ops/access.py usr/lib/python3/dist-package
 supermox-manager src/supermox_manager/ops/jobs.py usr/lib/python3/dist-packages/supermox_manager/ops/jobs.py
 supermox-manager src/supermox_manager/ops/pools.py usr/lib/python3/dist-packages/supermox_manager/ops/pools.py
 supermox-manager src/supermox_manager/ops/ha.py usr/lib/python3/dist-packages/supermox_manager/ops/ha.py
+supermox-manager src/supermox_manager/ops/cluster.py usr/lib/python3/dist-packages/supermox_manager/ops/cluster.py
 supermox-manager src/supermox_manager/ops/firewall.py usr/lib/python3/dist-packages/supermox_manager/ops/firewall.py
 supermox-manager src/supermox_manager/ops/metrics.py usr/lib/python3/dist-packages/supermox_manager/ops/metrics.py
 supermox-manager src/supermox_manager/COPYING usr/share/doc/supermox-manager/COPYING
