@@ -3,8 +3,10 @@ set -euo pipefail
 
 # Architecture mapping: the expected QEMU process comm depends on SUPERMOX_ARCH.
 source "$(dirname "$0")/arch.sh"
+# Paths: environment > config/local.env > build/ default (see docs/development.md).
+source "$(dirname "$0")/local-env.sh"
 
-VM_DIR="${SUPERMOX_VM_DIR:-/media/rhy/data/supermox-vm}"
+VM_DIR="$SUPERMOX_VM_DIR"
 pidfile="$VM_DIR/qemu.pid"
 
 if [ ! -f "$pidfile" ]; then

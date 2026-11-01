@@ -16,8 +16,10 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 # SUPERMOX_ARCH names the ISO and the kernel package; amd64 is only the first target.
 source "$repo_root/scripts/arch.sh"
+# Paths: environment > config/local.env > build/ default (see docs/development.md).
+source "$repo_root/scripts/local-env.sh"
 
-SPACED_REPO="${SUPERMOX_SPACED_REPO:-/home/rhy/spaced-10.26}"
+SPACED_REPO="$SUPERMOX_SPACED_REPO"
 DEB_DIR="${SUPERMOX_DEB_DIR:-$repo_root/build/vm-data/debs}"
 WORKTREE="$repo_root/build/spaced-iso"
 KEY_URL='https://enterprise.proxmox.com/debian/proxmox-archive-keyring-trixie.gpg'
@@ -168,7 +170,7 @@ collect_iso() {
   printf 'OK: %s (%s bytes, limit %s)\n' "$iso_out" "$size" "$ISO_MAX_BYTES"
 }
 
-[ -d "$SPACED_REPO/.git" ] || fail "Spaced checkout not found at $SPACED_REPO (set SUPERMOX_SPACED_REPO)"
+[ -d "$SPACED_REPO/.git" ] || fail "no Spaced checkout at $SPACED_REPO: set SUPERMOX_SPACED_REPO (export it, or set it in config/local.env) to a Spaced clone"
 target_commit="$(git -C "$SPACED_REPO" rev-parse --verify "${spaced_ref}^{commit}" 2>/dev/null || true)"
 [ -n "$target_commit" ] || fail "ref '$spaced_ref' not found in $SPACED_REPO"
 spaced_version="$(git -C "$SPACED_REPO" show "${target_commit}:VERSION" 2>/dev/null | head -n1)"

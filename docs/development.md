@@ -37,7 +37,7 @@ All PVE work happens in KVM virtual machines, never on the host.
 
 | VM | Data | ssh | Start |
 | --- | --- | --- | --- |
-| Build VM | `SUPERMOX_VM_DIR` (default in `scripts/vm-start.sh` is the maintainer's data disk: set it on your machine) | port 2223 | `bash scripts/vm-start.sh --background` |
+| Build VM | `SUPERMOX_VM_DIR` (see [Local settings](#local-settings)) | port 2223 | `bash scripts/vm-start.sh --background` |
 | Test VM | `SUPERMOX_VM_DIR=build/test-data` | port 2224, API forwarded to 127.0.0.1:18006 | `SUPERMOX_VM_DIR=... SUPERMOX_VM_SSH_PORT=2224 bash scripts/vm-start.sh --background` |
 
 - Always pass BOTH `SUPERMOX_VM_DIR` and `SUPERMOX_VM_SSH_PORT` for the test VM: the port alone
@@ -59,6 +59,30 @@ bash scripts/vm-setup-proxmox-repos.sh
 bash scripts/vm-build-pkg.sh pve-manager        # one component at a time
 bash scripts/vm-test-install.sh                 # milestone 1 on a clean test VM
 ```
+
+## Local settings
+
+Machine-specific paths never live in the scripts. Every script that needs a path
+sources `scripts/local-env.sh`, which reads `config/local.env` (git-ignored, never
+committed) and then fills in portable defaults, so a fresh clone works with no setup
+and keeps its VM data under `build/`. `config/local.env.example` documents the
+variables; copy it to `config/local.env` and edit.
+
+| Variable | Meaning | Default |
+| --- | --- | --- |
+| `SUPERMOX_VM_DIR` | build VM disk, kernel, initrd, pidfile | `$REPO/build/vm` |
+| `SUPERMOX_TEST_DIR` | test VM disk | `$REPO/build/test-data` |
+| `SUPERMOX_DEBS_DIR` | built `.deb` files | `$SUPERMOX_VM_DIR/debs` |
+| `SUPERMOX_SPACED_REPO` | Spaced Linux checkout for `build-iso.sh` | `$REPO/../spaced` (a fresh clone has none: `build-iso.sh` stops and names this variable) |
+
+Precedence: an exported environment variable wins over `config/local.env`, which
+wins over the default. So `SUPERMOX_VM_DIR=/data/vm bash scripts/vm-start.sh`
+overrides everything, while `bash scripts/vm-start.sh` alone follows the file. `$REPO`
+is the repo root, set by `scripts/local-env.sh` before it reads the file, so a value
+may be written as `"$REPO/build/vm"` or as an absolute path. On the maintainer's
+machine the root disk is nearly full, so his VM data stays on his data disk; his
+`config/local.env` is kept outside the repo tree (the entry under `config/` is a
+symlink to it), which is why no machine-specific path appears anywhere in the repo.
 
 ## Scripts
 

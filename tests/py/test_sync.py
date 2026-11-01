@@ -239,7 +239,7 @@ class FoldersTest(unittest.TestCase):
         sync_mod.reconcile(self.members, "home-server", None, self.api)
         old_ids = {f["id"] for f in self.api.folders}
         folders = sync_mod.home_folders(self.members)
-        folders[0] = dict(folders[0], id="home-photos", path="/home/rhy/photos")
+        folders[0] = dict(folders[0], id="home-photos", path="/home/alice/photos")
         sync_mod.reconcile(self.members, "home-server", folders, self.api)
         new_ids = {f["id"] for f in self.api.folders}
         self.assertNotIn("home-home-server", new_ids)

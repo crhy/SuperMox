@@ -4,8 +4,10 @@ set -euo pipefail
 # Architecture mapping: SUPERMOX_ARCH (Debian arch name) plus the QEMU binary/console/machine
 # helpers. The build host's arch is only the first test target; this script starts a VM for any arch.
 source "$(dirname "$0")/arch.sh"
+# Paths: environment > config/local.env > build/ default (see docs/development.md).
+source "$(dirname "$0")/local-env.sh"
 
-VM_DIR="${SUPERMOX_VM_DIR:-/media/rhy/data/supermox-vm}"
+VM_DIR="$SUPERMOX_VM_DIR"
 VM_RAM="${SUPERMOX_VM_RAM:-4096}"
 VM_CPUS="${SUPERMOX_VM_CPUS:-4}"
 VM_SSH_PORT="${SUPERMOX_VM_SSH_PORT:-2223}"

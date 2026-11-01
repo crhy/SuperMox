@@ -3,7 +3,10 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 vm_ssh="$repo_root/scripts/vm-ssh.sh"
-VM_DIR="${SUPERMOX_VM_DIR:-/media/rhy/data/supermox-vm}"
+# Paths: environment > config/local.env > build/ default (see docs/development.md).
+source "$repo_root/scripts/local-env.sh"
+
+VM_DIR="$SUPERMOX_VM_DIR"
 VM_SSH_PORT="${SUPERMOX_VM_SSH_PORT:-2223}"
 INIT_SCRIPTS="${INIT_SCRIPTS:-$repo_root/config/init-scripts.txt}"
 SHIPPED_SCRIPTS="${SHIPPED_SCRIPTS:-$repo_root/config/shipped-scripts.txt}"

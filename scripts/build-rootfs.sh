@@ -4,15 +4,18 @@ set -euo pipefail
 # Architecture mapping: SUPERMOX_ARCH (Debian arch name) plus the kernel/QEMU/console
 # helpers. The build host's arch is only the first test target; this script works for any arch.
 source "$(dirname "$0")/arch.sh"
+# Paths: environment > config/local.env > build/ default (see docs/development.md).
+source "$(dirname "$0")/local-env.sh"
 
-VM_DIR="${SUPERMOX_VM_DIR:-/media/rhy/data/supermox-vm}"
+VM_DIR="$SUPERMOX_VM_DIR"
 MIRROR="${SUPERMOX_MIRROR:-http://deb.devuan.org/merged}"
 SUITE="${SUPERMOX_SUITE:-ceres}"
 IMAGE_SIZE="${SUPERMOX_IMAGE_SIZE:-20G}"
 
 # mmdebstrap builds in TMPDIR; /tmp is RAM on the build machine, so keep it on disk.
-# The unshared build user must be able to enter TMPDIR, so it lives in the repo, not under /media/rhy/data (mode 700).
-export TMPDIR="${SUPERMOX_TMPDIR:-$(cd "$(dirname "$0")/.." && pwd)/build/tmp}"
+# The unshared build user must be able to enter TMPDIR, so it lives in the repo, not on a
+# separate data disk that may be mode 700 (see config/local.env for where VM data lives).
+export TMPDIR="${SUPERMOX_TMPDIR:-$REPO/build/tmp}"
 
 KEYRING=/usr/share/keyrings/devuan-archive-keyring.gpg
 COMPONENTS=main,contrib,non-free-firmware
