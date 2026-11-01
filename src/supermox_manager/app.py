@@ -9,6 +9,7 @@ from gi.repository import GLib, Gtk
 
 from . import api, logic, pages
 from .ops import create as create_ops, guests, tasks
+from .pages import graphs as history
 
 CSS = b"""
 window, dialog { background: #092b32; color: #eef5ef; }
@@ -141,6 +142,7 @@ class Manager:
             if self.closed or generation != self.generation:
                 return False
             self.busy = False
+            self.refresh_actions()
             if error:
                 self.status.set_text(error)
                 self.message("Could not complete the operation", error)
@@ -295,6 +297,7 @@ class Manager:
             self.content.remove(child)
             child.destroy()
         self.selected = None
+        self.machine_graphs = None
         self.content.pack_start(label(self.current, "title"), False, False, 0)
         subtitles = {
             "Overview": "A clear view of your cluster, from desktop to edge.",
@@ -392,12 +395,30 @@ class Manager:
             self.action_buttons.append(widget)
             actions.pack_start(widget, False, False, 0)
         self.content.pack_start(actions, False, False, 0)
+        self.content.pack_start(label("History of the selected machine", "subtitle"),
+                                False, False, 0)
+        self.machine_graphs = history.graphs_box(self, owner="Machines",
+                                                 pick=self.machine_target)
+        self.content.pack_start(self.machine_graphs, True, True, 0)
+
+    def machine_target(self):
+        """Where the history box should read from: the selected machine's node."""
+        guest = self.selected
+        if not guest:
+            return None
+        return (guest["node"], guest["type"], guest["vmid"], None)
+
+    def refresh_actions(self):
+        """Action buttons follow the selection and the busy flag."""
+        for widget in self.action_buttons:
+            widget.set_sensitive(self.selected is not None and not self.busy)
 
     def select_guest(self, selection):
         model, iterator = selection.get_selected()
         self.selected = self.guest_map.get(model[iterator][0]) if iterator else None
-        for widget in self.action_buttons:
-            widget.set_sensitive(self.selected is not None and not self.busy)
+        self.refresh_actions()
+        if self.machine_graphs is not None:
+            self.machine_graphs.reload()
 
     def resource_table(self):
         if self.current == "Machines":

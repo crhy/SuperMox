@@ -7,7 +7,9 @@ Every request verifies the leaf on the actual connection before sending data.
 import hashlib
 import http.client
 import json
+import math
 import random
+import time
 import re
 import socket
 import ssl
@@ -290,6 +292,9 @@ def human_bytes(value):
         value /= 1024
 
 
+GIB = 1024 ** 3
+
+
 class DemoClient:
     """Explicitly synthetic preview. Never connects to or changes a real host."""
     url = "Preview data — no live connection"
@@ -297,7 +302,7 @@ class DemoClient:
     ticket = None
 
     def __init__(self):
-        gib = 1024 ** 3
+        gib = GIB
         self.rows = [
             {"type": "node", "node": "atlas", "status": "online", "cpu": .23,
              "mem": 21 * gib, "maxmem": 64 * gib, "maxcpu": 16},
@@ -343,14 +348,16 @@ class DemoClient:
                      "address": "10.0.0.1"}]
         if path.endswith("/disks/list"):
             return [{"devpath": "/dev/sda", "type": "hdd", "health": "OK",
-                     "model": "Sample disk", "size": 512 * gib, "used": 120 * gib,
+                     "model": "Sample disk", "size": 512 * GIB, "used": 120 * GIB,
                      "mounted": 0}]
         if path.endswith("/disks/smart"):
             return {"health": "OK"}
         if path.endswith("/disks/directory"):
             return [{"devpath": "/dev/sda1", "mountpoint": "/var/lib/pve-cluster",
-                     "fstype": "ext4", "size": 100 * gib, "used_on_mnt": 30 * gib,
+                     "fstype": "ext4", "size": 100 * GIB, "used_on_mnt": 30 * GIB,
                      "used_percent": 30}]
+        if path.endswith("/rrddata"):
+            return self.rrd_rows(path, (params or {}).get("timeframe", "hour"))
         if path.endswith("/content"):
             return [{"volid": "local:iso/ubuntu-24.04.iso"}]
         if path.endswith("/firewall/rules"):
@@ -370,3 +377,34 @@ class DemoClient:
         if path.endswith("/status"):
             return {"status": "stopped", "exitstatus": "OK"}
         return []
+
+    def rrd_rows(self, path, timeframe="hour"):
+        """Canned history for the preview, shaped like the real rrddata reply.
+
+        Steps match the real RRA resolutions: 1 minute for an hour window,
+        15 minutes for a day, and coarser beyond that.
+        """
+        step = {"hour": 60, "day": 900, "week": 3600, "month": 21600,
+                "year": 86400, "decade": 604800}.get(timeframe, 60)
+        guest = re.search(r"/(qemu|lxc)/(\d+)/", path)
+        storage = re.search(r"/storage/([^/]+)/", path)
+        end = int(time.time() / step) * step
+        rows = []
+        for index in range(120):
+            when = end - step * (119 - index)
+            wave = 0.5 + 0.5 * math.sin(index / 6.0)
+            if guest:
+                rows.append({"time": when, "cpu": 0.2 * wave, "maxcpu": 0.24,
+                             "mem": int(2.5 * GIB + wave * GIB), "maxmem": 4 * GIB,
+                             "disk": int(GIB + wave * GIB), "maxdisk": 8 * GIB,
+                             "netin": int(200 + 800 * wave), "netout": int(150 + 600 * wave),
+                             "diskread": int(500 * wave), "diskwrite": int(300 * wave)})
+            elif storage:
+                rows.append({"time": when, "total": 512 * GIB,
+                             "used": int(120 * GIB + 40 * GIB * wave)})
+            else:
+                rows.append({"time": when, "cpu": 0.3 * wave, "iowait": 0.01 * wave,
+                             "memtotal": 64 * GIB, "memused": int(20 * GIB + 10 * GIB * wave),
+                             "netin": int(100 + 900 * wave), "netout": int(90 + 700 * wave),
+                             "roottotal": 20 * GIB, "rootused": int(6 * GIB + 2 * GIB * wave)})
+        return rows
