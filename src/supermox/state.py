@@ -27,6 +27,11 @@ endpoint (its host at WG_LISTEN_PORT 51820). It is separate from
 "endpoints", which is where the member's join daemon (TCP 8743) can be
 reached: wg0.conf writes the wg_endpoint as each [Peer] Endpoint, because
 the kernel sends the encrypted UDP packet there, never to the join port.
+
+A membership entry may also carry "onion": that member's Tor onion address
+(supermox.onion, docs/node-join-architecture.md rendezvous mechanism 2), the
+IP-independent way to reach its join daemon. Optional and backwards
+compatible, like syncthing_id and wg_endpoint.
 """
 
 import base64
@@ -107,12 +112,14 @@ class NodeState:
 
     def create_cluster(self, phrase: str, name: str, endpoints: list,
                       arch: str = None, caps: list = None,
-                      wg_endpoint: str = None) -> dict:
+                      wg_endpoint: str = None, onion: str = None) -> dict:
         """Create the cluster: this node becomes the only member.
 
         Returns this node's membership entry. wg_endpoint is this node's
         WireGuard endpoint (host:51820), kept separate from the join
-        daemon's endpoints so wg0.conf never points at the join port.
+        daemon's endpoints so wg0.conf never points at the join port. onion
+        is this node's Tor onion address, once supermox-onion-setup has
+        generated one (supermox.onion.read_onion_address).
         """
         secret.validate(phrase)
         self.derived = secret.derive(phrase)
@@ -134,6 +141,8 @@ class NodeState:
         }
         if wg_endpoint:
             member["wg_endpoint"] = wg_endpoint
+        if onion:
+            member["onion"] = onion
         self.membership = [member]
         self.save()
         return member

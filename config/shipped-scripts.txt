@@ -13,6 +13,10 @@ supermox-ve scripts/supermox-logpipe usr/lib/supermox/supermox-logpipe
 # Home folder sync CLI (init.d/supermox-sync calls it at boot to apply the
 # membership list to each user's Syncthing instance).
 supermox-ve bin/supermox-sync usr/bin/supermox-sync
+# Tor onion service for the join daemon (rendezvous mechanism 2): configures
+# tor's HiddenServiceDir/Port over /etc/init.d/tor and prints this node's
+# onion address, which is stored in the membership entry as "onion".
+supermox-ve scripts/supermox-onion-setup.sh usr/sbin/supermox-onion-setup
 # Android layer: the setup tool is a repo script, installed under sbin.
 supermox-android scripts/supermox-android-setup.sh usr/sbin/supermox-android-setup
 # Python modules of the join protocol, installed into python3's system site-packages
@@ -25,6 +29,7 @@ supermox-ve src/supermox/joind.py usr/lib/python3/dist-packages/supermox/joind.p
 supermox-ve src/supermox/sync.py usr/lib/python3/dist-packages/supermox/sync.py
 supermox-ve src/supermox/secret.py usr/lib/python3/dist-packages/supermox/secret.py
 supermox-ve src/supermox/state.py usr/lib/python3/dist-packages/supermox/state.py
+supermox-ve src/supermox/onion.py usr/lib/python3/dist-packages/supermox/onion.py
 # SuperMox Manager: the desktop app (GTK 3 + WebKitGTK) and its modules.
 supermox-manager bin/supermox-manager usr/bin/supermox-manager
 supermox-manager src/supermox_manager/__init__.py usr/lib/python3/dist-packages/supermox_manager/__init__.py
