@@ -278,7 +278,8 @@ class JoinDaemon:
             self.blocked_until[conn.peer_ip] = now + self.fail_window
             log.warning("source %s: %d failed attempts in %.0f s, "
                         "refusing new connections for %.0f s",
-                        conn.peer_ip, len(times), self.fail_window)
+                        conn.peer_ip, len(times), self.fail_window,
+                        self.fail_window)
         # Bound the table: drop stale source IPs, then the oldest ones.
         for ip in list(self.fail_times):
             recent = [t for t in self.fail_times[ip] if t >= cutoff]

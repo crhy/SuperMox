@@ -293,10 +293,15 @@ class FailedAttemptThrottleTests(JoindBase):
         t = [1000.0]
         d.clock = lambda: t[0]
         ident = self.joiner("th1b")[1]
-        for i in range(5):
-            with self.assertRaises(joind.JoinError):
-                await joind.join_phrase(ep, self.derived(OTHER), ident,
-                                        "node-x%d" % i, "amd64", [])
+        with self.assertLogs(joind.log, "WARNING") as logged:
+            for i in range(5):
+                with self.assertRaises(joind.JoinError):
+                    await joind.join_phrase(ep, self.derived(OTHER), ident,
+                                            "node-x%d" % i, "amd64", [])
+        # The lockout is logged as a complete, formatted line.
+        self.assertTrue(any("5 failed attempts in 60 s, refusing new "
+                            "connections for 60 s" in m for m in logged.output),
+                        logged.output)
         self.assertEqual(len(d.fail_times["127.0.0.1"]), 5)
         # The 6th connection from the same source IP is refused outright:
         # it never reaches the protocol, and gets one error frame.
