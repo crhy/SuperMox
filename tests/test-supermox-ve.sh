@@ -164,6 +164,22 @@ if grep -rqE 'Post-Invoke|rm -rf /etc/systemd' "$pkg_root"; then
   fail=1
 fi
 
+# A service owned by another component (rrdcached, shipped by the rrdtool fork)
+# must not also be installed by supermox-ve: both would provide
+# /etc/init.d/<svc> and dpkg refuses the second one at install time.
+while IFS= read -r line || [ -n "$line" ]; do
+  line="${line%%#*}"
+  line="${line#"${line%%[![:space:]]*}"}"
+  line="${line%"${line##*[![:space:]]}"}"
+  [ -n "$line" ] || continue
+  read -r comp _ svc <<< "$line"
+  [ "$comp" = "supermox-ve" ] && continue
+  if grep -qE "dh_installinit --name=$svc$" "$rules"; then
+    echo "FAIL: $rules installs $svc, already shipped by $comp as /etc/init.d/$svc"
+    fail=1
+  fi
+done < config/init-scripts.txt
+
 if [ "$fail" -ne 0 ]; then
   exit 1
 fi

@@ -1,0 +1,252 @@
+diff -ruN orig/debian/changelog new/debian/changelog
+--- a/debian/changelog	2026-03-01 02:47:50.000000000 -0800
++++ b/debian/changelog	2026-11-04 14:30:22.301230830 -0800
+@@ -1,3 +1,34 @@
++rrdtool (1.9.0-2.1+supermox) unstable; urgency=medium
++
++  * SuperMox fork: rrdcached runs under sysvinit, so nothing in this package
++    touches systemd any more.
++  * debian/rules: configure with --with-systemdsystemunitdir=no, which is what
++    makes configure.ac stop generating etc/rrdcached.service and
++    etc/rrdcached.socket at all, and empty override_dh_installsystemd so debhelper
++    neither installs the units nor calls systemctl to enable them.
++  * debian/rules: override_dh_installinit calls dh_installinit -prrdcached
++    --name=rrdcached, installing debian/rrdcached.rrdcached.init (copied in from
++    init.d/rrdcached by scripts/apply-patches.sh) as /etc/init.d/rrdcached and
++    enabling it with update-rc.d, the way every other PVE service is started here.
++  * debian/rrdcached.install: drop the two usr/lib/systemd/system lines, since
++    those files are no longer built.
++  * debian/rrdcached.maintscript: removed. Its only entry was
++    "rm_conffile /etc/init.d/rrdcached 1.9.0-1~ rrdcached", which would have
++    deleted the init script this fork installs.
++  * debian/patches/systemd-service-defaults.patch: removed from the quilt series;
++    it only edited the systemd unit and its /etc/default/rrdcached template.
++  * debian/tests/rrdcached-test: removed along with its stanza in
++    debian/tests/control - the test drives the daemon through systemctl, so it
++    cannot work without systemd.
++  * The rrdcached init script now ships from this package, so config/init-scripts.txt
++    hands it to rrdcached instead of supermox-ve, and supermox-ve no longer
++    installs it (two packages owning /etc/init.d/rrdcached would conflict).
++  * Version is 1.9.0-2.1+supermox: the '+' starts a dpkg revision, so it sorts
++    above Devuan's 1.9.0-2.1+b3 and apt upgrades the node onto this fork instead
++    of keeping the distro build.
++
++ -- SuperMox <noreply@supermox.me>  Wed, 04 Nov 2026 14:16:07 -0800
++
+ rrdtool (1.9.0-2.1) unstable; urgency=medium
+ 
+   * Non-maintainer upload.
+diff -ruN orig/debian/patches/series new/debian/patches/series
+--- a/debian/patches/series	2026-03-01 02:47:50.000000000 -0800
++++ b/debian/patches/series	2026-11-04 14:15:23.685312170 -0800
+@@ -4,5 +4,4 @@
+ address-t64.patch
+ rrdcache_socket_location.patch
+ fix-upstream-tests
+-systemd-service-defaults.patch
+ tcl-9.0-compat
+diff -ruN orig/debian/patches/systemd-service-defaults.patch new/debian/patches/systemd-service-defaults.patch
+--- a/debian/patches/systemd-service-defaults.patch	2026-03-01 02:47:50.000000000 -0800
++++ b/debian/patches/systemd-service-defaults.patch	1969-12-31 16:00:00.000000000 -0800
+@@ -1,88 +0,0 @@
+-Index: rrdtool/etc/rrdcached.service.in
+-===================================================================
+---- rrdtool.orig/etc/rrdcached.service.in
+-+++ rrdtool/etc/rrdcached.service.in
+-@@ -1,19 +1,15 @@
+--#
+- # To customize, copy this file to /etc/systemd/system/
+--# and edit there
+--#
+-+# and edit there or use systemctl edit rrdcached.
+-
+- [Unit]
+- Description=Data caching daemon for rrdtool
+- Documentation=man:rrdcached(1)
+-
+- [Service]
+-+EnvironmentFile=-/etc/default/rrdcached
+- # If you enable socket-activable rrdcached.socket,
+- # command line socket declarations will be ignored
+--ExecStart=@prefix@/bin/rrdcached -g
+--#WorkingDirectory=
+--#User=
+--#Group=
+-+ExecStart=@prefix@/bin/rrdcached -g -B -b $BASE_PATH -j $JOURNAL_PATH
+-
+- [Install]
+- WantedBy=multi-user.target
+-Index: rrdtool/etc/rrdcached-default-lsb.in
+-===================================================================
+---- rrdtool.orig/etc/rrdcached-default-lsb.in
+-+++ rrdtool/etc/rrdcached-default-lsb.in
+-@@ -1,17 +1,5 @@
+- # /etc/default file for RRD cache daemon
+-
+--# Full path to daemon
+--DAEMON=@prefix@/bin/rrdcached
+--
+--# Optional override flush interval, in seconds.
+--#WRITE_TIMEOUT=300
+--
+--# Optional override maximum write delay, in seconds.
+--#WRITE_JITTER=0
+--
+--# Optional override number of write_threads
+--#WRITE_THREADS=4
+--
+- # Where database files are placed.  If left unset, the default /tmp will
+- # be used.  NB: The daemon will reject a directory that has symlinks as
+- # components.  NB: You may want to have -B in BASE_OPTS.
+-@@ -20,38 +8,3 @@ BASE_PATH=/var/lib/rrdcached/db
+- # Where journal files are placed.  If left unset, journaling will
+- # be disabled.
+- JOURNAL_PATH=/var/lib/rrdcached/journal/
+--
+--# FHS standard placement for process ID file.
+--PIDFILE=/var/run/rrdcached.pid
+--
+--# FHS standard placement for local control socket.
+--SOCKFILE=/var/run/rrdcached.sock
+--
+--# Optional override group that should own/access the local control
+--# socket
+--#SOCKGROUP=root
+--
+--# Optional override access mode of local control socket.
+--#SOCKMODE=0660
+--
+--# Optional unprivileged group to run under when daemon.  If unset
+--# retains invocation group privileges.
+--#DAEMON_GROUP=_rrdcached
+--
+--# Optional unprivileged user to run under when daemon.  If unset
+--# retains invocation user privileges.
+--#DAEMON_USER=_rrdcached
+--
+--# Network socket address requests.  Use in conjunction with SOCKFILE to
+--# also listen on INET domain sockets.  The option is a lower-case ell
+--# ASCII 108 = 0x6c, and should be repeated for each address.  The
+--# parameter is an optional IP address, followed by an optional port with
+--# a colon separating it from the address.  The empty string is
+--# interpreted as "open sockets on the default port on all available
+--# interfaces", but generally does not pass through init script functions
+--# so use -L with no parameters for that configuration.
+--#NETWORK_OPTIONS="-L"
+--
+--# Any other options not specifically supported by the script (-P, -f,
+--# -F, -B).
+--BASE_OPTIONS="-B"
+diff -ruN orig/debian/rrdcached.install new/debian/rrdcached.install
+--- a/debian/rrdcached.install	2026-03-01 02:47:50.000000000 -0800
++++ b/debian/rrdcached.install	2026-11-04 14:15:03.953339667 -0800
+@@ -2,5 +2,3 @@
+ usr/share/doc/rrdtool/html/rrdcached.html usr/share/doc/rrdcached/html/
+ usr/share/man/man1/rrdcached.1
+ usr/share/rrdtool/examples/rrdcached/* usr/share/doc/rrdcached/examples/
+-usr/lib/systemd/system/rrdcached.service
+-usr/lib/systemd/system/rrdcached.socket
+diff -ruN orig/debian/rrdcached.maintscript new/debian/rrdcached.maintscript
+--- a/debian/rrdcached.maintscript	2026-03-01 02:47:50.000000000 -0800
++++ b/debian/rrdcached.maintscript	1969-12-31 16:00:00.000000000 -0800
+@@ -1 +0,0 @@
+-rm_conffile /etc/init.d/rrdcached 1.9.0-1~ rrdcached
+diff -ruN orig/debian/rules new/debian/rules
+--- a/debian/rules	2026-03-01 02:47:50.000000000 -0800
++++ b/debian/rules	2026-11-04 14:14:54.033353492 -0800
+@@ -33,7 +33,7 @@
+ 	 --disable-python \
+ 	 --disable-ruby \
+ 	 --with-tcllib=/usr/lib/$(DEB_HOST_MULTIARCH)/tcl$(TCL_VERS) \
+-	 --with-systemdsystemunitdir=/usr/lib/systemd/system \
++	 --with-systemdsystemunitdir=no \
+ 	 RRDDOCDIR=/usr/share/doc/rrdtool
+ 	dh_auto_configure --buildsystem=lua
+ 	dh_auto_configure --sourcedirectory=bindings/perl-shared
+@@ -91,9 +91,17 @@
+ override_dh_installdocs:
+ 	dh_installdocs -A CONTRIBUTORS NEWS
+ 
++# SuperMox: no systemd anywhere. configure.ac only generates
++# etc/rrdcached.service and etc/rrdcached.socket when
++# --with-systemdsystemunitdir is a real directory, so passing "no" stops the
++# unit files from being built at all; the empty override keeps debhelper from
++# installing and enabling them, and dh_installinit installs our
++# debian/rrdcached.rrdcached.init (copied in from init.d/rrdcached) as
++# /etc/init.d/rrdcached, enabled with update-rc.d.
+ override_dh_installsystemd:
+-	dh_installsystemd -prrdcached --restart-after-upgrade rrdcached.socket
+-	dh_installsystemd -prrdcached --no-enable --no-start rrdcached.service
++
++override_dh_installinit:
++	dh_installinit -prrdcached --name=rrdcached
+ 
+ override_dh_missing:
+ 	dh_missing -X.la -X.txt -X.pod
+diff -ruN orig/debian/tests/control new/debian/tests/control
+--- a/debian/tests/control	2026-03-01 02:47:50.000000000 -0800
++++ b/debian/tests/control	2026-11-04 14:15:52.541271954 -0800
+@@ -1,7 +1,3 @@
+ Tests: rrdtool-smoke, perl-bindings, python-bindings, upstream-tests
+ Depends: @, rrdtool, procps, python3, dc
+ Restrictions: allow-stderr
+-
+-Tests: rrdcached-test
+-Depends: @, rrdtool, procps, python3, dc
+-Restrictions: allow-stderr, needs-root, isolation-container
+diff -ruN orig/debian/tests/rrdcached-test new/debian/tests/rrdcached-test
+--- a/debian/tests/rrdcached-test	2026-03-01 02:47:50.000000000 -0800
++++ b/debian/tests/rrdcached-test	1969-12-31 16:00:00.000000000 -0800
+@@ -1,52 +0,0 @@
+-#!/bin/bash
+-set -e
+-
+-echo "===== Starting rrdcached test ====="
+-
+-TEST_RRD="/var/lib/rrdcached/db/cachedtest.rrd"
+-SOCK="/run/rrdcached.sock"
+-
+-# Clean up previous runs
+-rm -f "$TEST_RRD"
+-
+-# start socket
+-echo "--> rrdcached socket should be enabled"
+-systemctl status rrdcached.socket
+-systemctl is-enabled rrdcached.socket
+-systemctl is-active rrdcached.socket
+-
+-echo "--> rrdcached service should not be active now"
+-if systemctl is-active rrdcached.service; then
+-    echo 'rrdcached.service should not be active'
+-    exit 1
+-fi
+-if systemctl is-enabled rrdcached.service; then
+-    echo 'rrdcached.service should not be enabled'
+-    exit 1
+-fi
+-
+-# Create an RRD file for testing
+-echo "--> Creating RRD file..."
+-rrdtool create "$TEST_RRD" \
+-    --start now-10m --step 60 \
+-    --daemon "unix:$SOCK" \
+-    DS:test:GAUGE:120:0:100 \
+-    RRA:AVERAGE:0.5:1:10
+-echo "OK: RRD file created."
+-
+-# Update via daemon
+-echo "--> Updating RRD via daemon..."
+-rrdtool update --daemon "unix:$SOCK" "$TEST_RRD" N:50
+-echo "OK: Update command sent to daemon."
+-
+-# Flush data to disk
+-echo "--> Flushing data..."
+-rrdtool flushcached --daemon "unix:$SOCK" "$TEST_RRD"
+-echo "OK: Flush command sent."
+-
+-# now the service should be active
+-echo "--> Check service being active now"
+-systemctl is-active rrdcached.service
+-
+-echo "===== rrdcached test PASSED ====="
+-exit 0

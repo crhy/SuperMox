@@ -24,8 +24,11 @@ qemu-server qemu-server qmeventd
 supermox-ve supermox-ve networking
 # rrdcached: Debian ships only a systemd unit for it, and upstream pve-cluster
 # starts it through Wants=rrdcached.service; without a sysvinit script the RRD
-# archives pvestatd files stay empty, so the graphs page has no history.
-supermox-ve supermox-ve rrdcached
+# archives pvestatd files stay empty, so the graphs page has no history. The
+# rrdtool Debian source package is forked (patches/rrdtool/), so this script
+# ships from the rrdcached package itself and not from supermox-ve: two packages
+# owning /etc/init.d/rrdcached would conflict.
+rrdtool rrdcached rrdcached
 supermox-ve supermox-ve supermox-binfmt
 supermox-ve supermox-ve supermox-hosts
 supermox-tmpfiles supermox-tmpfiles supermox-tmpfiles

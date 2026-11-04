@@ -13,12 +13,12 @@ fi
 mapfile -t lines < <(bash "$target" --list)
 
 count=${#lines[@]}
-if [ "$count" -ne 14 ]; then
-  echo "FAIL: --list printed $count lines, expected 14"
+if [ "$count" -ne 15 ]; then
+  echo "FAIL: --list printed $count lines, expected 15"
   exit 1
 fi
 
-for want in pve-cluster pve-access-control proxmox-perl-rs; do
+for want in pve-cluster pve-access-control proxmox-perl-rs rrdtool; do
   found=0
   for l in "${lines[@]}"; do
     if [ "$l" = "$want" ]; then
@@ -39,6 +39,29 @@ if ! printf '%s\n' "$ov_out" | grep -qxF -- "$ov_line"; then
   exit 1
 fi
 
+# Forked Debian source packages: pinned .dsc version plus the sha256 of that
+# .dsc, so a silent upstream re-upload cannot change what we patch.
+ds_out="$(bash "$target" --list-debian-src)"
+ds_line="rrdtool 1.9.0-2.1 4953392378c0377a5b99fd08b217e0a7ae00c3abc8b092b6ae161c798640357e"
+if ! printf '%s\n' "$ds_out" | grep -qxF -- "$ds_line"; then
+  echo "FAIL: --list-debian-src did not print: $ds_line"
+  printf '%s\n' "$ds_out"
+  exit 1
+fi
+
+# The two source layouts (pxvirt submodules, unpacked Debian sources) are resolved
+# through --src-dir; the build scripts must not hardcode either path.
+for pair in "pve-cluster upstream/pxvirt/packages/pve-cluster/pve-cluster" \
+            "rrdtool upstream/debian-src/rrdtool/rrdtool"; do
+  read -r want_c want_d <<< "$pair"
+  got="$(UPSTREAM_PACKAGES="upstream/pxvirt/packages" UPSTREAM_DEBIAN_SRC="upstream/debian-src" \
+    bash "$target" --src-dir "$want_c")"
+  if [ "$got" != "$want_d" ]; then
+    echo "FAIL: --src-dir $want_c printed '$got', expected '$want_d'"
+    exit 1
+  fi
+done
+
 co="upstream/pxvirt/packages/proxmox-perl-rs/proxmox-perl-rs"
 if [ -d "$co" ]; then
   head="$(git -C "$co" rev-parse HEAD)"
@@ -48,4 +71,4 @@ if [ -d "$co" ]; then
   fi
 fi
 
-echo "OK: fetch-upstream.sh --list prints 14 lines including pve-cluster, pve-access-control and proxmox-perl-rs; --list-overrides prints the proxmox-perl-rs override and the checkout HEAD matches it"
+echo "OK: fetch-upstream.sh --list prints 15 lines including pve-cluster, pve-access-control, proxmox-perl-rs and rrdtool; --list-overrides prints the proxmox-perl-rs override and the checkout HEAD matches it; --list-debian-src pins rrdtool; --src-dir resolves both source layouts"

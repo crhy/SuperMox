@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 UPSTREAM_PACKAGES="${UPSTREAM_PACKAGES:-$repo_root/upstream/pxvirt/packages}"
+UPSTREAM_DEBIAN_SRC="${UPSTREAM_DEBIAN_SRC:-$repo_root/upstream/debian-src}"
 PATCHES_DIR="${PATCHES_DIR:-$repo_root/patches}"
 INIT_SCRIPTS="${INIT_SCRIPTS:-$repo_root/config/init-scripts.txt}"
 
@@ -24,7 +25,10 @@ if [ "${#components[@]}" -eq 0 ]; then
 fi
 
 for c in "${components[@]}"; do
-  src="$UPSTREAM_PACKAGES/$c/$c"
+  # fetch-upstream.sh --src-dir knows both layouts: pxvirt submodules and
+  # forked Debian source packages (upstream/debian-src/<name>/<name>).
+  src="$(UPSTREAM_PACKAGES="$UPSTREAM_PACKAGES" UPSTREAM_DEBIAN_SRC="$UPSTREAM_DEBIAN_SRC" \
+    bash "$repo_root/scripts/fetch-upstream.sh" --src-dir "$c")" || src=""
   [ -d "$src" ] || continue
   dest="$outdir/$c/$c"
   mkdir -p "$dest"
