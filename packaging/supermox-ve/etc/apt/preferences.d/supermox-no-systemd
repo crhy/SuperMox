@@ -1,5 +1,5 @@
-Explanation: ZERO systemd. SuperMox runs on sysvinit: sysvinit-core and the
-  standalone sysusers/tmpfiles binaries stay, and nothing may pull systemd in
+Explanation: ZERO systemd. SuperMox runs on sysvinit: sysvinit-core is init,
+  supermox-tmpfiles replaces systemd-tmpfiles, and nothing may pull systemd in
   later - not on a SuperMox host, and not on a plain Devuan Ceres host that
   installs supermox-ve either. apt's preferences parser only continues a record
   on indented lines, so these continuations are indented.
