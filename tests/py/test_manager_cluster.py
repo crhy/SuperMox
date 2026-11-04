@@ -168,8 +168,9 @@ class ClusterPage(unittest.TestCase):
     def test_the_page_is_registered(self):
         here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         root = os.path.dirname(here)
-        source = open(os.path.join(root, "src", "supermox_manager",
-                                  "pages", "__init__.py")).read()
+        with open(os.path.join(root, "src", "supermox_manager",
+                                  "pages", "__init__.py")) as fh:
+            source = fh.read()
         self.assertIn('"cluster"', source)
         py_compile.compile(os.path.join(root, "src", "supermox_manager",
                                         "pages", "cluster.py"), doraise=True)

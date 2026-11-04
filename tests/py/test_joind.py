@@ -123,7 +123,8 @@ class PhraseJoinTests(JoindBase):
         self.assertEqual(sorted(m["name"] for m in b2.membership),
                          ["node-a", "node-b"])
 
-        conf = open(path).read()
+        with open(path) as fh:
+            conf = fh.read()
         self.assertIn("[Interface]", conf)
         self.assertIn("ListenPort = 51820", conf)
         self.assertIn("PrivateKey = ", conf)
@@ -264,7 +265,8 @@ class InviteJoinTests(JoindBase):
         self.assertEqual(b2.derived["join_key"], a.derived["join_key"])
         self.assertEqual(b2.derived["cluster_id"], a.derived["cluster_id"])
         self.assertEqual(b2.derived["wg_psk"], a.derived["wg_psk"])
-        conf = open(os.path.join(b_dir, "wg0.conf")).read()
+        with open(os.path.join(b_dir, "wg0.conf")) as fh:
+            conf = fh.read()
         self.assertIn("Endpoint = 127.0.0.1:%d" % joind.WG_LISTEN_PORT, conf)
         self.assertNotIn("Endpoint = %s" % ep, conf)
 
@@ -389,7 +391,8 @@ class MembershipBroadcastTests(JoindBase):
             if "node-c" in [m["name"] for m in b.membership]:
                 break
         self.assertIn("node-c", [m["name"] for m in b.membership])
-        conf = open(os.path.join(b_dir, "wg0.conf")).read()
+        with open(os.path.join(b_dir, "wg0.conf")) as fh:
+            conf = fh.read()
         self.assertIn("AllowedIPs = %s/128"
                       % secret.node_address(PHRASE, cident["wg_pub"]), conf)
 

@@ -90,6 +90,7 @@ def pinned_socket(host, port, pin, timeout=15):
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
     plain = socket.create_connection((host, port), timeout=timeout)
+    sock = None
     try:
         sock = context.wrap_socket(plain, server_hostname=host)
         cert = sock.getpeercert(binary_form=True)
@@ -97,7 +98,10 @@ def pinned_socket(host, port, pin, timeout=15):
             raise APIError("Certificate mismatch. No credentials were sent. "
                            "Verify the node fingerprint.")
     except Exception:
-        plain.close()
+        # Close the TLS wrapper, not just the plain socket: the wrapper is a
+        # separate object sharing the fd, and leaving it unclosed leaks a
+        # socket object per failed pin check in a long-running process.
+        (sock if sock is not None else plain).close()
         raise
     return sock
 

@@ -97,7 +97,10 @@ if printf '%s' "$out" | grep -q "Can't locate"; then
     printf '%s\n' "$out"
     exit 1
   fi
-  echo "SKIP: missing perl module"
+  mod="$(printf '%s\n' "$out" \
+    | grep -om1 "Can't locate [A-Za-z0-9_./]*\.pm" \
+    | sed "s/Can't locate //; s/\.pm$//; s|/|::|g")"
+  echo "SKIP: missing perl module ${mod:-unknown} (Debian: apt install libtimedate-perl libfilesys-df-perl)"
   exit 0
 fi
 
