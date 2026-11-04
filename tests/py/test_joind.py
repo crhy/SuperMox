@@ -475,5 +475,90 @@ class MembershipBroadcastTests(JoindBase):
                     self.assertNotIn(PHRASE.replace(" ", "").encode(), data)
 
 
+class NetworkHardeningTests(JoindBase):
+    """A network-exposed daemon must survive idle peers, many peers, and
+    malformed frames without exhausting itself or dumping a traceback."""
+
+    async def test_read_timeout_drops_idle_connection(self):
+        port = free_port()
+        a = self.seeder("rt", [])
+        d = await self.daemon_for(a, port)
+        d.read_timeout = 0.2
+        async with joind._Client("127.0.0.1:%d" % port) as c:
+            # A peer that opens a connection and sends nothing must not
+            # hold the handler open forever: the daemon times out and closes
+            # it, so the client's read hits EOF.
+            with self.assertRaises(asyncio.IncompleteReadError):
+                await joind.read_frame(c.reader)
+
+    async def test_connection_limit_refuses_extra_peers(self):
+        port = free_port()
+        a = self.seeder("cl", [])
+        d = await self.daemon_for(a, port)
+        d.max_connections = 1
+        r1, w1 = await joind.connect("127.0.0.1:%d" % port)
+        for _ in range(50):
+            await asyncio.sleep(0.02)
+            if d.active_conns >= 1:
+                break
+        self.assertEqual(d.active_conns, 1)
+        # A second peer over the limit is refused with a clean error frame.
+        async with joind._Client("127.0.0.1:%d" % port) as c2:
+            kind, payload = await joind.read_frame(c2.reader)
+            obj = json.loads(payload.decode())
+            self.assertEqual(obj["t"], "error")
+            self.assertEqual(obj["error"], "too many connections")
+        w1.close()
+
+    async def test_malformed_invite_req_no_unhandled_error(self):
+        a, _, ep, d = await self.seeder_daemon_mi("mi", True)
+        loop = asyncio.get_running_loop()
+        errors = []
+        loop.set_exception_handler(lambda l, ctx: errors.append(ctx))
+        ident = identity_mod.new_identity()
+        async with joind._Client(ep) as c:
+            # Prove the daemon, then answer the challenge with our own key
+            # so answer_ed_pub is set (this is what any attacker can do: the
+            # challenge signature is verified against whatever ed_pub we send).
+            await joind.write_frame(c.writer, joind.KIND_JSON,
+                                    joind.canonical_json({"t": "challenge"}))
+            kind, payload = await joind.read_frame(c.reader)
+            chal = json.loads(payload.decode())
+            await joind.write_frame(c.writer, joind.KIND_JSON,
+                                    joind.canonical_json({
+                                        "t": "answer",
+                                        "ed_pub": chal["ed_pub"],
+                                        "sig": joind.b64(joinproto.answer_challenge(
+                                            a.identity, joind.b64d(chal["ch"])))}))
+            kind, payload = await joind.read_frame(c.reader)
+            self.assertEqual(json.loads(payload.decode())["t"], "answer_ok")
+            # An INVITE_REQ sealed to the (public) wg_pub whose decrypted
+            # payload is a JSON object missing the required fields.
+            eph = joinproto.X25519Private.generate()
+            bad = {"v": 1}
+            blob = (bytes(eph.public_key)
+                    + joinproto.CurveBox(
+                        eph, joinproto.PublicKey(joind.b64d(chal["wg_pub"])))
+                    .encrypt(joind.canonical_json(bad)))
+            await joind.write_frame(c.writer, joind.KIND_BYTES, blob)
+            # The daemon must refuse cleanly (close the connection), not
+            # raise out of the handler.
+            with self.assertRaises(asyncio.IncompleteReadError):
+                await joind.read_frame(c.reader)
+        self.assertEqual(errors, [])
+        # The daemon is still alive and serving.
+        reply = await joind.send_command(ep, {"t": "endpoints",
+                                              "node": "node-a",
+                                              "endpoints": []})
+        self.assertEqual(reply["t"], "endpoints_ok")
+
+    async def seeder_daemon_mi(self, tag, auto_approve):
+        port = free_port()
+        ep = "127.0.0.1:%d" % port
+        a = self.seeder(tag, [ep])
+        await self.daemon_for(a, port, auto_approve)
+        return a, port, ep, None
+
+
 if __name__ == "__main__":
     unittest.main()

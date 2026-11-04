@@ -45,6 +45,8 @@ MAX_FRAME = 65536                 # 64 KiB
 KIND_JSON = 1
 KIND_BYTES = 2
 APPROVAL_TIMEOUT = 300.0          # seconds a pending invite waits for a decision
+READ_TIMEOUT = 30.0               # seconds a connection may idle between frames
+MAX_CONNECTIONS = 64              # concurrent connections the daemon will serve
 WG_CONF_PATH = "/etc/supermox/wg0.conf"
 WG_LISTEN_PORT = 51820            # WireGuard tunnel port (UDP), same on every node
 
@@ -165,6 +167,9 @@ class JoinDaemon:
         self.waiting = {}          # request_id -> _Conn
         self.server = None
         self._tasks = set()
+        self.active_conns = 0      # connections currently being handled
+        self.read_timeout = READ_TIMEOUT
+        self.max_connections = MAX_CONNECTIONS
 
     async def start(self):
         """Start listening. Returns the asyncio server object."""
@@ -201,11 +206,29 @@ class JoinDaemon:
                 pass
 
     async def handle(self, reader, writer) -> None:
+        if self.active_conns >= self.max_connections:
+            log.warning("connection refused: at connection limit (%d)",
+                        self.max_connections)
+            try:
+                await write_frame(writer, KIND_JSON, canonical_json(
+                    {"t": "error", "error": "too many connections"}))
+            except Exception:
+                pass
+            try:
+                writer.close()
+            except Exception:
+                pass
+            return
+        self.active_conns += 1
         conn = _Conn()
         try:
             while True:
                 try:
-                    kind, payload = await read_frame(reader)
+                    kind, payload = await asyncio.wait_for(
+                        read_frame(reader), timeout=self.read_timeout)
+                except asyncio.TimeoutError:
+                    log.warning("dropped connection: read timeout")
+                    break
                 except asyncio.IncompleteReadError:
                     break
                 except FrameTooLarge as exc:
@@ -225,6 +248,7 @@ class JoinDaemon:
         except (ConnectionError, asyncio.LimitOverrunError):
             pass
         finally:
+            self.active_conns -= 1
             if conn.pending_id is not None:
                 self.waiting.pop(conn.pending_id, None)
             try:
@@ -291,19 +315,21 @@ class JoinDaemon:
         """Invite path: INVITE_REQ -> approval -> keys, INVITE_ACK."""
         try:
             msg = joinproto.open_invite_req(self.state.identity, blob)
-        except (CryptoError, ValueError) as exc:
+            if msg["ed_pub"] != conn.answer_ed_pub:
+                log.warning("invite_req refused: challenge answer was signed "
+                            "by a different key")
+                return False
+            invite = {
+                "invite_id": b64d(msg["invite_id"]),
+                "expiry": msg["expiry"],
+                "token": b64d(msg["token"]),
+                "cluster_id": self.state.derived["cluster_id"],
+            }
+        except (CryptoError, ValueError, KeyError, TypeError) as exc:
+            # A malformed INVITE_REQ (missing field, bad base64, wrong type)
+            # must be refused cleanly, not raise out of the connection handler.
             log.warning("invite_req dropped: %s", exc)
             return False
-        if msg["ed_pub"] != conn.answer_ed_pub:
-            log.warning("invite_req refused: challenge answer was signed by "
-                        "a different key")
-            return False
-        invite = {
-            "invite_id": b64d(msg["invite_id"]),
-            "expiry": msg["expiry"],
-            "token": b64d(msg["token"]),
-            "cluster_id": self.state.derived["cluster_id"],
-        }
         try:
             invite_mod.verify(self.state.derived, invite,
                               used={b64d(x) for x
