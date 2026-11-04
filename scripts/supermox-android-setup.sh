@@ -190,9 +190,9 @@ if [ "$want_lawnchair" -eq 1 ]; then
       run waydroid prop set waydroid.active_apps "$home_app"
     else
       printf '   Android session is not running (no Wayland compositor here).\n'
-      # The container's LXC config bind-mounts the Wayland socket into the
-      # rootfs, so without a live compositor the container itself cannot start
-      # either; seatd keeps weston's seat alive on a headless node.
+      # Only the session (GUI) layer needs a compositor: our init script brings
+      # the container up headlessly, so the container can be RUNNING here while
+      # the session is not; seatd keeps weston's seat alive on a headless node.
       printf '   APK is staged at %s\n' "$apk"
       printf '   once a compositor is up, run:\n'
       printf '     waydroid start\n'

@@ -15,10 +15,14 @@
 #
 # The container is the Android userspace: an LXC container that shares this
 # node's kernel and needs the binder mounts (binder_linux) and the system
-# D-Bus bus (id.waydro.Container) to talk to. `waydroid container start`
-# runs in the foreground and tears itself down on SIGTERM (unmounts the
-# rootfs, removes its tap/veth, stops sensord), so TERM is a clean stop;
-# start-stop-daemon records the pid in /run and TERM is what stop sends.
+# D-Bus bus (id.waydro.Container) to talk to. Two processes are managed:
+# `waydroid container start` is the D-Bus container manager — it runs in the
+# foreground, records its pid in /run and takes SIGTERM cleanly; and the LXC
+# container itself, which we bring up headlessly (prepare_container creates
+# the waydroid0 veth bridge and loop-mounts the images, start_container runs
+# `lxc-start -F -- /init` and records its pid in /run/waydroid-container.lxc.pid).
+# The headless path deliberately skips the session layer's Wayland/pulse bind
+# mounts: only the GUI session needs a compositor, not the container.
 #
 # Refusing to start when the image is not initialized is deliberate:
 # without the image files under /var/lib/waydroid/images the container would
