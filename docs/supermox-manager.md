@@ -29,7 +29,11 @@ to a real server:
 
 Supply the real certificate fingerprint, then enter credentials in the
 connection dialog (for example, `root@pam`). Obtain the fingerprint through a
-trusted channel from the node administrator. For a node's generated certificate:
+trusted channel from the node administrator. Both options are needed for a
+run that is not typed by hand: without `--fingerprint` the app opens the
+connection dialog and waits for input, and there is no non-interactive mode
+(`--demo` is the only mode that starts without a prompt). For a node's generated
+certificate:
 
 ```sh
 openssl x509 -in /etc/pve/local/pve-ssl.pem -noout -fingerprint -sha256

@@ -116,8 +116,16 @@ if command -v xvfb-run >/dev/null 2>&1; then
     tail -20 build/gui-manager.out
     fail=1
   fi
+  # Robustness without a live server: the GUI against a local HTTPS node we control,
+  # a dead address, HTTP 500/401, a node that vanishes, and the GTK-thread rule.
+  if ! timeout 180 xvfb-run -a python3 tests/manager-offline.py > build/manager-offline.out 2>&1; then
+    echo "FAIL: tests/manager-offline.py (see build/manager-offline.out)"
+    tail -25 build/manager-offline.out
+    fail=1
+  fi
 else
   echo "SKIP: xvfb-run missing, GUI smoke test not run"
+  echo "SKIP: xvfb-run missing, offline robustness test not run"
 fi
 
 if [ "$fail" -ne 0 ]; then

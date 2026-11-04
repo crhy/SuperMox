@@ -153,16 +153,23 @@ class Client:
             raise APIError("Sign in again: the session expired or the credentials were rejected.")
         if response.status == 403:
             raise APIError("Your account does not have permission for this operation.")
-        try:
-            decoded = json.loads(payload)
-        except (ValueError, UnicodeError):
-            raise APIError("The node returned an invalid API response.") from None
         if not 200 <= response.status < 300:
-            # Do not echo server text: it can contain request parameters or secrets.
+            # Do not echo server text: it can contain request parameters or
+            # secrets, and a proxy error page is not JSON. The status code is
+            # always reported, so a 500 from a proxy never reads as a protocol
+            # error.
+            try:
+                decoded = json.loads(payload)
+            except (ValueError, UnicodeError):
+                decoded = None
             fields = decoded.get("errors", {}) if isinstance(decoded, dict) else {}
             names = ", ".join(str(k) for k in fields) if isinstance(fields, dict) else ""
             raise APIError("Operation failed (HTTP {}).{}".format(
                 response.status, " Check fields: " + names if names else ""))
+        try:
+            decoded = json.loads(payload)
+        except (ValueError, UnicodeError):
+            raise APIError("The node returned an invalid API response.") from None
         if not isinstance(decoded, dict) or "data" not in decoded:
             raise APIError("The node returned an invalid API response.")
         return decoded["data"]
