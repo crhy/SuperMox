@@ -26,5 +26,6 @@ supermox-ve supermox-ve supermox-binfmt
 supermox-ve supermox-ve supermox-hosts
 supermox-tmpfiles supermox-tmpfiles supermox-tmpfiles
 supermox-ve supermox-ve supermox-joind
+supermox-ve supermox-ve supermox-wg
 supermox-ve supermox-ve supermox-sync
 supermox-android supermox-android waydroid-container

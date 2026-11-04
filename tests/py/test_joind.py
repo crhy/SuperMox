@@ -49,7 +49,43 @@ class JoindBase(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         self._dirs = []
+        self._wg_dirs = {}
         self._daemons = []
+        # write_wg_conf's default path is /etc/wireguard/wg0.conf, which a
+        # test process cannot write, so point the override at scratch.
+        self._wg_env = os.environ.get(joind.WG_DIR_ENV)
+        self._wg_dir = os.path.join(BUILD, "test-joind-wg-%d" % os.getpid())
+        shutil.rmtree(self._wg_dir, ignore_errors=True)
+        os.makedirs(self._wg_dir)
+        os.environ[joind.WG_DIR_ENV] = self._wg_dir
+        self._dirs.append(self._wg_dir)
+        # The notice about the legacy config is logged once per process; a
+        # test that asserts on it has to start from a fresh latch, otherwise
+        # whichever test got there first swallows the message.
+        joind._legacy_conf_logged = False
+
+    def wg_dir(self, tag: str) -> str:
+        """A scratch overlay directory standing in for /etc/wireguard.
+
+        One per node, created once per tag: a host running several network
+        namespaces points each node's daemon at its own directory, and two
+        daemons in one test process must not overwrite each other's file.
+        Asking for the same tag twice must not wipe what the daemon wrote.
+        """
+        cached = self._wg_dirs.get(tag)
+        if cached:
+            return cached
+        base = os.path.join(BUILD, "test-joind-wg-%s-%d" % (tag, os.getpid()))
+        shutil.rmtree(base, ignore_errors=True)
+        os.makedirs(base)
+        self._dirs.append(base)
+        self._wg_dirs[tag] = base
+        return base
+
+    def wg_conf(self, tag: str) -> str:
+        """The overlay path a daemon in this test rewrites (wg0.conf inside
+        its own wg_dir)."""
+        return os.path.join(self.wg_dir(tag), joind.WG_CONF_NAME)
 
     def node_dir(self, tag: str) -> str:
         base = os.path.join(BUILD, "test-joind-%s-%d" % (tag, os.getpid()))
@@ -74,8 +110,9 @@ class JoindBase(unittest.IsolatedAsyncioTestCase):
         return base, ident
 
     async def daemon_for(self, st: node_state.NodeState, port: int,
-                         auto_approve: bool = False):
-        d = joind.JoinDaemon(st, "127.0.0.1", port, auto_approve)
+                         auto_approve: bool = False, wg_conf: str = None):
+        d = joind.JoinDaemon(st, "127.0.0.1", port, auto_approve,
+                             wg_conf=wg_conf)
         await d.start()
         self._daemons.append(d)
         return d
@@ -94,6 +131,10 @@ class JoindBase(unittest.IsolatedAsyncioTestCase):
             await d.stop()
         for path in self._dirs:
             shutil.rmtree(path, ignore_errors=True)
+        if self._wg_env is None:
+            os.environ.pop(joind.WG_DIR_ENV, None)
+        else:
+            os.environ[joind.WG_DIR_ENV] = self._wg_env
 
 
 class PhraseJoinTests(JoindBase):
@@ -117,7 +158,7 @@ class PhraseJoinTests(JoindBase):
         b.load()
         b.derived = self.derived(PHRASE)
         joind.apply_join_ack(b, ack)
-        path = joind.write_wg_conf(b)
+        path = joind.write_wg_conf(b, os.path.join(b_dir, "wg0.conf"))
 
         b2 = node_state.NodeState(b_dir)
         b2.load()
@@ -391,7 +432,7 @@ class InviteJoinTests(JoindBase):
         b = node_state.NodeState(b_dir)
         b.load()
         joind.apply_invite_ack(b, ack)
-        joind.write_wg_conf(b)
+        joind.write_wg_conf(b, os.path.join(b_dir, "wg0.conf"))
         b2 = node_state.NodeState(b_dir)
         b2.load()
         self.assertEqual(b2.derived["join_key"], a.derived["join_key"])
@@ -511,7 +552,7 @@ class MembershipBroadcastTests(JoindBase):
         port_b = free_port()
         await joind.send_command(ep_a, {"t": "endpoints", "node": "node-b",
                                         "endpoints": ["127.0.0.1:%d" % port_b]})
-        await self.daemon_for(b, port_b)
+        await self.daemon_for(b, port_b, wg_conf=self.wg_conf("B"))
 
         # A third node joins through A's daemon; A broadcasts the new
         # membership to B's daemon, which must adopt it and rewrite wg0.conf.
@@ -523,7 +564,9 @@ class MembershipBroadcastTests(JoindBase):
             if "node-c" in [m["name"] for m in b.membership]:
                 break
         self.assertIn("node-c", [m["name"] for m in b.membership])
-        with open(os.path.join(b_dir, "wg0.conf")) as fh:
+        # Read what B's daemon wrote: nothing in this test calls write_wg_conf
+        # by hand, so this is the daemon's own rewrite of its own config.
+        with open(self.wg_conf("B")) as fh:
             conf = fh.read()
         self.assertIn("AllowedIPs = %s/128"
                       % secret.node_address(PHRASE, cident["wg_pub"]), conf)
@@ -542,11 +585,10 @@ class MembershipBroadcastTests(JoindBase):
         b.load()
         b.derived = self.derived(PHRASE)
         joind.apply_join_ack(b, ack_b)
-        joind.write_wg_conf(b)
         port_b = free_port()
+        await self.daemon_for(b, port_b, wg_conf=self.wg_conf("Y"))
         await joind.send_command(ep_a, {"t": "endpoints", "node": "node-b",
                                         "endpoints": ["127.0.0.1:%d" % port_b]})
-        await self.daemon_for(b, port_b)
 
         c_dir, cident = self.joiner("Z")
         seed = a.new_invite()
@@ -554,11 +596,16 @@ class MembershipBroadcastTests(JoindBase):
         c = node_state.NodeState(c_dir)
         c.load()
         joind.apply_invite_ack(c, ack_c)
-        joind.write_wg_conf(c)
         port_c = free_port()
+        await self.daemon_for(c, port_c, wg_conf=self.wg_conf("Z"))
         await joind.send_command(ep_a, {"t": "endpoints", "node": "node-c",
                                         "endpoints": ["127.0.0.1:%d" % port_c]})
-        await self.daemon_for(c, port_c)
+        # One more refresh, now that both daemons are listening: an endpoint
+        # update is broadcast cluster-wide, so this carries node-c to B's
+        # daemon and node-b to C's, and each of them rewrites its own wg0.conf
+        # when that membership change arrives.
+        await joind.send_command(ep_a, {"t": "endpoints", "node": "node-b",
+                                        "endpoints": ["127.0.0.1:%d" % port_b]})
 
         # All three nodes agree on the membership, and it is signed.
         for st in (a, b, c):
@@ -570,20 +617,22 @@ class MembershipBroadcastTests(JoindBase):
             self.assertEqual(sorted(m["name"] for m in adopted),
                              ["node-a", "node-b", "node-c"])
 
-        # Endpoint refreshes are broadcast cluster-wide, so B learns C's
-        # WireGuard endpoint and can rewrite wg0.conf with both peers.
-        for _ in range(40):
-            await asyncio.sleep(0.05)
-            if any(m["name"] == "node-c" and m.get("wg_endpoint")
-                   for m in b.membership):
-                break
-        joind.write_wg_conf(b)
-
         # B's and C's wg0.conf list the other two peers, each with the PSK.
-        for st_dir, me in ((b_dir, bident), (c_dir, cident)):
-            with open(os.path.join(st_dir, "wg0.conf")) as fh:
-                conf = fh.read()
-            self.assertEqual(conf.count("PresharedKey = "), 2)
+        # Nothing here writes a config by hand: these are the files each
+        # node's own daemon produced, so wait on the file rather than on the
+        # in-memory membership, which updates a moment before the write.
+        for me, wg in ((bident, self.wg_conf("Y")), (cident, self.wg_conf("Z"))):
+            conf = ""
+            for _ in range(40):
+                await asyncio.sleep(0.05)
+                try:
+                    with open(wg) as fh:
+                        conf = fh.read()
+                except FileNotFoundError:
+                    continue
+                if conf.count("PresharedKey = ") == 2:
+                    break
+            self.assertEqual(conf.count("PresharedKey = "), 2, "%s:\n%s" % (wg, conf))
             for other in (a, b, c):
                 if other.identity["wg_pub"] == me["wg_pub"]:
                     continue
@@ -609,6 +658,123 @@ class MembershipBroadcastTests(JoindBase):
                         data = fh.read()
                     self.assertNotIn(PHRASE.encode(), data)
                     self.assertNotIn(PHRASE.replace(" ", "").encode(), data)
+
+
+class WgConfLocationTests(JoindBase):
+    """Where wg0.conf lives: /etc/wireguard/, because the wg profile says so."""
+
+    async def test_default_path_is_etc_wireguard(self):
+        # The constant the docs and the init script quote, and the value the
+        # code falls back to when nothing overrides it.
+        saved = os.environ.pop(joind.WG_DIR_ENV, None)
+        try:
+            self.assertEqual(joind.wg_conf_path(), "/etc/wireguard/wg0.conf")
+            self.assertEqual(joind.WG_CONF_PATH, "/etc/wireguard/wg0.conf")
+        finally:
+            if saved is not None:
+                os.environ[joind.WG_DIR_ENV] = saved
+
+    async def test_conf_written_0600_in_a_0700_dir(self):
+        st = self.seeder("loc1", ["127.0.0.1:1"])
+        wg = os.path.join(self._wg_dir, "sub")
+        os.makedirs(wg, mode=0o755)
+        os.environ[joind.WG_DIR_ENV] = wg
+        path = joind.write_wg_conf(st)
+        self.assertEqual(path, os.path.join(wg, "wg0.conf"))
+        self.assertEqual(oct(os.stat(path).st_mode & 0o777), "0o600")
+        # The directory is created 0700 even when it already existed looser:
+        # the file holds this node's WireGuard private key.
+        self.assertEqual(oct(os.stat(wg).st_mode & 0o777), "0o700")
+        with open(path) as fh:
+            self.assertIn("[Interface]", fh.read())
+
+    async def test_old_config_in_the_state_dir_is_removed(self):
+        st = self.seeder("loc2", ["127.0.0.1:1"])
+        old = os.path.join(st.base, "wg0.conf")
+        with open(old, "w") as fh:
+            fh.write("# left by an older SuperMox\n")
+        with self.assertLogs("supermox-joind", level="INFO") as logs:
+            joind.write_wg_conf(st)
+            joind.write_wg_conf(st)
+        self.assertFalse(os.path.exists(old))
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn(old, logs.output[0])
+
+
+class ApplyWgConfTests(JoindBase):
+    """init.d/supermox-wg is the only thing that touches the network, and a
+    join must not be reported as failed because the overlay did not come up.
+    The stubs below stand in for the service script; tests/test-init-wg.sh
+    covers the script itself."""
+
+    def stub(self, tag: str, body: str) -> str:
+        """An executable stand-in for the service script, in scratch."""
+        d = os.path.join(BUILD, "test-joind-initd-%s-%d"
+                         % (tag, os.getpid()))
+        shutil.rmtree(d, ignore_errors=True)
+        os.makedirs(d)
+        path = os.path.join(d, "supermox-wg")
+        with open(path, "w") as fh:
+            fh.write("#!/bin/sh\n%s\n" % body)
+        os.chmod(path, 0o755)
+        return path
+
+    def with_script(self, path: str, action: str = "start"):
+        saved = os.environ.get(joind.WG_INITD_ENV)
+        os.environ[joind.WG_INITD_ENV] = path
+        try:
+            return joind.apply_wg_conf(action)
+        finally:
+            if saved is None:
+                os.environ.pop(joind.WG_INITD_ENV, None)
+            else:
+                os.environ[joind.WG_INITD_ENV] = saved
+
+    def test_stub_reports_success(self):
+        ok, msg = self.with_script(self.stub("ok", 'echo "wg0 up"'))
+        self.assertTrue(ok)
+        self.assertIn("start", msg)
+        self.assertIn("wg0 up", msg)
+
+    def test_missing_script_is_not_fatal(self):
+        ok, msg = self.with_script("/nonexistent/supermox-wg")
+        self.assertFalse(ok)
+        self.assertIn("bring the overlay up by hand", msg)
+
+    def test_failing_script_is_reported_not_raised(self):
+        ok, msg = self.with_script(self.stub("fail", "exit 1"))
+        self.assertFalse(ok)
+        self.assertIn("rc=1", msg)
+
+    def test_hanging_script_hits_the_timeout(self):
+        saved = joind.WG_INITD_TIMEOUT
+        joind.WG_INITD_TIMEOUT = 1
+        try:
+            ok, msg = self.with_script(self.stub("hang", "sleep 30"))
+        finally:
+            joind.WG_INITD_TIMEOUT = saved
+        self.assertFalse(ok)
+        self.assertIn("timed out", msg)
+
+    def test_the_node_own_config_dir_is_passed_to_the_script(self):
+        # wg-quick resolves an interface name to /etc/wireguard/<name>.conf,
+        # so a node whose config sits in its own directory below it must say
+        # so, or the script brings up another node's overlay in this namespace
+        # and the real config can never be applied ("address already assigned").
+        nested = os.path.join(self._wg_dir, "smb")
+        os.makedirs(nested)
+        saved = os.environ.get(joind.WG_DIR_ENV)
+        os.environ[joind.WG_DIR_ENV] = nested
+        try:
+            ok, msg = self.with_script(self.stub(
+                "env", 'echo "dir=$SUPERMOX_WG_DIR"'))
+        finally:
+            if saved is None:
+                os.environ.pop(joind.WG_DIR_ENV, None)
+            else:
+                os.environ[joind.WG_DIR_ENV] = saved
+        self.assertTrue(ok)
+        self.assertIn("dir=%s" % nested, msg)
 
 
 class NetworkHardeningTests(JoindBase):

@@ -11,8 +11,9 @@
 # Sysvinit service script for the join daemon (src/supermox/joind.py, installed
 # as /usr/sbin/supermox-joind). The daemon is the node's join endpoint: it
 # completes phrase joins and invite joins, keeps the pending-approval queue,
-# and writes /etc/supermox/wg0.conf when a join is accepted. It never brings
-# the wireguard interface up itself.
+# and writes /etc/wireguard/wg0.conf when a join is accepted. It never brings
+# the wireguard interface up itself: init.d/supermox-wg does that, and the
+# daemon only asks that service to re-apply the file when membership changes.
 #
 # Bind address and port come from the environment (JOIND_HOST, JOIND_PORT) so
 # tests and non-default deployments can point it at 127.0.0.1 and a free port;

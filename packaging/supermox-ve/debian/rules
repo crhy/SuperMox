@@ -30,3 +30,10 @@ override_dh_installinit:
 	dh_installinit --name=supermox-hosts
 	dh_installinit --name=supermox-binfmt
 	dh_installinit --name=supermox-sync
+	# The join daemon and the overlay bring-up both have to be enabled at boot
+	# for a joined node to be a joined node after a reboot: supermox-joind answers
+	# join and membership traffic, supermox-wg puts wg0 back up from the config
+	# that daemon wrote. Neither takes --no-start: unlike networking and binfmt,
+	# nothing else in the boot sequence starts them.
+	dh_installinit --name=supermox-joind
+	dh_installinit --name=supermox-wg

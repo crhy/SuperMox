@@ -2,8 +2,8 @@
 """supermox-join: create a cluster, invite a node, join a cluster, approve.
 
 Talks to the join daemon (src/supermox/joind.py) over TCP. Never prints
-the cluster phrase except once, when create generates it, and never brings
-the WireGuard interface up.
+the cluster phrase except once, when create generates it, and does not
+create the tunnel itself: init.d/supermox-wg brings it up on this host.
 """
 
 import argparse
@@ -137,7 +137,7 @@ def cmd_join(args) -> int:
         joind.apply_join_ack(st, ack)
     path = joind.write_wg_conf(st)
     print("joined as %s; wrote %s" % (args.name, path))
-    print("bring it up with: wg-quick up wg0")
+    _apply_overlay("start")
     if args.my_endpoint:
         _run(joind.send_command(args.endpoint, {
             "t": "endpoints", "node": args.name,
@@ -153,6 +153,7 @@ def cmd_conf(args) -> int:
         return 1
     path = joind.write_wg_conf(st)
     print("wrote %s" % path)
+    _apply_overlay("start")
     return 0
 
 
@@ -204,6 +205,16 @@ def _run(coro):
     """Run one coroutine to completion (the CLI is synchronous)."""
     import asyncio
     return asyncio.run(coro)
+
+
+def _apply_overlay(action: str) -> None:
+    """Ask init.d/supermox-wg to apply the config just written.
+
+    Reported, never fatal: the join has already succeeded by then, and a
+    tunnel that did not come up must not make the command exit non-zero.
+    """
+    ok, msg = joind.apply_wg_conf(action)
+    print("overlay %s: %s" % ("up" if ok else "not up", msg))
 
 
 def main(argv=None) -> int:

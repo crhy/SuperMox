@@ -7,7 +7,7 @@ Implements step 4 of docs/node-join-architecture.md:
   * an invite join (challenge / answer / INVITE_REQ / approval / INVITE_ACK)
     when it only has an invite,
   * the pending approval queue (supermox-join approve / deny),
-  * the WireGuard configuration writer (/etc/supermox/wg0.conf).
+  * the WireGuard configuration writer (/etc/wireguard/wg0.conf).
 
 Framing
 -------
@@ -16,8 +16,9 @@ the payload: kind 1 is JSON, kind 2 is a crypto blob (SecretBox / CurveBox
 ciphertext). Frames longer than MAX_FRAME are dropped without being read
 further, and nothing about a dropped frame's payload is ever logged.
 
-The daemon never brings the overlay up: it writes wg0.conf and leaves
-``wg-quick up`` to the operator.
+The daemon never touches the network itself: it writes wg0.conf and asks
+``init.d/supermox-wg`` to apply it (``reload`` after a membership change); that
+script is what brings the interface up at boot.
 """
 
 import argparse
@@ -26,6 +27,7 @@ import base64
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 
@@ -50,7 +52,28 @@ MAX_CONNECTIONS = 64              # concurrent connections the daemon will serve
 FAILED_WINDOW = 60.0              # seconds a source IP's failures are counted in
 MAX_FAILED_ATTEMPTS = 5           # failures from one IP that trigger a lockout
 MAX_THROTTLE_IPS = 4096           # bound on the failed-attempt table
-WG_CONF_PATH = "/etc/supermox/wg0.conf"
+# Where this node's WireGuard config lives. wireguard-tools ships an AppArmor
+# profile for /usr/bin/wg that lets it read only /etc/wireguard/**, so a
+# config written anywhere else can never be brought up: `wg setconf` and
+# `wg-quick` both fail with "fopen: Permission denied". SUPERMOX_WG_DIR
+# overrides the directory - for the unit tests, and for a host that runs
+# several cluster namespaces and so keeps one directory per node under
+# /etc/wireguard/ (wg-quick names the interface after the file, so every
+# one of them is still called wg0.conf).
+WG_DIR_DEFAULT = "/etc/wireguard"
+WG_CONF_NAME = "wg0.conf"
+WG_DIR_ENV = "SUPERMOX_WG_DIR"
+WG_CONF_PATH = "/etc/wireguard/wg0.conf"
+# The service script that applies the config: it brings wg0 up at boot and
+# re-applies the file when the membership changes. SUPERMOX_WG_INITD overrides
+# the path for the unit tests, which stub it with a shell script.
+WG_INITD_PATH = "/etc/init.d/supermox-wg"
+WG_INITD_ENV = "SUPERMOX_WG_INITD"
+WG_INITD_TIMEOUT = 30             # seconds the service script may take
+
+# Set once the first time an older SuperMox's config in the state dir is
+# cleared out, so an upgrade explains itself once instead of on every write.
+_legacy_conf_logged = False
 WG_LISTEN_PORT = 51820            # WireGuard tunnel port (UDP), same on every node
 
 log = logging.getLogger("supermox-joind")
@@ -162,11 +185,17 @@ class JoinDaemon:
     """
 
     def __init__(self, state: node_state.NodeState, host: str = "127.0.0.1",
-                 port: int = DEFAULT_PORT, auto_approve: bool = False):
+                 port: int = DEFAULT_PORT, auto_approve: bool = False,
+                 wg_conf: str = None):
         self.state = state
         self.host = host
         self.port = port
         self.auto_approve = auto_approve
+        # Where this daemon rewrites the overlay when a member changes: None
+        # means the default /etc/wireguard/wg0.conf (SUPERMOX_WG_DIR moves the
+        # directory, which is how a host running several namespaces keeps them
+        # apart). Passed through to write_wg_conf.
+        self.wg_conf = wg_conf
         self.seen_nonces = {}
         self.waiting = {}          # request_id -> _Conn
         self.server = None
@@ -574,7 +603,8 @@ class JoinDaemon:
             await write_frame(writer, KIND_JSON, canonical_json({
                 "t": "refused", "reason": str(exc)}))
             return False
-        write_wg_conf(self.state)
+        write_wg_conf(self.state, self.wg_conf)
+        _apply_wg_conf_logged("reload")
         await write_frame(writer, KIND_JSON, canonical_json(
             {"t": "membership_ok", "members": len(membership)}))
         return True
@@ -811,6 +841,62 @@ def apply_invite_ack(state: node_state.NodeState, ack: dict) -> list:
     return list(state.membership)
 
 
+def wg_conf_path() -> str:
+    """Path of this node's WireGuard config: /etc/wireguard/wg0.conf."""
+    return os.path.join(os.environ.get(WG_DIR_ENV) or WG_DIR_DEFAULT,
+                        WG_CONF_NAME)
+
+
+def wg_initd_path() -> str:
+    """Path of the service script that applies this node's wg0.conf."""
+    return os.environ.get(WG_INITD_ENV) or WG_INITD_PATH
+
+
+def apply_wg_conf(action: str = "start") -> tuple:
+    """Ask init.d/supermox-wg to apply the config: (ok, one-line message).
+
+    The overlay is a separate service on the same host, so this is the only
+    place the daemon reaches the network, and it is a subprocess with a
+    timeout, never an exception: a join that succeeded must not be reported
+    as failed because the tunnel did not come up. Returns (False, ...) when
+    the script is missing, timed out or exited non-zero.
+    """
+    script = wg_initd_path()
+    if not os.path.exists(script):
+        return False, "no %s: bring the overlay up by hand" % script
+    # Tell the service script which directory this node's config lives in.
+    # Without it a node in a nested namespace would make the script read the
+    # default /etc/wireguard/wg0.conf - another node's config - and bring up
+    # the wrong overlay in this namespace.
+    env = dict(os.environ)
+    env[WG_DIR_ENV] = os.path.dirname(wg_conf_path())
+    try:
+        res = subprocess.run([script, action], env=env, timeout=WG_INITD_TIMEOUT,
+                             stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT,
+                             universal_newlines=True)
+    except subprocess.TimeoutExpired:
+        return False, "%s %s timed out after %d s" % (script, action,
+                                                      WG_INITD_TIMEOUT)
+    except OSError as exc:
+        return False, "%s %s failed: %s" % (script, action, exc)
+    out = [ln for ln in (res.stdout or "").splitlines() if ln.strip()]
+    detail = (" " + out[-1]) if out else ""
+    if res.returncode != 0:
+        return False, "%s %s failed (rc=%d)%s" % (script, action,
+                                                  res.returncode, detail)
+    return True, "%s %s%s" % (script, action, detail)
+
+
+def _apply_wg_conf_logged(action: str = "reload") -> None:
+    """Apply the config from the daemon, logging the outcome. Never fatal."""
+    ok, msg = apply_wg_conf(action)
+    if ok:
+        log.info(msg)
+    else:
+        log.warning(msg)
+
+
 def write_wg_conf(state: node_state.NodeState, path: str = None) -> str:
     """Write the WireGuard config for this node: one [Peer] per other member.
 
@@ -820,15 +906,18 @@ def write_wg_conf(state: node_state.NodeState, path: str = None) -> str:
     used here: the kernel sends the encrypted UDP packet to the Endpoint, so
     it must be the port the peer's wg0 listens on. The interface is never
     brought up here.
+
+    The file lands in /etc/wireguard/ (0700) as wg0.conf, mode 0600, because
+    that is the only place the wg profile lets /usr/bin/wg read from.
     """
-    path = path or os.path.join(state.base, "wg0.conf")
+    path = path or wg_conf_path()
     me = state.find_member(state.my_name())
     if me is None or state.identity is None:
         raise JoinError("no membership entry for this node")
     lines = [
         "# SuperMox overlay for cluster %s"
         % b64(state.derived["cluster_id"]),
-        "# generated by supermox-join; bring up with wg-quick up wg0",
+        "# generated by supermox-join; init.d/supermox-wg brings it up",
         "[Interface]",
         "Address = %s/128" % me["overlay_addr"],
         "PrivateKey = %s" % b64(state.identity["wg_priv"]),
@@ -851,6 +940,9 @@ def write_wg_conf(state: node_state.NodeState, path: str = None) -> str:
         lines.append("PresharedKey = %s" % b64(state.derived["wg_psk"]))
         lines.append("")
     text = "\n".join(lines).rstrip() + "\n"
+    d = os.path.dirname(path)
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    os.chmod(d, 0o700)
     tmp = path + ".tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
@@ -859,7 +951,31 @@ def write_wg_conf(state: node_state.NodeState, path: str = None) -> str:
         os.close(fd)
     os.replace(tmp, path)
     os.chmod(path, 0o600)
+    _drop_legacy_conf(state, path)
     return path
+
+
+def _drop_legacy_conf(state: node_state.NodeState, path: str) -> None:
+    """Remove the config an older SuperMox wrote into the node's state dir.
+
+    It used to live at <state dir>/wg0.conf, where the wg profile will not
+    let it be read. Two configs on one node means one of them is always
+    stale, so the first write to the new location clears the old one; the
+    reason is logged once per process, not on every write.
+    """
+    global _legacy_conf_logged
+    old = os.path.join(state.base, WG_CONF_NAME)
+    if old == path or not os.path.exists(old):
+        return
+    first = not _legacy_conf_logged
+    _legacy_conf_logged = True
+    try:
+        os.remove(old)
+        if first:
+            log.info("removed %s: the WireGuard config is now %s", old, path)
+    except OSError as exc:
+        if first:
+            log.warning("could not remove %s: %s", old, exc)
 
 
 def _peer_wg_endpoint(m: dict) -> str:

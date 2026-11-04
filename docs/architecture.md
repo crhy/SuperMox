@@ -20,7 +20,7 @@ anything SuperMox ships.
   under `upstream/` is edited directly.
 - **Init scripts** for every PVE daemon live in `init.d/` (pve-cluster, pvedaemon, pveproxy,
   pvestatd, pve-firewall, pve-ha-crm/lrm, pvescheduler, qmeventd, spiceproxy, networking...)
-  plus SuperMox's own (`supermox-joind`, `supermox-sync`, `supermox-tmpfiles`,
+  plus SuperMox's own (`supermox-joind`, `supermox-wg`, `supermox-sync`, `supermox-tmpfiles`,
   `supermox-binfmt`). See [init-scripts.md](init-scripts.md). Daemons that only write to stderr
   are wrapped by `scripts/supermox-logpipe` so their output reaches syslog (rsyslog) under
   sysvinit (t57).

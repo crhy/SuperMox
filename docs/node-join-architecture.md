@@ -52,14 +52,16 @@ Status: design (2026-10-28). Implementation is split into tasks; see "Build orde
    does not let an already accepted request through a second time. It then adds N to the membership list, signs the
    change, and sends the change to the other members.
 4. M replies `JOIN_ACK = secretbox(join_key, {membership list, N's overlay address, M's signature over the list})`.
-5. N writes its WireGuard configuration (peers, `wg_psk`, AllowedIPs = each peer's overlay /128) and brings `wg0` up,
-   using the `networking` init script, not wg-quick under systemd. After that, all cluster traffic uses overlay
+5. N writes its WireGuard configuration (peers, `wg_psk`, AllowedIPs = each peer's overlay /128) to
+   `/etc/wireguard/wg0.conf` (0600, its directory 0700); the `supermox-wg` init script brings `wg0` up from that file
+   at boot and on membership changes, not wg-quick under systemd. After that, all cluster traffic uses overlay
    addresses only.
    The `wg` AppArmor profile that ships with wireguard-tools (`/etc/apparmor.d/wg`) lets `/usr/bin/wg` read only
-   `/etc/wireguard/**`, so a generated config has to be installed there before `wg-quick` or `wg setconf` will touch
-   it. `wg-quick` also names the interface after the file, so a host running several cluster namespaces brings each
-   one up from its own file (`/etc/wireguard/wg-<ns>.conf`), never several `wg0.conf` files, and `PresharedKey` is
-   only accepted inside a `[Peer]` block.
+   `/etc/wireguard/**`, which is why the config is written there and not into the state dir. `wg-quick` also names
+   the interface after the file, so it only serves a config sitting directly in `/etc/wireguard/`: a host running
+   several cluster namespaces points each node's daemon at its own directory below it (`SUPERMOX_WG_DIR`) and brings
+   those up by hand (`ip link add` plus `wg setconf` on a stripped copy kept in the same directory), which is what
+   the e2e test does for its nested nodes. `PresharedKey` is only accepted inside a `[Peer]` block.
 - A source IP that fails authentication five times in a minute gets no new connections for a minute, with one error
   frame. The failed-attempt table is keyed per source IP and bounded in size, so one noisy peer cannot burn the daemon's
   scrypt work or lock out the neighbours on its network.

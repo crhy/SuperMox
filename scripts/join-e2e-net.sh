@@ -39,45 +39,68 @@ net_teardown() {
   for v in veth-a veth-b veth-c veth-d; do ip link del "$v" 2>/dev/null; done
 }
 
+# conf_of <ns>: the node's WireGuard config, as the join daemon writes it.
+# node-a keeps it at the default /etc/wireguard/wg0.conf; a nested node in its
+# own directory below it (SUPERMOX_WG_DIR), since all three nodes share this
+# host and the file must sit under /etc/wireguard/ for wg's AppArmor profile.
+# wg_dir_of <ns>: the directory a node's config lives in, as the join daemon
+# is told via SUPERMOX_WG_DIR. node-a keeps the default; a nested node gets
+# its own directory below it. Every command that touches a nested node's
+# state must set it, or that node writes at the default path and overwrites
+# node-a's config - and brings up the wrong overlay in its own namespace.
+wg_dir_of() {
+  if [ "$1" = sma ]; then printf '/etc/wireguard'
+  else printf '/etc/wireguard/%s' "$1"; fi
+}
+
+conf_of() { printf '%s/wg0.conf' "$(wg_dir_of "$1")"; }
+
 # check_conf: every [Peer] Endpoint must name the WireGuard port, never the
 # join daemon's port.
 check_conf() {
-  local n bad=0 e
+  local n bad=0 e f
   for n in "$@"; do
-    [ -f "$STATE/$n/wg0.conf" ] || { printf '    %s/wg0.conf missing\n' "$n"; bad=1; continue; }
+    f=$(conf_of "$n")
+    [ -f "$f" ] || { printf '    %s wg0.conf missing\n' "$n"; bad=1; continue; }
     while read -r e; do
       case "$e" in
         *:"$WG_PORT") ;;
         *) printf '    %s: Endpoint %s\n' "$n" "$e"; bad=1 ;;
       esac
-    done < <(grep '^Endpoint = ' "$STATE/$n/wg0.conf" | cut -d' ' -f3)
-    if grep -q "^Endpoint = .*:$JOIN_PORT" "$STATE/$n/wg0.conf"; then
+    done < <(grep '^Endpoint = ' "$f" | cut -d' ' -f3)
+    if grep -q "^Endpoint = .*:$JOIN_PORT" "$f"; then
       printf '    %s: wg0.conf points at the join port\n' "$n"; bad=1
     fi
   done
   return "$bad"
 }
 
-# bring_up <ns>: create wg0 in that namespace from $STATE/<ns>/wg0.conf. This
-# iproute2 names the device type "wireguard"; setconf rejects the Address and
-# PresharedKey lines, so the address is added with ip addr add and the (optional)
-# PSK stays in the conf file only. Peers are reached at their overlay address.
+# manual_up <ns>: create wg0 in that namespace from the node's config. This is
+# what /etc/init.d/supermox-wg does at boot through wg-quick, spelled out by
+# hand so a config in a nested node's own directory works too: wg-quick names
+# the interface after the file and cannot reach a subdirectory.
 #
-# The setconf copy MUST live under /etc/wireguard/: the AppArmor policy shipped
-# with Devuan Ceres loads profile `wg` for /usr/bin/wg in ENFORCE mode and lets
-# it read only @{etc_rw}/wireguard/{,**}, so `wg setconf` on a conf elsewhere
-# (e.g. $STATE/<ns>/wg0.conf or /etc/supermox/wg0.conf) fails with
-# "fopen: Permission denied" and leaves wg0 with no keys. One directory per
-# namespace, since all three nodes share this host. setconf failure is fatal
-# here: an unconfigured wg0 silently drops every packet.
-bring_up() {
-  local ns="$1" conf="$STATE/$1/wg0.conf" aa="/etc/wireguard/$1/wg0.conf"
+# wg setconf takes the [Interface] block minus the wg-quick-only Address line:
+# PrivateKey belongs in it (without it the kernel generates a fresh keypair,
+# every peer handshake then fails and the tunnel silently drops all traffic),
+# and the per-peer PresharedKey lines belong in the [Peer] blocks. Only Address
+# is dropped, and the address is added with ip -6 addr add instead.
+#
+# The setconf copy MUST live under /etc/wireguard/ and MUST be 0600: the AppArmor
+# policy shipped with Devuan Ceres loads profile `wg` for /usr/bin/wg in ENFORCE
+# mode and lets it read only @{etc_rw}/wireguard/{,**}, so `wg setconf` on a conf
+# elsewhere fails with "fopen: Permission denied" and leaves wg0 with no keys.
+# setconf failure is fatal here: an unconfigured wg0 silently drops every packet.
+manual_up() {
+  local ns="$1" conf aa
+  conf=$(conf_of "$ns")
+  aa="${conf%wg0.conf}setconf"
   ip netns exec "$ns" sh -c '
     CONF="$1" AA="$2"
+    umask 077
     ip link add wg0 type wireguard
     A=$(grep "^Address" "$CONF" | cut -d" " -f3 | cut -d/ -f1)
-    mkdir -p "$(dirname "$AA")"
-    grep -v -e "^Address" -e "^PresharedKey" "$CONF" > "$AA"
+    grep -v "^Address" "$CONF" > "$AA"
     if ! wg setconf wg0 "$AA"; then
       echo "wg setconf failed on $AA (AppArmor wg profile reads only /etc/wireguard/**)" >&2
       exit 1

@@ -1,0 +1,167 @@
+#!/bin/sh
+# SuperMox WireGuard overlay bring-up.
+#
+# A joined node keeps its WireGuard config at /etc/wireguard/wg0.conf (mode
+# 0600): the join daemon rewrites it whenever the cluster's membership
+# changes, and this script brings the wg0 overlay up from it, at boot and
+# whenever the file changes. The daemon itself never touches the network:
+# writing the config and bringing it up are separate services on the same
+# host, and wg0.conf must name the join daemon's endpoint, not be confused
+# with it.
+#
+# The config must live under /etc/wireguard/ because the AppArmor profile
+# `wg` that ships with wireguard-tools lets /usr/bin/wg read only
+# /etc/wireguard/**.
+#
+# wg-quick names the interface after the config file, so this script only
+# serves the default directory. A host that runs several clusters in nested
+# network namespaces points each node's join daemon at its own directory
+# below /etc/wireguard/ (SUPERMOX_WG_DIR) and brings those overlays up by
+# hand; this script reports that case rather than guessing.
+#
+# The overlay is not a daemon: wg-quick up installs the interface and
+# exits, so there is no pidfile and no start-stop-daemon here.
+
+### BEGIN INIT INFO
+# Provides:          supermox-wg
+# Required-Start:    $network $remote_fs
+# Required-Stop:     $network $remote_fs
+# X-Start-Before:    pve-cluster supermox-joind
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Bring up the SuperMox WireGuard overlay
+# Description:       Brings the wg0 overlay up from /etc/wireguard/wg0.conf
+#                    at boot and re-applies the file on reload.
+### END INIT INFO
+
+set -eu
+
+. /lib/lsb/init-functions
+
+# wg-quick resolves an interface name to /etc/wireguard/<name>.conf, so this
+# script only serves that one directory. SUPERMOX_WG_ROOT says where it is
+# (the offline test points it at a scratch tree); SUPERMOX_WG_DIR points one
+# node at its own directory below it, which is the nested-namespace case this
+# script reports instead of guessing.
+WG_ROOT="${SUPERMOX_WG_ROOT:-/etc/wireguard}"
+CONF_DIR="${SUPERMOX_WG_DIR:-$WG_ROOT}"
+CONF="$CONF_DIR/wg0.conf"
+IFACE=wg0
+# wg's own config parser rejects the wg-quick-only Address line, so a reload
+# feeds it wg-quick's stripped form. It must be a file under the config dir:
+# the wg profile reads nothing outside /etc/wireguard/**.
+SYNC="$CONF_DIR/.wg0.syncconf"
+# wg-quick up/down run in the network namespace of whoever calls them, so
+# "is wg0 up" means "is wg0 up here".
+LOG="${SUPERMOX_WG_LOG:-/run/supermox-wg.log}"
+
+usage() {
+    echo "Usage: $0 {start|stop|restart|reload|status}" >&2
+    exit 1
+}
+
+up() {
+    ip link show "$IFACE" >/dev/null 2>&1
+}
+
+# A config outside /etc/wireguard/ (a nested-namespace host's per-node
+# directory) is out of reach for wg-quick, which resolves the interface name
+# to /etc/wireguard/<name>.conf. Say so instead of failing with wg's own
+# "Config file not found".
+not_for_this_script() {
+    [ "$(dirname "$CONF")" = "$WG_ROOT" ] && return 1
+    log_warning_msg "supermox-wg: $CONF is a nested-namespace config; bring it up in its own namespace"
+    return 0
+}
+
+case "$1" in
+    start)
+        if [ ! -f "$CONF" ]; then
+            log_warning_msg "supermox-wg: no $CONF, this node is not a cluster member yet"
+            exit 0
+        fi
+        if not_for_this_script; then
+            exit 0
+        fi
+        # 0600: the file carries this node's WireGuard private key.
+        if [ "$(stat -c '%a' "$CONF" 2>/dev/null || echo none)" != 600 ]; then
+            log_warning_msg "supermox-wg: $CONF is not mode 0600, refusing to bring it up"
+            exit 0
+        fi
+        if up; then
+            # Already up: re-apply this file instead of leaving a stale
+            # interface behind. The join CLI runs start after every rewrite,
+            # so `start` must always leave the running overlay matching the
+            # config on disk; reload does that without dropping the link.
+            "$0" reload
+            exit $?
+        fi
+        log_begin_msg "Bringing up the SuperMox WireGuard overlay"
+        if ! wg-quick up "$IFACE" 2>>"$LOG"; then
+            log_end_msg 1
+            exit 1
+        fi
+        log_end_msg 0
+        ;;
+    stop)
+        if up; then
+            log_begin_msg "Taking down the SuperMox WireGuard overlay"
+            wg-quick down "$IFACE" 2>>"$LOG"
+            log_end_msg $?
+        else
+            log_warning_msg "supermox-wg: $IFACE is not up"
+            exit 0
+        fi
+        ;;
+    restart)
+        "$0" stop
+        "$0" start
+        ;;
+    reload|force-reload)
+        if [ ! -f "$CONF" ]; then
+            log_warning_msg "supermox-wg: no $CONF, nothing to reload"
+            exit 0
+        fi
+        if not_for_this_script; then
+            exit 0
+        fi
+        if ! up; then
+            "$0" start
+            exit $?
+        fi
+        log_begin_msg "Re-applying the SuperMox WireGuard config"
+        # syncconf swaps keys and peers on the live interface without dropping
+        # it, so existing members keep their connections while a new one is
+        # added.
+        # umask 077 and a fresh file: the stripped conf carries this node's
+        # private key, and `>` would keep the mode of a file that already exists.
+        umask 077
+        rm -f "$SYNC"
+        if ! wg-quick strip "$IFACE" >"$SYNC" 2>>"$LOG"; then
+            rm -f "$SYNC"
+            log_end_msg 1
+            exit 1
+        fi
+        chmod 600 "$SYNC"
+        if ! wg syncconf "$IFACE" "$SYNC" 2>>"$LOG"; then
+            rm -f "$SYNC"
+            log_end_msg 1
+            exit 1
+        fi
+        rm -f "$SYNC"
+        log_end_msg 0
+        ;;
+    status)
+        if up; then
+            echo "supermox-wg: $IFACE is up"
+            exit 0
+        fi
+        echo "supermox-wg: $IFACE is not up"
+        exit 3
+        ;;
+    *)
+        usage
+        ;;
+esac
+
+exit 0
