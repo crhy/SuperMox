@@ -75,6 +75,27 @@ for s in $daemon_scripts; do
   fi
 done
 
+# A daemon started with start-stop-daemon --make-pidfile must have its pidfile
+# removed on stop, otherwise `status` reports LSB 1 (dead-but-pidfile) instead of
+# LSB 3 (not running) and a stale pidfile lingers in /run. Removal is either
+# --remove-pidfile on the stop action or an explicit rm -f of the pidfile.
+while IFS= read -r -d '' f; do
+  if grep -q -- '--make-pidfile' "$f"; then
+    if ! grep -q -- '--remove-pidfile' "$f" && ! grep -q 'rm -f' "$f"; then
+      echo "FAIL: $f uses --make-pidfile but never removes the pidfile on stop"; fail=1
+    fi
+  fi
+done < <(find "$dir" -maxdepth 1 -type f -print0)
+
+# spiceproxy setuid's to www-data and writes its pidfile under the www-data-owned
+# /run/pveproxy dir. start-stop-daemon --status refuses a non-root pidfile on its
+# own (exit 4, "insecure"), so the status action must cross-check the process
+# owner with --user, exactly like pveproxy. Without it, `spiceproxy status` reports
+# "not running" even while the daemon is up.
+if ! grep -qE -- '--status.*--user' init.d/spiceproxy; then
+  echo "FAIL: init.d/spiceproxy status must cross-check owner (--user) for its non-root pidfile"; fail=1
+fi
+
 if [ "$count" -eq 0 ]; then
   echo "FAIL: no files in $dir"
   exit 1

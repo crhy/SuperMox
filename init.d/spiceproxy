@@ -41,7 +41,10 @@ case "$1" in
     log_end_msg $?
     ;;
   status)
-    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
+    # spiceproxy setuid's its master to www-data and writes its pidfile under
+    # the www-data-owned /run/pveproxy dir. start-stop-daemon refuses to trust
+    # a non-root pidfile on its own (exit 4), so cross-check the process owner.
+    start-stop-daemon --status --quiet --pidfile "$PIDFILE" --user www-data
     rc=$?
     if [ "$rc" -eq 0 ]; then
       log_success_msg "$NAME is running"

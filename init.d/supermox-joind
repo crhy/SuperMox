@@ -40,7 +40,7 @@ case "$1" in
     ;;
   stop)
     log_begin_msg "Stopping $NAME"
-    start-stop-daemon --stop --quiet --pidfile "$PIDFILE"
+    start-stop-daemon --stop --quiet --pidfile "$PIDFILE" --remove-pidfile
     log_end_msg $?
     ;;
   restart)
