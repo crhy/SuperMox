@@ -310,6 +310,25 @@ POSTPREPARE
   chmod +x "$post_prepare"
 fi
 
+# A failed lb build can leave proc/sys/devpts mounted inside the chroot, and
+# 'make prepare' starts with rm -rf of the live-build tree. Unmount anything
+# still mounted below the worktree first (deepest first), as root.
+pre_clean="$repo_root/build/iso-pre-clean.sh"
+if [ "$dry_run" -eq 1 ]; then
+  printf 'DRY-RUN: write %s\n' "$pre_clean"
+else
+  cat > "$pre_clean" <<PRECLEAN
+#!/usr/bin/env bash
+set -euo pipefail
+root="\$(readlink -f "$WORKTREE")"
+findmnt -rn -o TARGET | awk -v r="\$root/" 'index(\$0, r) == 1' | sort -r | while IFS= read -r m; do
+  printf 'unmounting leftover %s\\n' "\$m"
+  umount -l "\$m"
+done
+PRECLEAN
+  chmod +x "$pre_clean"
+fi
+
 # Fetch the Proxmox key now (no sudo needed, just a download).
 if [ -s "$HOST_KEY" ]; then
   KEY_CACHE="$HOST_KEY"
@@ -321,16 +340,16 @@ fi
 # --- build ---------------------------------------------------------------
 if [ "$prepare_only" -eq 1 ]; then
   step "prepare-only: worktree + debs staged; make prepare + config + lb build need sudo"
-  printf '\nRun as root (one command):\n  cd %s && sudo make prepare && sudo bash %s && cd build/live-build && sudo env MKSQUASHFS_OPTIONS="%s" lb build\n' "$WORKTREE" "$post_prepare" "$MKSQUASHFS"
+  printf '\nRun as root (one command):\n  sudo bash %s && cd %s && sudo make prepare && sudo bash %s && cd build/live-build && sudo env MKSQUASHFS_OPTIONS="%s" lb build\n' "$pre_clean" "$WORKTREE" "$post_prepare" "$MKSQUASHFS"
   printf 'Then collect and size-check the ISO:\n  bash %s/scripts/build-iso.sh --collect-only\n' "$repo_root"
   exit 0
 fi
 
 step "live-build: make prepare + config + lb build in $WORKTREE (needs root)"
 if [ "$dry_run" -eq 1 ]; then
-  printf 'DRY-RUN: cd %s && sudo make prepare && sudo bash %s && cd build/live-build && sudo env MKSQUASHFS_OPTIONS="%s" lb build\n' "$WORKTREE" "$post_prepare" "$MKSQUASHFS"
+  printf 'DRY-RUN: sudo bash %s && cd %s && sudo make prepare && sudo bash %s && cd build/live-build && sudo env MKSQUASHFS_OPTIONS="%s" lb build\n' "$pre_clean" "$WORKTREE" "$post_prepare" "$MKSQUASHFS"
 else
-  (cd "$WORKTREE" && sudo make prepare && sudo bash "$post_prepare" && cd build/live-build && sudo env "MKSQUASHFS_OPTIONS=$MKSQUASHFS" lb build)
+  (sudo bash "$pre_clean" && cd "$WORKTREE" && sudo make prepare && sudo bash "$post_prepare" && cd build/live-build && sudo env "MKSQUASHFS_OPTIONS=$MKSQUASHFS" lb build)
 fi
 
 step "apt sources: $lb_dir/config/archives/proxmox.list.chroot (download.proxmox.com pve + devel, trixie)"

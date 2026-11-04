@@ -32,7 +32,7 @@ for pat in \
 done
 
 # The live-build run needs root: --dry-run may only show it, never run it.
-if ! printf '%s\n' "$out" | grep -qE '^DRY-RUN: cd .*lb build$'; then
+if ! printf '%s\n' "$out" | grep -qE '^DRY-RUN: sudo bash .*iso-pre-clean\.sh && cd .*lb build$'; then
   echo "FAIL: --dry-run must print, not run, the lb build command"
   missing=1
 fi
