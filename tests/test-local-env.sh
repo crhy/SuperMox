@@ -7,7 +7,13 @@ fail=0
 
 # Nothing of this test may be influenced by the real repo's config/local.env or by
 # variables the developer happens to have exported, so start from a clean slate.
-unset SUPERMOX_REPO SUPERMOX_VM_DIR SUPERMOX_TEST_DIR SUPERMOX_DEBS_DIR SUPERMOX_SPACED_REPO
+# That means every SUPERMOX_* variable, not just the four documented ones: config/local.env
+# may set any of them (SUPERMOX_VM_RAM included), and an exported one would win over it
+# inside the probe and make the precedence checks meaningless.
+while IFS= read -r _smx_var; do
+  unset "$_smx_var"
+done < <(compgen -e | grep -E '^SUPERMOX_[A-Za-z_][A-Za-z0-9_]*$')
+unset _smx_var
 
 tmp="build/test-local-env.d"
 rm -rf "$tmp"
