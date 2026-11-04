@@ -123,6 +123,7 @@ if [ "$dry_run" -eq 1 ]; then
     printf '  in VM /root/build/pkg-%s/%s: dpkg-buildpackage -b -us -uc\n' "$component" "$component"
     printf '  copy *.deb to /root/localrepo, dpkg-scanpackages . > Packages, apt-get update\n'
     printf '  scp new *.deb from /root/localrepo to %s/debs/\n' "$VM_DIR"
+    printf '  prune superseded debs in %s/debs/ (scripts/prune-debs.sh)\n' "$VM_DIR"
     printf '  log to build/logs/pkg-%s.log\n' "$component"
     exit 0
   fi
@@ -143,6 +144,7 @@ if [ "$dry_run" -eq 1 ]; then
     printf '  copy *.deb to /root/localrepo and run dpkg-scanpackages . > Packages\n'
   fi
   printf '  scp new *.deb from /root/localrepo to %s/debs/\n' "$VM_DIR"
+  printf '  prune superseded debs in %s/debs/ (scripts/prune-debs.sh)\n' "$VM_DIR"
   printf '  log to build/logs/%s.log\n' "$component"
   exit 0
 fi
@@ -267,5 +269,9 @@ if ! copy_debs_back; then
   tail -n 30 "$log" >&2
   exit 1
 fi
+
+# Drop superseded debs so $VM_DIR/debs holds only the newest version of each
+# package/arch (see scripts/prune-debs.sh).
+bash "$repo_root/scripts/prune-debs.sh" "$VM_DIR/debs"
 
 printf 'OK: built %s; debs in %s/debs/ and /root/localrepo\n' "$component" "$VM_DIR"

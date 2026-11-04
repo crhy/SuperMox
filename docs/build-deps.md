@@ -26,6 +26,7 @@ external source (e.g. Proxmox Rust crates `librust-*`, `libpve-rs-perl`,
 - debhelper-compat
 - libfuse2
 - libglib2.0-0
+- libpmg-rs-perl
 - librust-anyhow-1+default-dev
 - librust-base32-0.4+default-dev
 - librust-base64-0.13+default-dev
@@ -68,6 +69,8 @@ external source (e.g. Proxmox Rust crates `librust-*`, `libpve-rs-perl`,
 - perlmod-bin
 - proxmox-biome
 - rustc:native
+
+## Deliberately replaced (NOT missing; we ship sysvinit-core + our init.d scripts + the librust-proxmox-systemd-dev stub):
 - systemd
 - systemd-sysv
 
@@ -79,7 +82,7 @@ external source (e.g. Proxmox Rust crates `librust-*`, `libpve-rs-perl`,
 | --- | --- | --- |
 | cargo:native | build | external: needs a source |
 | debhelper-compat | build | external: needs a source |
-| libpmg-rs-perl | runtime | produced by proxmox-perl-rs |
+| libpmg-rs-perl | runtime | external: needs a source |
 | librust-anyhow-1+default-dev | build | external: needs a source |
 | librust-base32-0.4+default-dev | build | external: needs a source |
 | librust-base64-0.13+default-dev | build | external: needs a source |

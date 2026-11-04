@@ -19,9 +19,12 @@ done < <(bash scripts/fetch-upstream.sh --list)
 #   P<TAB>name<TAB>comp  binary package produced by comp
 # Continuation lines are joined; version constraints (), arch [] and
 # build-profile <> parts are stripped; "a | b" keeps both; ${...} vars dropped.
+# credit=1: binary packages from this control file are produced by comp.
+# credit=0: still parse build/runtime deps, but do NOT credit produced packages
+# (used for subdirs of a multi-subdir component that config/build-subdirs.txt does not build).
 parse_control() {
-  local f="$1" comp="$2"
-  awk -v comp="$comp" '
+  local f="$1" comp="$2" credit="$3"
+  awk -v comp="$comp" -v credit="$credit" '
     function emit_list(kind, value,   n, i, part, m, j, a, parts, alts) {
       n = split(value, parts, ",")
       for (i = 1; i <= n; i++) {
@@ -46,7 +49,7 @@ parse_control() {
       else if (field == "Depends")
         emit_list("R", val)
       else if (field == "Package")
-        print "P\t" val "\t" comp
+        if (credit == 1) print "P\t" val "\t" comp
       field = ""; val = ""
     }
     /^[A-Za-z][-A-Za-z0-9]*:/ {
@@ -66,12 +69,48 @@ parse_control() {
   ' "$f"
 }
 
+# Subdirs of a component that config/build-subdirs.txt builds (empty => the
+# whole component is built). Same parsing as scripts/vm-build-pkg.sh.
+read_subdirs() {
+  local comp="$1"
+  local file="$repo_root/config/build-subdirs.txt"
+  local line rest
+  local -a words
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [ -n "$line" ] || continue
+    if [ "${line%% *}" = "$comp" ]; then
+      rest="${line#* }"
+      [ "$rest" = "$line" ] && continue
+      read -ra words <<< "$rest"
+      for _w in "${words[@]}"; do
+        printf '%s\n' "$_w"
+      done
+    fi
+  done < "$file"
+}
+
 : > "$work/produced.tsv"
 for c in "${components[@]}"; do
   base="upstream/pxvirt/packages/$c/$c"
   : > "$work/raw.$c"
+  sub=()
+  while IFS= read -r _s; do
+    [ -n "$_s" ] && sub+=("$_s")
+  done < <(read_subdirs "$c")
   while IFS= read -r f; do
-    parse_control "$f" "$c" >> "$work/raw.$c"
+    credit=1
+    if [ "${#sub[@]}" -gt 0 ]; then
+      credit=0
+      rel="${f#"$base"/}"
+      for _s in "${sub[@]}"; do
+        case "$rel" in "$_s"/*) credit=1; break ;; esac
+      done
+    fi
+    parse_control "$f" "$c" "$credit" >> "$work/raw.$c"
   done < <(find "$base" -name .git -prune -o -type f -path '*/debian/control' -print)
   awk -F'\t' '$1=="B"{print $2}' "$work/raw.$c" | LC_ALL=C sort -u > "$work/$c.build"
   awk -F'\t' '$1=="R"{print $2}' "$work/raw.$c" | LC_ALL=C sort -u > "$work/$c.runtime"
@@ -85,10 +124,16 @@ for c in "${components[@]}"; do
   cat "$work/$c.build" "$work/$c.runtime"
 done | LC_ALL=C sort -u > "$work/all-deps.txt"
 
-# Ask the VM once which names have an install candidate.
+# Ask the VM once which names have an install candidate. For an offline
+# regeneration (no VM), set SUPERMOX_POLICY_CACHE to a saved apt-cache policy
+# capture and it is used instead of querying the VM.
 mapfile -t alldeps < "$work/all-deps.txt"
 names="${alldeps[*]}"
-bash scripts/vm-ssh.sh "apt-cache policy $names" 2>/dev/null > "$work/policy.out"
+if [ -n "${SUPERMOX_POLICY_CACHE:-}" ] && [ -f "${SUPERMOX_POLICY_CACHE:-}" ]; then
+  cp "${SUPERMOX_POLICY_CACHE}" "$work/policy.out"
+else
+  bash scripts/vm-ssh.sh "apt-cache policy $names" 2>/dev/null > "$work/policy.out"
+fi
 
 # Parse apt-cache policy: a package is present iff it has a Candidate that is not (none).
 awk '
@@ -128,7 +173,10 @@ awk -F'\t' '
     } else {
       rmiss[comp, name] = 1
     }
-    if (missing(name) && !(name in prod)) ext[name] = 1
+    if (missing(name) && !(name in prod)) {
+      if (name == "systemd" || name == "systemd-sysv") sysd[name] = 1
+      else ext[name] = 1
+    }
     next
   }
   END {
@@ -192,6 +240,12 @@ awk -F'\t' '
       if (earr[j] < earr[i]) { t = earr[i]; earr[i] = earr[j]; earr[j] = t }
     if (ne == 0) print "(none)"
     for (i = 1; i <= ne; i++) print "- " earr[i]
+    if ("systemd" in sysd || "systemd-sysv" in sysd) {
+      print ""
+      print "## Deliberately replaced (NOT missing; we ship sysvinit-core + our init.d scripts + the librust-proxmox-systemd-dev stub):"
+      if ("systemd" in sysd) print "- systemd"
+      if ("systemd-sysv" in sysd) print "- systemd-sysv"
+    }
     print ""
     print "## Per component"
     print ""
