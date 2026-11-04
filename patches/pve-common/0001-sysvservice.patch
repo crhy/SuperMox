@@ -1,17 +1,17 @@
 diff -ruN orig/src/Makefile new/src/Makefile
---- a/src/Makefile	2026-10-28 04:35:08.535057661 -0700
-+++ b/src/Makefile	2026-10-28 05:40:00.672998584 -0700
-@@ -33,6 +33,7 @@
+--- a/src/Makefile	2026-10-28 13:16:11.305285486 -0700
++++ b/src/Makefile	2026-11-04 05:13:30.884611948 -0800
+@@ -39,6 +39,7 @@
  	SysFSTools.pm \
  	Syscall.pm \
  	Systemd.pm \
 +	SysvService.pm \
  	Ticket.pm \
- 	Tools.pm
- 
+ 	Tools.pm \
+ 	UPID.pm \
 diff -ruN orig/src/PVE/SysvService.pm new/src/PVE/SysvService.pm
 --- a/src/PVE/SysvService.pm	1969-12-31 16:00:00.000000000 -0800
-+++ b/src/PVE/SysvService.pm	2026-10-28 05:49:23.854179075 -0700
++++ b/src/PVE/SysvService.pm	2026-11-04 05:13:30.884797677 -0800
 @@ -0,0 +1,165 @@
 +package PVE::SysvService;
 +

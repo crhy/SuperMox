@@ -1,6 +1,6 @@
 diff -ruN orig/debian/control new/debian/control
---- a/debian/control	2026-10-28 04:35:17.949817326 -0700
-+++ b/debian/control	2026-10-28 08:46:36.791733119 -0700
+--- a/debian/control	2026-10-28 13:16:12.029281906 -0700
++++ b/debian/control	2026-11-04 05:13:55.980614900 -0800
 @@ -28,7 +28,6 @@
           pve-cluster (>= 3.0-17),
           pve-container (>= 5.0.1),
@@ -11,13 +11,13 @@ diff -ruN orig/debian/control new/debian/control
           ${shlibs:Depends},
 diff -ruN orig/debian/lintian-overrides new/debian/lintian-overrides
 --- a/debian/lintian-overrides	2026-10-28 04:35:17.949817326 -0700
-+++ b/debian/lintian-overrides	2026-10-28 08:47:08.767553576 -0700
++++ b/debian/lintian-overrides	2026-11-04 05:13:55.980744879 -0800
 @@ -1,2 +1 @@
  pve-ha-manager: repeated-trigger-name pve-api-updates (lines 1 2)*
 -pve-ha-manager: maintainer-script-calls-systemctl *
 diff -ruN orig/debian/pve-ha-manager.postinst new/debian/pve-ha-manager.postinst
 --- a/debian/pve-ha-manager.postinst	2026-10-28 04:35:17.949817326 -0700
-+++ b/debian/pve-ha-manager.postinst	2026-10-28 08:46:48.883665223 -0700
++++ b/debian/pve-ha-manager.postinst	2026-11-04 05:13:55.980830178 -0800
 @@ -4,13 +4,13 @@
  
  #DEBHELPER#
@@ -38,9 +38,9 @@ diff -ruN orig/debian/pve-ha-manager.postinst new/debian/pve-ha-manager.postinst
  fi
  
 diff -ruN orig/debian/rules new/debian/rules
---- a/debian/rules	2026-10-28 04:35:17.949817326 -0700
-+++ b/debian/rules	2026-10-28 08:46:34.295747133 -0700
-@@ -29,10 +29,10 @@
+--- a/debian/rules	2026-10-28 13:16:12.029281906 -0700
++++ b/debian/rules	2026-11-04 05:13:55.980914358 -0800
+@@ -31,10 +31,10 @@
  override_dh_missing:
  	dh_missing --fail-missing
  

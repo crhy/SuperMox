@@ -1,6 +1,6 @@
 diff -ruN orig/debian/libpve-cluster-api-perl.install new/debian/libpve-cluster-api-perl.install
 --- a/debian/libpve-cluster-api-perl.install	2026-10-28 04:35:07.193585841 -0700
-+++ b/debian/libpve-cluster-api-perl.install	2026-10-28 12:12:53.702950566 -0700
++++ b/debian/libpve-cluster-api-perl.install	2026-11-04 05:13:19.362894231 -0800
 @@ -1,7 +1,4 @@
  usr/bin/pvecm
 -usr/share/bash-completion/completions/pvecm
@@ -11,16 +11,16 @@ diff -ruN orig/debian/libpve-cluster-api-perl.install new/debian/libpve-cluster-
 -usr/share/zsh/vendor-completions/_pvecm
 diff -ruN orig/debian/libpve-cluster-perl.install new/debian/libpve-cluster-perl.install
 --- a/debian/libpve-cluster-perl.install	2026-10-28 04:35:07.193585841 -0700
-+++ b/debian/libpve-cluster-perl.install	2026-10-28 12:12:57.118939356 -0700
++++ b/debian/libpve-cluster-perl.install	2026-11-04 05:13:19.362964700 -0800
 @@ -1,4 +1,3 @@
 -usr/share/man/man5/datacenter.cfg.5
  usr/share/perl5/PVE/Corosync.pm
  usr/share/perl5/PVE/DataCenterConfig.pm
  usr/share/perl5/PVE/RRD.pm
 diff -ruN orig/Makefile new/Makefile
---- a/Makefile	2026-10-28 04:35:07.190777593 -0700
-+++ b/Makefile	2026-10-28 12:15:46.850382365 -0700
-@@ -39,7 +39,7 @@
+--- a/Makefile	2026-10-28 13:16:11.577284141 -0700
++++ b/Makefile	2026-11-04 05:13:19.363023390 -0800
+@@ -40,7 +40,7 @@
  deb $(DBG_DEB) $(LIB_DEB): $(DEB)
  $(DEB): $(BUILDDIR)
  	cd $(BUILDDIR); dpkg-buildpackage -b -us -uc
@@ -30,8 +30,8 @@ diff -ruN orig/Makefile new/Makefile
  sbuild: $(DSC)
  	sbuild $(DSC)
 diff -ruN orig/src/PVE/Makefile new/src/PVE/Makefile
---- a/src/PVE/Makefile	2026-10-28 04:35:07.194374845 -0700
-+++ b/src/PVE/Makefile	2026-10-28 12:11:19.763258839 -0700
+--- a/src/PVE/Makefile	2026-10-28 13:16:11.577284141 -0700
++++ b/src/PVE/Makefile	2026-11-04 05:13:19.363094339 -0800
 @@ -10,21 +10,23 @@
  
  PERL_DOC_INC_DIRS:=..
@@ -62,7 +62,7 @@ diff -ruN orig/src/PVE/Makefile new/src/PVE/Makefile
  	for d in $(SUBDIRS); do $(MAKE) -C $$d install; done
  
  %.bash-completion:
-@@ -59,6 +61,8 @@
+@@ -62,6 +64,8 @@
  
  -include /usr/share/pve-doc-generator/pve-doc-generator.mk
  
@@ -70,4 +70,4 @@ diff -ruN orig/src/PVE/Makefile new/src/PVE/Makefile
 +
  .PHONY: clean
  clean:
- 	rm -f *.xml.tmp *.1 *.5 *.8 *{synopsis,opts}.adoc docinfo.xml
+ 	$(MAKE) cleanup-docgen

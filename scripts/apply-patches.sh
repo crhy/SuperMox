@@ -41,9 +41,11 @@ for c in "${components[@]}"; do
       fi
       # A hunk that lands with fuzz or an offset means the patch no longer matches
       # the pinned upstream exactly: it can silently attach to the wrong context.
+      # This is fatal: every patch must apply with zero fuzz/offset.
       if printf '%s\n' "$out" | grep -qE 'fuzz|offset'; then
-        printf 'WARN: %s applies to %s with fuzz/offset (rebase against the pinned upstream):\n' "${p##*/}" "$c" >&2
+        printf 'ERROR: %s applies to %s with fuzz/offset (rebase against the pinned upstream):\n' "${p##*/}" "$c" >&2
         printf '%s\n' "$out" | grep -E 'fuzz|offset' | sed 's/^/  /' >&2
+        exit 1
       fi
     done < <(find "$pdir" -maxdepth 1 -type f -name '*.patch' -print0 | LC_ALL=C sort -z)
   fi

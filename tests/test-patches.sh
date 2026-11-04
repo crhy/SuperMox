@@ -108,7 +108,7 @@ if ! grep -qF 'LINE2 EDITED' "$patchfile"; then
   fail=1
 fi
 
-# --- fuzz/offset must be visible: apply-patches.sh must WARN, not swallow it ---
+# --- fuzz/offset must be fatal: apply-patches.sh must ERROR and exit 1 ---
 export UPSTREAM_PACKAGES="$PWD/build/test-patch/fuzzy/packages"
 export PATCHES_DIR="$PWD/build/test-patch/fuzzy/patches"
 export INIT_SCRIPTS="$PWD/build/test-patch/fuzzy/no-init-scripts"
@@ -124,13 +124,9 @@ cat > "$PATCHES_DIR/pve-firewall/0001-fuzzy.patch" <<'PATCH'
 +line6 edited
 PATCH
 run scripts/apply-patches.sh build/test-patch/fuzzy/out
-assert_rc 0
-assert_has "WARN"
+assert_rc 1
+assert_has "ERROR"
 assert_has "offset"
-if ! grep -qF 'line6 edited' build/test-patch/fuzzy/out/pve-firewall/pve-firewall/fuzzme.txt 2>/dev/null; then
-  echo "FAIL: fuzzy patch did not reach the output tree"
-  fail=1
-fi
 if [ -n "$(find build/test-patch/fuzzy/out -name '*.orig' -print -quit)" ]; then
   echo "FAIL: .orig backup left inside the patched tree"
   fail=1
