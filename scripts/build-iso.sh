@@ -170,6 +170,12 @@ collect_iso() {
     return 1
   fi
   printf 'OK: %s (%s bytes, limit %s)\n' "$iso_out" "$size" "$ISO_MAX_BYTES"
+  # The image the ISO was squashed from must hold no systemd at all.
+  if [ -d "$lb_dir/chroot/var/lib/dpkg" ]; then
+    SYSTEMD_IMAGE_ALLOWLIST_FILE="$repo_root/config/systemd-image-allowlist.txt" \
+      bash "$repo_root/scripts/check-no-systemd.sh" --image "$lb_dir/chroot" \
+      || { printf 'FAIL: the ISO image contains systemd\n' >&2; return 1; }
+  fi
 }
 
 [ -d "$SPACED_REPO/.git" ] || fail "no Spaced checkout at $SPACED_REPO: set SUPERMOX_SPACED_REPO (export it, or set it in config/local.env) to a Spaced clone"
@@ -240,6 +246,24 @@ set -euo pipefail
 lb_dir="$lb_dir"
 mkdir -p "$lb_dir/config/package-lists" "$lb_dir/config/archives" "$lb_dir/config/includes.chroot/etc/supermox"
 printf 'supermox-ve\\nsupermox-tmpfiles\\n' >> "$lb_dir/config/package-lists/spaced.list.chroot"
+# ZERO systemd: Spaced bootstraps and installs systemd-standalone-sysusers and
+# systemd-standalone-tmpfiles. SuperMox uses opensysusers (Devuan's shell
+# sysusers, as scripts/build-rootfs.sh does) and its own supermox-tmpfiles.
+# debootstrap ignores apt pins, so its --include must change too, and a
+# bootstrap cache made with the old --include must not be reused.
+for f in "$lb_dir/auto/config" "$lb_dir/config/common"; do
+  if [ -f "\$f" ]; then
+    sed -i 's/--include=systemd-standalone-sysusers,systemd-standalone-tmpfiles/--include=opensysusers/' "\$f"
+  fi
+done
+sed -i '/^systemd-standalone-\(sysusers\|tmpfiles\)\$/d' "$lb_dir/config/package-lists/spaced.list.chroot"
+grep -qx opensysusers "$lb_dir/config/package-lists/spaced.list.chroot" \\
+  || printf 'opensysusers\\n' >> "$lb_dir/config/package-lists/spaced.list.chroot"
+if grep -rqs 'systemd-standalone' "$lb_dir/auto/config" "$lb_dir/config/common" "$lb_dir/config/package-lists/"; then
+  printf 'ERROR: systemd-standalone still referenced in the live-build config\\n' >&2
+  exit 1
+fi
+rm -rf "$lb_dir/cache/bootstrap"
 cat > "$lb_dir/config/archives/proxmox.list.chroot" <<'LIST'
 deb http://download.proxmox.com/debian/pve trixie pve-no-subscription
 deb http://download.proxmox.com/debian/devel trixie main
