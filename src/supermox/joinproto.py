@@ -17,6 +17,7 @@ from nacl.exceptions import BadSignatureError, CryptoError
 _VERSION = 1
 _MAX_SKEW = 300       # seconds; reject |now - time| > 300
 _NONCE_WINDOW = 600   # seconds; reject a nonce seen in the last 600 s
+NONCE_WINDOW = _NONCE_WINDOW  # public name: state.py persists nonces this long
 
 
 def _canonical(obj) -> bytes:

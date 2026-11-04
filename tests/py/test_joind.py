@@ -7,6 +7,7 @@ generation are all covered. Scratch state lives under build/.
 """
 
 import asyncio
+import base64
 import ipaddress
 import json
 import os
@@ -15,6 +16,7 @@ import socket
 import struct
 import subprocess
 import sys
+import time
 import unittest
 
 from supermox import identity as identity_mod
@@ -236,6 +238,136 @@ class PhraseJoinTests(JoindBase):
             self.assertEqual(kind, joind.KIND_JSON)
             self.assertEqual(json.loads(payload.decode())["error"],
                              "frame too large")
+
+
+class FailedAttemptThrottleTests(JoindBase):
+    """A source IP that keeps failing authentication is locked out; its
+    neighbours on the network are not (f04)."""
+
+    async def test_five_bad_attempts_refuse_the_next_connection(self):
+        port = free_port()
+        ep = "127.0.0.1:%d" % port
+        a = self.seeder("th1", [])
+        d = await self.daemon_for(a, port)
+        t = [1000.0]
+        d.clock = lambda: t[0]
+        ident = self.joiner("th1b")[1]
+        for i in range(5):
+            with self.assertRaises(joind.JoinError):
+                await joind.join_phrase(ep, self.derived(OTHER), ident,
+                                        "node-x%d" % i, "amd64", [])
+        self.assertEqual(len(d.fail_times["127.0.0.1"]), 5)
+        # The 6th connection from the same source IP is refused outright:
+        # it never reaches the protocol, and gets one error frame.
+        async with joind._Client(ep) as c:
+            kind, payload = await joind.read_frame(c.reader)
+            self.assertEqual(kind, joind.KIND_JSON)
+            self.assertEqual(json.loads(payload.decode()),
+                             {"t": "error",
+                              "error": "too many failed attempts"})
+
+    async def test_lockout_expires_after_the_window(self):
+        port = free_port()
+        ep = "127.0.0.1:%d" % port
+        a = self.seeder("th2", [])
+        d = await self.daemon_for(a, port)
+        t = [1000.0]
+        d.clock = lambda: t[0]
+        ident = self.joiner("th2b")[1]
+        for i in range(5):
+            with self.assertRaises(joind.JoinError):
+                await joind.join_phrase(ep, self.derived(OTHER), ident,
+                                        "node-x%d" % i, "amd64", [])
+        # Past the window the source IP is served again.
+        t[0] += d.fail_window + 1
+        ack = await joind.join_phrase(ep, self.derived(PHRASE), ident,
+                                      "node-b", "amd64", [])
+        self.assertIn("overlay_addr", ack)
+
+    async def test_other_source_ip_is_unaffected(self):
+        # The daemon listens on both loopback families so the test can drive
+        # it from two different source IPs.
+        port = free_port()
+        a = self.seeder("th3", [])
+        d = joind.JoinDaemon(a, ["127.0.0.1", "::1"], port)
+        await d.start()
+        self._daemons.append(d)
+        ident = self.joiner("th3b")[1]
+        for i in range(5):
+            with self.assertRaises(joind.JoinError):
+                await joind.join_phrase("127.0.0.1:%d" % port,
+                                        self.derived(OTHER), ident,
+                                        "node-x%d" % i, "amd64", [])
+        self.assertTrue(d._throttled("127.0.0.1"))
+        self.assertFalse(d._throttled("::1"))
+        ack = await joind.join_phrase("::1:%d" % port, self.derived(PHRASE),
+                                      ident, "node-b", "amd64", [])
+        self.assertIn("overlay_addr", ack)
+
+    async def test_throttle_table_stays_bounded(self):
+        d = await self.daemon_for(self.seeder("th4", []), free_port())
+        t = [1000.0]
+        d.clock = lambda: t[0]
+        d.max_throttle_ips = 3
+        for i in range(5):
+            conn = joind._Conn()
+            conn.peer_ip = "10.0.0.%d" % i
+            d._note_failure(conn)
+        self.assertLessEqual(len(d.fail_times), 3)
+        self.assertFalse(d._throttled("10.0.0.9"))
+        # Once the window passes, source IPs that stopped misbehaving are
+        # dropped from the table entirely.
+        t[0] += d.fail_window + 1
+        conn = joind._Conn()
+        conn.peer_ip = "10.0.0.9"
+        d._note_failure(conn)
+        self.assertEqual(list(d.fail_times), ["10.0.0.9"])
+
+
+class NoncePersistenceTests(JoindBase):
+    """Replay protection has to survive a restart of the daemon (f04)."""
+
+    async def test_replay_still_blocked_after_daemon_restart(self):
+        port = free_port()
+        ep = "127.0.0.1:%d" % port
+        a = self.seeder("np", [])
+        d = await self.daemon_for(a, port)
+        ident = self.joiner("np2")[1]
+        blob = joinproto.make_join_req(self.derived(PHRASE), ident,
+                                       "node-b", "amd64", [])
+        async with joind._Client(ep) as c:
+            await joind.write_frame(c.writer, joind.KIND_BYTES, blob)
+            kind, _ = await joind.read_frame(c.reader)
+            self.assertEqual(kind, joind.KIND_BYTES)   # accepted
+        # The nonce reached the state dir, at mode 0600 like the other
+        # secret state files.
+        path = os.path.join(a.base, "nonces.json")
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        # A daemon object recreated from the same state dir refuses the
+        # identical request as a replay.
+        await d.stop()
+        d2 = joind.JoinDaemon(node_state.NodeState(a.base), "127.0.0.1", port)
+        await d2.start()
+        self._daemons.append(d2)
+        async with joind._Client(ep) as c:
+            await joind.write_frame(c.writer, joind.KIND_BYTES, blob)
+            kind, payload = await joind.read_frame(c.reader)
+            self.assertEqual(kind, joind.KIND_JSON)
+            self.assertIn("replay", json.loads(payload.decode())["reason"])
+
+    async def test_nonces_are_pruned_to_the_replay_window(self):
+        a = self.seeder("np2", [])
+        now = int(time.time())
+        window = joinproto.NONCE_WINDOW
+        a.seen_nonces = {b"fresh": now - 10, b"stale": now - window - 10}
+        a.save_nonces()
+        with open(os.path.join(a.base, "nonces.json")) as f:
+            self.assertEqual(json.load(f)["nonces"],
+                             {base64.b64encode(b"fresh").decode(): now - 10})
+        b = node_state.NodeState(a.base)
+        b.load()
+        self.assertEqual(b.seen_nonces, {b"fresh": now - 10})
 
 
 class InviteJoinTests(JoindBase):

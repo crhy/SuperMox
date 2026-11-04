@@ -185,7 +185,7 @@ ping_ok() { ip netns exec "$1" ping -n -c 2 -W 3 "$2" >/dev/null 2>&1; }
 # 4. clean slate: daemons, state and veth from any earlier run.
 cleanup
 rm -rf /etc/supermox/e2e
-rm -f /etc/supermox/identity.json /etc/supermox/membership.json /etc/supermox/cluster.keys /etc/supermox/invites.json /etc/supermox/pending.json /etc/supermox/wg0.conf /etc/supermox/cluster.json
+rm -f /etc/supermox/identity.json /etc/supermox/membership.json /etc/supermox/cluster.keys /etc/supermox/invites.json /etc/supermox/pending.json /etc/supermox/nonces.json /etc/supermox/wg0.conf /etc/supermox/cluster.json
 rm -f /etc/wireguard/wg-a.conf /etc/wireguard/wg-b.conf /etc/wireguard/wg-c.conf
 for v in veth-a veth-b veth-c veth-d; do ip link del "$v" 2>/dev/null; done
 

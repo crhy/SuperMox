@@ -47,6 +47,9 @@ KIND_BYTES = 2
 APPROVAL_TIMEOUT = 300.0          # seconds a pending invite waits for a decision
 READ_TIMEOUT = 30.0               # seconds a connection may idle between frames
 MAX_CONNECTIONS = 64              # concurrent connections the daemon will serve
+FAILED_WINDOW = 60.0              # seconds a source IP's failures are counted in
+MAX_FAILED_ATTEMPTS = 5           # failures from one IP that trigger a lockout
+MAX_THROTTLE_IPS = 4096           # bound on the failed-attempt table
 WG_CONF_PATH = "/etc/supermox/wg0.conf"
 WG_LISTEN_PORT = 51820            # WireGuard tunnel port (UDP), same on every node
 
@@ -141,6 +144,7 @@ class _Conn:
     """Per-connection state inside the daemon."""
 
     def __init__(self):
+        self.peer_ip = None       # source IP, key of the failed-attempt table
         self.challenge = None     # 32 bytes handed out by challenge()
         self.answer_ed_pub = None  # ed_pub the joiner signed the challenge with
         self.pending_id = None     # pending request this connection waits on
@@ -170,10 +174,21 @@ class JoinDaemon:
         self.active_conns = 0      # connections currently being handled
         self.read_timeout = READ_TIMEOUT
         self.max_connections = MAX_CONNECTIONS
+        # Failed-attempt throttle: per source IP, on a monotonic clock the
+        # tests can inject. Localhost is not exempt.
+        self.fail_window = FAILED_WINDOW
+        self.max_failures = MAX_FAILED_ATTEMPTS
+        self.max_throttle_ips = MAX_THROTTLE_IPS
+        self.fail_times = {}      # ip -> monotonic times of failed attempts
+        self.blocked_until = {}   # ip -> time new connections from it resume
+        self.clock = time.monotonic
 
     async def start(self):
         """Start listening. Returns the asyncio server object."""
         self.state.load()
+        # Replay protection must survive a daemon restart: the nonce set
+        # lives in the state dir (state.seen_nonces), not in this object.
+        self.seen_nonces = self.state.seen_nonces
         self.server = await asyncio.start_server(
             self.handle, self.host, self.port, reuse_address=True)
         return self.server
@@ -205,7 +220,67 @@ class JoinDaemon:
             except asyncio.TimeoutError:
                 pass
 
+    def _peer_ip(self, writer) -> str:
+        """Source IP of a connection, as the key of the failed-attempt table."""
+        peer = writer.get_extra_info("peername")
+        if peer:
+            return str(peer[0])
+        return "unknown"
+
+    def _throttled(self, ip: str) -> bool:
+        """True while new connections from this source IP are locked out."""
+        until = self.blocked_until.get(ip)
+        return until is not None and self.clock() < until
+
+    def _note_failure(self, conn: _Conn) -> None:
+        """Count one failed join/invite attempt against its source IP.
+
+        After MAX_FAILED_ATTEMPTS failures inside fail_window, new connections
+        from that IP are refused for fail_window seconds. The table stays
+        bounded: entries older than the window are dropped and at most
+        max_throttle_ips source IPs are kept.
+        """
+        now = self.clock()
+        cutoff = now - self.fail_window
+        times = [t for t in self.fail_times.get(conn.peer_ip, []) if t >= cutoff]
+        times.append(now)
+        self.fail_times[conn.peer_ip] = times
+        if len(times) >= self.max_failures:
+            self.blocked_until[conn.peer_ip] = now + self.fail_window
+            log.warning("source %s: %d failed attempts in %.0f s, "
+                        "refusing new connections for %.0f s",
+                        conn.peer_ip, len(times), self.fail_window)
+        # Bound the table: drop stale source IPs, then the oldest ones.
+        for ip in list(self.fail_times):
+            recent = [t for t in self.fail_times[ip] if t >= cutoff]
+            if recent:
+                self.fail_times[ip] = recent
+            else:
+                del self.fail_times[ip]
+        for ip in list(self.blocked_until):
+            if self.blocked_until[ip] <= now:
+                del self.blocked_until[ip]
+        if len(self.fail_times) > self.max_throttle_ips:
+            oldest = sorted(self.fail_times,
+                            key=lambda ip: self.fail_times[ip][0])
+            for ip in oldest[:len(self.fail_times) - self.max_throttle_ips]:
+                del self.fail_times[ip]
+
     async def handle(self, reader, writer) -> None:
+        conn = _Conn()
+        conn.peer_ip = self._peer_ip(writer)
+        if self._throttled(conn.peer_ip):
+            log.warning("connection refused: source %s is throttled", conn.peer_ip)
+            try:
+                await write_frame(writer, KIND_JSON, canonical_json(
+                    {"t": "error", "error": "too many failed attempts"}))
+            except Exception:
+                pass
+            try:
+                writer.close()
+            except Exception:
+                pass
+            return
         if self.active_conns >= self.max_connections:
             log.warning("connection refused: at connection limit (%d)",
                         self.max_connections)
@@ -220,7 +295,6 @@ class JoinDaemon:
                 pass
             return
         self.active_conns += 1
-        conn = _Conn()
         try:
             while True:
                 try:
@@ -296,10 +370,15 @@ class JoinDaemon:
             msg = joinproto.open_join_req(self.state.derived, blob,
                                           seen_nonces=self.seen_nonces)
         except ValueError as exc:
+            self._note_failure(conn)
             log.warning("join_req dropped: %s", exc)
             await write_frame(writer, KIND_JSON, canonical_json(
                 {"t": "refused", "reason": str(exc)}))
+            self.state.save_nonces()
             return False
+        # The nonce open_join_req just recorded must reach disk, or a restart
+        # of the daemon would forget it and accept the same request again.
+        self.state.save_nonces()
         entry = self._entry_from(msg)
         if self.state.find_member(entry["name"]) is None:
             membership = self.state.add_member(entry)
@@ -328,6 +407,7 @@ class JoinDaemon:
         except (CryptoError, ValueError, KeyError, TypeError) as exc:
             # A malformed INVITE_REQ (missing field, bad base64, wrong type)
             # must be refused cleanly, not raise out of the connection handler.
+            self._note_failure(conn)
             log.warning("invite_req dropped: %s", exc)
             return False
         try:
@@ -335,6 +415,7 @@ class JoinDaemon:
                               used={b64d(x) for x
                                     in self.state.used_invite_ids()})
         except ValueError as exc:
+            self._note_failure(conn)
             log.warning("invite refused: %s", exc)
             await write_frame(writer, KIND_JSON, canonical_json(
                 {"t": "refused", "reason": str(exc)}))
@@ -456,6 +537,7 @@ class JoinDaemon:
             ed_pub = obj["ed_pub"]
             VerifyKey(b64d(ed_pub)).verify(conn.challenge, sig)
         except (KeyError, CryptoError, BadSignatureError, ValueError) as exc:
+            self._note_failure(conn)
             log.warning("answer refused: %s", exc)
             return False
         conn.answer_ed_pub = ed_pub

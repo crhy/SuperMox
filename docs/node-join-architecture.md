@@ -48,7 +48,9 @@ Status: design (2026-10-28). Implementation is split into tasks; see "Build orde
 2. N sends `JOIN_REQ = secretbox(join_key, {v:1, cluster_id, name, wg_pub, ed_pub, arch, caps, time, nonce})`
    to M's join daemon (TCP 8743 on the LAN or public address; later also an onion address).
 3. M decrypts it, which proves N holds the phrase. M rejects clock skew over 5 minutes and any nonce seen in the last 10
-   minutes. It then adds N to the membership list, signs the change, and sends the change to the other members.
+   minutes. Those nonces live in the state dir (`nonces.json`, 0600, pruned to that window), so restarting the daemon
+   does not let an already accepted request through a second time. It then adds N to the membership list, signs the
+   change, and sends the change to the other members.
 4. M replies `JOIN_ACK = secretbox(join_key, {membership list, N's overlay address, M's signature over the list})`.
 5. N writes its WireGuard configuration (peers, `wg_psk`, AllowedIPs = each peer's overlay /128) and brings `wg0` up,
    using the `networking` init script, not wg-quick under systemd. After that, all cluster traffic uses overlay
@@ -58,6 +60,9 @@ Status: design (2026-10-28). Implementation is split into tasks; see "Build orde
    it. `wg-quick` also names the interface after the file, so a host running several cluster namespaces brings each
    one up from its own file (`/etc/wireguard/wg-<ns>.conf`), never several `wg0.conf` files, and `PresharedKey` is
    only accepted inside a `[Peer]` block.
+- A source IP that fails authentication five times in a minute gets no new connections for a minute, with one error
+  frame. The failed-attempt table is keyed per source IP and bounded in size, so one noisy peer cannot burn the daemon's
+  scrypt work or lock out the neighbours on its network.
 
 ## Joining with a QR invite
 
