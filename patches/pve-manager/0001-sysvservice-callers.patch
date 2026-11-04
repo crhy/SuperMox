@@ -121,15 +121,15 @@ diff -ruN orig/PVE/API2/Services.pm new/PVE/API2/Services.pm
  
 -    PVE::Tools::run_command(['systemctl', $cmd, $service]);
 +    my %action = (
-+        'start'                 => 'start',
-+        'stop'                  => 'stop',
-+        'restart'               => 'restart',
-+        'reload'                => 'reload_or_restart',
-+        'try-reload-or-restart' => 'try_reload_or_restart',
++        'start'                 => \&PVE::SysvService::start,
++        'stop'                  => \&PVE::SysvService::stop,
++        'restart'               => \&PVE::SysvService::restart,
++        'reload'                => \&PVE::SysvService::reload_or_restart,
++        'try-reload-or-restart' => \&PVE::SysvService::try_reload_or_restart,
 +    );
 +    my $fn = $action{$cmd};
 +    my $module = 'PVE::SysvService';
-+    $module->$fn($service);
++    $fn->($service);
  };
  
  my $service_state = sub {

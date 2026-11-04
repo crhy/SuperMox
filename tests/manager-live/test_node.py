@@ -13,6 +13,7 @@ import unittest
 
 from supermox_manager import api
 from supermox_manager.ops import node
+from supermox_manager.ops import tasks
 
 LIVE_URL = os.environ.get("SUPERMOX_LIVE_URL")
 LIVE_PIN = os.environ.get("SUPERMOX_LIVE_PIN")
@@ -66,6 +67,10 @@ class NodeLive(unittest.TestCase):
         upid = node.service_action(self.client, self.node, "pvestatd", "restart")
         self.assertIsInstance(upid, str)
         self.assertTrue(upid.startswith("UPID:"))
+        # The restart task must actually succeed: a failed srvrestart (e.g. a
+        # broken service dispatch) raises here instead of being masked by the
+        # fact that pvestatd was never stopped.
+        tasks.wait_task(self.client, self.node, upid, timeout=60)
         # pvestatd must be running again once the task settles.
         running = False
         for _ in range(20):
