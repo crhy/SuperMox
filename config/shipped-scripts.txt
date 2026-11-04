@@ -10,6 +10,10 @@ supermox-ve bin/supermox-joind usr/sbin/supermox-joind
 # Forwards a sysvinit daemon's stderr to syslog (no journald). Used by the
 # init.d start lines of daemons whose stderr would otherwise be lost to /dev/null.
 supermox-ve scripts/supermox-logpipe usr/lib/supermox/supermox-logpipe
+# Reaps orphaned "<name> worker" processes (parent pid 1) left when a PVE forking
+# daemon's master dies, so a crashed service can be restarted without a reboot.
+# Called by the pveproxy/pvedaemon/spiceproxy init scripts on start and stop.
+supermox-ve scripts/supermox-reap-orphans usr/lib/supermox/supermox-reap-orphans
 # Home folder sync CLI (init.d/supermox-sync calls it at boot to apply the
 # membership list to each user's Syncthing instance).
 supermox-ve bin/supermox-sync usr/bin/supermox-sync
