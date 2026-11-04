@@ -29,6 +29,7 @@ COMPONENTS=(
 #   <name> <version> <sha256 of the .dsc>
 DEBIAN_SRC=(
   "rrdtool 1.9.0-2.1 4953392378c0377a5b99fd08b217e0a7ae00c3abc8b092b6ae161c798640357e"
+  "isc-dhcp 4.4.3-P1-8 8f11305d0d978e60114f596615b2cd605004802bb42587a95bf0806211880723"
 )
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"

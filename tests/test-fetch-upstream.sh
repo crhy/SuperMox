@@ -13,12 +13,12 @@ fi
 mapfile -t lines < <(bash "$target" --list)
 
 count=${#lines[@]}
-if [ "$count" -ne 15 ]; then
-  echo "FAIL: --list printed $count lines, expected 15"
+if [ "$count" -ne 16 ]; then
+  echo "FAIL: --list printed $count lines, expected 16"
   exit 1
 fi
 
-for want in pve-cluster pve-access-control proxmox-perl-rs rrdtool; do
+for want in pve-cluster pve-access-control proxmox-perl-rs rrdtool isc-dhcp; do
   found=0
   for l in "${lines[@]}"; do
     if [ "$l" = "$want" ]; then
@@ -48,11 +48,18 @@ if ! printf '%s\n' "$ds_out" | grep -qxF -- "$ds_line"; then
   printf '%s\n' "$ds_out"
   exit 1
 fi
+ds_line2="isc-dhcp 4.4.3-P1-8 8f11305d0d978e60114f596615b2cd605004802bb42587a95bf0806211880723"
+if ! printf '%s\n' "$ds_out" | grep -qxF -- "$ds_line2"; then
+  echo "FAIL: --list-debian-src did not print: $ds_line2"
+  printf '%s\n' "$ds_out"
+  exit 1
+fi
 
 # The two source layouts (pxvirt submodules, unpacked Debian sources) are resolved
 # through --src-dir; the build scripts must not hardcode either path.
 for pair in "pve-cluster upstream/pxvirt/packages/pve-cluster/pve-cluster" \
-            "rrdtool upstream/debian-src/rrdtool/rrdtool"; do
+            "rrdtool upstream/debian-src/rrdtool/rrdtool" \
+            "isc-dhcp upstream/debian-src/isc-dhcp/isc-dhcp"; do
   read -r want_c want_d <<< "$pair"
   got="$(UPSTREAM_PACKAGES="upstream/pxvirt/packages" UPSTREAM_DEBIAN_SRC="upstream/debian-src" \
     bash "$target" --src-dir "$want_c")"
@@ -71,4 +78,4 @@ if [ -d "$co" ]; then
   fi
 fi
 
-echo "OK: fetch-upstream.sh --list prints 15 lines including pve-cluster, pve-access-control, proxmox-perl-rs and rrdtool; --list-overrides prints the proxmox-perl-rs override and the checkout HEAD matches it; --list-debian-src pins rrdtool; --src-dir resolves both source layouts"
+echo "OK: fetch-upstream.sh --list prints 16 lines including pve-cluster, pve-access-control, proxmox-perl-rs, rrdtool and isc-dhcp; --list-overrides prints the proxmox-perl-rs override and the checkout HEAD matches it; --list-debian-src pins rrdtool and isc-dhcp; --src-dir resolves both source layouts"

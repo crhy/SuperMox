@@ -1,3 +1,18 @@
+supermox-ve (0.1.15) unstable; urgency=medium
+
+  * Depend on isc-dhcp-client (>= 4.4.3-P1-8+supermox1): pve-container pulls
+    isc-dhcp-client in for /sbin/dhclient (host-managed container networks),
+    but Devuan Ceres does not ship it, and the Debian build's client package
+    installs dhclient hooks that call the service manager to feed leases to
+    systemd-resolved. We fork isc-dhcp (patches/isc-dhcp) to drop those hooks
+    and disable the debhelper unit-install step, and this versioned dependency
+    makes apt pick our fork instead of any other copy. Only the client and its
+    isc-dhcp-common manpages are pulled in; the server, relay, keama, dev and
+    ddns packages built from the same source are not dependencies and stay out
+    of the ISO.
+
+ -- SuperMox <noreply@supermox.me>  Mon, 09 Nov 2026 12:00:00 +0000
+
 supermox-ve (0.1.14) unstable; urgency=medium
 
   * Ship init.d/rrdcached and enable it at boot: Debian installs rrdcached with

@@ -27,6 +27,7 @@ Depends: apt,
          sysvinit-core,
          syncthing,
          wireguard-tools,
+         isc-dhcp-client (>= 4.4.3-P1-8+supermox1),
          rrdcached (>= 1.9.0-2.1+supermox),
          linux-image-amd64 | linux-image-arm64 | linux-image-armmp-lpae | linux-image-riscv64 | linux-image-loong64,
          ${misc:Depends}
