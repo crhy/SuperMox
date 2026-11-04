@@ -127,8 +127,9 @@ class PhraseJoinTests(JoindBase):
         self.assertIn("[Interface]", conf)
         self.assertIn("ListenPort = 51820", conf)
         self.assertIn("PrivateKey = ", conf)
-        self.assertIn("PresharedKey = ", conf)
         self.assertIn("[Peer]", conf)
+        # wg only accepts PresharedKey inside [Peer]: exactly one per peer.
+        self.assertEqual(conf.count("PresharedKey = "), 1)
         # The [Peer] Endpoint is the peer's WireGuard endpoint (UDP 51820),
         # never the join daemon's TCP port. node-a never advertised a WireGuard
         # endpoint, so it is derived from the host of its join endpoint.
@@ -447,7 +448,7 @@ class MembershipBroadcastTests(JoindBase):
         for st_dir, me in ((b_dir, bident), (c_dir, cident)):
             with open(os.path.join(st_dir, "wg0.conf")) as fh:
                 conf = fh.read()
-            self.assertGreaterEqual(conf.count("PresharedKey = "), 3)
+            self.assertEqual(conf.count("PresharedKey = "), 2)
             for other in (a, b, c):
                 if other.identity["wg_pub"] == me["wg_pub"]:
                     continue

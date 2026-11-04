@@ -53,6 +53,11 @@ Status: design (2026-10-28). Implementation is split into tasks; see "Build orde
 5. N writes its WireGuard configuration (peers, `wg_psk`, AllowedIPs = each peer's overlay /128) and brings `wg0` up,
    using the `networking` init script, not wg-quick under systemd. After that, all cluster traffic uses overlay
    addresses only.
+   The `wg` AppArmor profile that ships with wireguard-tools (`/etc/apparmor.d/wg`) lets `/usr/bin/wg` read only
+   `/etc/wireguard/**`, so a generated config has to be installed there before `wg-quick` or `wg setconf` will touch
+   it. `wg-quick` also names the interface after the file, so a host running several cluster namespaces brings each
+   one up from its own file (`/etc/wireguard/wg-<ns>.conf`), never several `wg0.conf` files, and `PresharedKey` is
+   only accepted inside a `[Peer]` block.
 
 ## Joining with a QR invite
 

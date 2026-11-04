@@ -2,29 +2,34 @@
 # join-e2e.sh - real WireGuard join between network namespaces inside the TEST VM.
 #
 # Runs on this PC and drives the test VM over ssh (the VM is root; this PC is not).
-# The test VM must already be started (SUPERMOX_VM_SSH_PORT=2224) per
-# .strata/t49c-join-e2e.md. Prints PASS/FAIL per step and exits 1 on any FAIL.
+# The test VM must already be started (SUPERMOX_VM_SSH_PORT=2224). Prints PASS/FAIL
+# per step and exits 1 on any FAIL.
 #
-# Topology (veth star, sma is the hub, one subnet per veth pair):
+# Topology (veth star, sma is the hub, one subnet per veth pair, see
+# scripts/join-e2e-net.sh):
 #   sma <-> smb : 10.99.0.1 / 10.99.0.2
 #   sma <-> smc : 10.99.1.1 / 10.99.1.2
 #   Each leaf also carries a route for the OTHER pair's subnet through its own
-#   veth. A veth transfers packets regardless of subnet labels, so smc can
+#   veth: a veth transfers packets regardless of subnet labels, so smc can
 #   reach 10.99.0.1 (veth-d -> veth-c into sma -> delivered on veth-a's address
 #   there). Without that route a leaf cannot address the hub's other endpoint
 #   and its WireGuard tunnel to that peer silently loses every packet.
+#   leaf <-> leaf is NOT reachable in this model: it would need its own veth
+#   pair and a per-pair subnet, which one-address-per-member cannot express.
+#
 # Two ports, never conflated:
 #   join daemon (TCP)     8743   - supermox-joind, where joins are sent
 #   WireGuard (UDP)       51820  - the [Peer] Endpoint in wg0.conf
-#   node-a (sma) runs the join daemon on 0.0.0.0:8743 and advertises
-#   10.99.0.1:8743; its WireGuard endpoint is 10.99.0.1:51820.
-#   node-b (smb) joins by phrase; node-c (smc) joins by invite (approved in sma).
+#
+# node-a (sma) creates the cluster at the DEFAULT state dir /etc/supermox, so
+# the sysvinit service script (enabled by rc symlinks) brings its join daemon
+# back after the reboot in phase C. node-b (smb) joins by phrase, node-c (smc)
+# joins by invite that node-a's operator approves; every member then runs its
+# own daemon through /etc/init.d/supermox-joind, as in a real deployment.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 VM_SSH_PORT="${SUPERMOX_VM_SSH_PORT:-2224}"
-# Join daemon port (TCP 8743) and WireGuard port (UDP 51820) are kept distinct
-# on purpose; the values live in the remote shell, see the REMOTE block below.
 
 if ! command -v sshpass >/dev/null 2>&1; then
   printf 'ERROR: sshpass is not installed\n' >&2
@@ -42,232 +47,399 @@ vm_ssh() {
   sshpass -p supermox ssh "${ssh_opts[@]}" root@127.0.0.1 "$@"
 }
 
+vm_copy() {
+  # scp takes -P, ssh takes -p.
+  sshpass -p supermox scp -P "$VM_SSH_PORT" -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null "$@"
+}
+
 fail=0
 pass() { printf 'PASS: %s\n' "$1"; }
 fail_msg() { printf 'FAIL: %s\n' "$1"; fail=1; }
 
-# --- Step 1: copy src/supermox and bin/supermox-join into the VM (/opt/supermox) ---
+# --- Step 1: copy the join code and the netns helper into the VM (/opt/supermox) ---
 if tar -C "$repo_root" -czf - src/supermox bin/supermox-join bin/supermox-joind \
-  | vm_ssh 'rm -rf /opt/supermox; mkdir -p /opt/supermox; tar -xzf - -C /opt/supermox'; then
+  | vm_ssh 'rm -rf /opt/supermox; mkdir -p /opt/supermox; tar -xzf - -C /opt/supermox
+# The ISO ships supermox in dist-packages; run the code just copied instead
+# of the installed copy, so install it the way the package would.
+find /opt/supermox/src -name __pycache__ -exec rm -rf {} + 2>/dev/null
+rm -rf /usr/lib/python3/dist-packages/supermox
+cp -a /opt/supermox/src/supermox /usr/lib/python3/dist-packages/'; then
   pass "copied src/supermox and bin/supermox-join + supermox-joind to /opt/supermox"
 else
   fail_msg "copy to /opt/supermox"
 fi
 
-# --- Step 2: install python deps + wireguard-tools (tolerate no apt; verify imports) ---
-if vm_ssh 'export DEBIAN_FRONTEND=noninteractive
-apt-get -y install python3-mnemonic python3-nacl python3-qrcode python3-cryptography wireguard-tools >/dev/null 2>&1 || true
-python3 -c "import nacl, mnemonic, qrcode, cryptography" && test -x /usr/bin/wg'; then
-  pass "python deps + wireguard-tools present in the VM"
+if vm_copy scripts/join-e2e-net.sh root@127.0.0.1:/opt/supermox/e2e-net.sh; then
+  pass "copied scripts/join-e2e-net.sh to /opt/supermox/e2e-net.sh"
 else
-  fail_msg "python deps / wireguard-tools"
+  fail_msg "copy of the netns helper"
 fi
 
-# --- Steps 3-6: the join itself, all inside one remote shell so the 12 words
-#     live only in a shell variable (never a file). ---
+# --- Step 2: python deps, wireguard-tools, ping (tolerate no apt; verify) ---
+if vm_ssh 'export DEBIAN_FRONTEND=noninteractive
+apt-get -y install python3-mnemonic python3-nacl python3-qrcode python3-cryptography wireguard-tools iputils-ping >/dev/null 2>&1 || true
+python3 -c "import nacl, mnemonic, qrcode, cryptography" && test -x /usr/bin/wg && test -x "$(command -v ping)"'; then
+  pass "python deps, wireguard-tools and ping present in the VM"
+else
+  fail_msg "python deps / wireguard-tools / ping"
+fi
+
+# --- Step 3: the sysvinit service script for the join daemon, installed and
+#     enabled the way the package is supposed to do it (dh_installinit --name).
+#     The repo copy under init.d/ is the only source of truth. ---
+if vm_copy init.d/supermox-joind root@127.0.0.1:/etc/init.d/supermox-joind \
+  && vm_ssh 'chmod 755 /etc/init.d/supermox-joind
+update-rc.d supermox-joind defaults >/dev/null 2>&1
+ls /etc/rc2.d | grep -q "supermox-joind" && test -x /usr/lib/supermox/supermox-logpipe'; then
+  pass "init.d/supermox-joind installed and enabled (rc symlink present)"
+else
+  fail_msg "init.d/supermox-joind not installed/enabled"
+fi
+
+# --- Steps 4-8: the join itself, in one remote shell. Quoted heredoc: every
+#     path and port is defined inside the VM, nothing is expanded on the PC. ---
 if vm_ssh 'bash -s' <<'REMOTE'
 set -u
 fail=0
-# Join daemon (TCP) vs WireGuard (UDP): two different ports, always.
-JOIN_PORT=8743
-WG_PORT=51820
 pass() { printf 'PASS: %s\n' "$1"; }
 fmsg() { printf 'FAIL: %s\n' "$1"; fail=1; }
 
 BIN=/opt/supermox/bin
+INITD=/etc/init.d/supermox-joind
+JOIN_PORT=8743
+WG_PORT=51820
+. /opt/supermox/e2e-net.sh
+
+# node-a keeps its state at the default /etc/supermox so the boot-time service
+# finds it after the reboot; node-b and node-c keep per-node state dirs.
+ETC_B=/etc/supermox/e2e/smb
+ETC_C=/etc/supermox/e2e/smc
+
 cleanup() {
-  [ -n "${DAEMON:-}" ] && kill "$DAEMON" 2>/dev/null
-  for n in sma smb smc; do ip netns del "$n" 2>/dev/null; done
+  # A namespace with a live wireguard interface is not removed by ip netns del,
+  # so take the tunnels down first.
+  for pair in "sma a" "smb b" "smc c"; do
+    set -- $pair
+    ip netns exec "$1" wg-quick down "wg-$2" 2>/dev/null
+  done
+  for n in sma smb smc; do
+    [ -f "/run/jd-$n.pid" ] && kill "$(cat "/run/jd-$n.pid")" 2>/dev/null
+    ip netns del "$n" 2>/dev/null
+  done
+  rm -f /run/jd-*.pid /run/jd-*.log /run/join.log /run/invite.log
 }
-trap cleanup EXIT
 
-# clean slate (state and veth from any earlier run)
-for n in sma smb smc; do ip netns del "$n" 2>/dev/null; done
+names() {
+  if [ "$1" = sma ]; then
+    "$BIN/supermox-join" members
+  else
+    SUPERMOX_ETC="/etc/supermox/e2e/$1" "$BIN/supermox-join" members
+  fi | awk '{print $1}' | sort | tr '\n' ' '
+}
+
+# start the node's join daemon through the sysvinit script, in its namespace;
+# JOIND_PIDFILE/SUPERMOX_ETC keep the three nodes from colliding.
+start_daemon() {
+  ns=$1
+  if [ "$ns" = sma ]; then
+    ip netns exec "$ns" env JOIND_PIDFILE="/run/jd-$ns.pid" "$INITD" start >/dev/null
+  else
+    ip netns exec "$ns" env JOIND_PIDFILE="/run/jd-$ns.pid" SUPERMOX_ETC="/etc/supermox/e2e/$ns" "$INITD" start >/dev/null
+  fi
+  sleep 1
+  [ -f "/run/jd-$ns.pid" ] && kill -0 "$(cat "/run/jd-$ns.pid")" 2>/dev/null
+}
+
+stop_daemon() {
+  [ -f "/run/jd-$1.pid" ] && kill "$(cat "/run/jd-$1.pid")" 2>/dev/null
+  rm -f "/run/jd-$1.pid"
+}
+
+# wg's AppArmor profile only lets wg read configs under /etc/wireguard, and
+# wg-quick names the interface after the file, so each namespace gets its own
+# conf: sma -> wg-a, smb -> wg-b, smc -> wg-c.
+bring_up() {
+  ns=$1
+  sfx=$2
+  if [ "$ns" = sma ]; then
+    "$BIN/supermox-join" conf >/dev/null || return 1
+    cp /etc/supermox/wg0.conf "/etc/wireguard/wg-$sfx.conf"
+  else
+    SUPERMOX_ETC="/etc/supermox/e2e/$ns" "$BIN/supermox-join" conf >/dev/null || return 1
+    cp "/etc/supermox/e2e/$ns/wg0.conf" "/etc/wireguard/wg-$sfx.conf"
+  fi
+  ip netns exec "$ns" wg-quick up "wg-$sfx"
+}
+
+# The overlay addresses in wg0.conf are random ULA addresses (fd00::/8): they
+# exist nowhere but inside the WireGuard tunnel, so pinging one proves the
+# tunnel carries traffic, which pinging the veth addresses would not.
+my_addr() {
+  if [ "$1" = sma ]; then f=/etc/supermox/wg0.conf; else f="/etc/supermox/e2e/$1/wg0.conf"; fi
+  grep '^Address' "$f" | head -n1 | awk '{print $3}' | cut -d/ -f1
+}
+
+ping_ok() { ip netns exec "$1" ping -n -c 2 -W 3 "$2" >/dev/null 2>&1; }
+
+# 4. clean slate: daemons, state and veth from any earlier run.
+cleanup
+rm -rf /etc/supermox/e2e
+rm -f /etc/supermox/identity.json /etc/supermox/membership.json /etc/supermox/cluster.keys /etc/supermox/invites.json /etc/supermox/pending.json /etc/supermox/wg0.conf /etc/supermox/cluster.json
+rm -f /etc/wireguard/wg-a.conf /etc/wireguard/wg-b.conf /etc/wireguard/wg-c.conf
 for v in veth-a veth-b veth-c veth-d; do ip link del "$v" 2>/dev/null; done
-rm -rf /run/sma /run/smb /run/smc
-rm -f /run/joind.log /run/ping.log /run/join-c.log /run/approve.log
 
-# 3a. namespaces + veth star (one subnet for the whole star, see the header)
-ip netns add sma && ip netns add smb && ip netns add smc
-ip link add veth-a type veth peer name veth-b
-ip link add veth-c type veth peer name veth-d
-ip link set veth-a netns sma && ip link set veth-b netns smb
-ip link set veth-c netns sma && ip link set veth-d netns smc
-ip netns exec sma ip link set lo up
-ip netns exec sma ip addr add 10.99.0.1/24 dev veth-a && ip netns exec sma ip link set veth-a up
-ip netns exec sma ip addr add 10.99.1.1/24 dev veth-c && ip netns exec sma ip link set veth-c up
-ip netns exec smb ip addr add 10.99.0.2/24 dev veth-b && ip netns exec smb ip link set veth-b up
-ip netns exec smc ip addr add 10.99.1.2/24 dev veth-d && ip netns exec smc ip link set veth-d up
-ip netns exec smb ip route add 10.99.1.0/24 dev veth-b
-ip netns exec smc ip route add 10.99.0.0/24 dev veth-d
-if ip netns exec sma ip link show veth-a >/dev/null 2>&1 \
-   && ip netns exec smb ip link show veth-b >/dev/null 2>&1 \
-   && ip netns exec sma ip link show veth-c >/dev/null 2>&1 \
-   && ip netns exec smc ip link show veth-d >/dev/null 2>&1; then
+# 5. namespaces + veth star.
+if net_star; then
   pass "namespaces sma/smb/smc + veth star up"
 else
   fmsg "namespaces/veth setup"
 fi
 
-# 3b. create the cluster in sma; capture the 12 words into a variable only.
-#     --endpoint is the join daemon (8743); --my-wg-endpoint is the WireGuard
-#     endpoint (51820) the other members' wg0.conf must point at.
-W="$(ip netns exec sma env SUPERMOX_ETC=/run/sma "$BIN/supermox-join" create --name node-a --endpoint 10.99.0.1:$JOIN_PORT --my-wg-endpoint 10.99.0.1:$WG_PORT | tail -n1)"
+# 6. create the cluster as node-a; the 12 words live only in a shell variable.
+W=$(ip netns exec sma "$BIN/supermox-join" create --name node-a \
+  --endpoint "10.99.0.1:$JOIN_PORT" --my-wg-endpoint "10.99.0.1:$WG_PORT" | tail -n1)
 nw=$(printf '%s\n' "$W" | wc -w)
 if [ "$nw" -eq 12 ]; then
-  pass "create node-a (captured 12 words into \$W, not a file)"
+  pass "create node-a (12 words captured in a variable, not a file)"
 else
   fmsg "create node-a (got $nw words)"
 fi
 
-# 3c. start the join daemon in sma (background) and wait for it to listen.
-ip netns exec sma env SUPERMOX_ETC=/run/sma "$BIN/supermox-joind" --host 0.0.0.0 --port $JOIN_PORT >/run/joind.log 2>&1 &
-DAEMON=$!
-up=0
-for _ in $(seq 1 20); do
-  if ip netns exec smb timeout 3 bash -c 'exec 3<>/dev/tcp/10.99.0.1/'"$JOIN_PORT" 2>/dev/null; then up=1; break; fi
-  sleep 0.5
-done
-if [ "$up" -eq 1 ]; then
-  pass "join daemon listening in sma"
+# 7. node-a's join daemon, started by the sysvinit script inside sma.
+if start_daemon sma && [ -f /run/jd-sma.pid ]; then
+  pass "join daemon for node-a running (init.d start)"
 else
-  fmsg "join daemon not listening"; sed 's/^/    /' /run/joind.log 2>/dev/null
+  fmsg "join daemon for node-a"
+  tail -3 /var/log/syslog 2>/dev/null | sed 's/^/    /'
 fi
 
-# 3d. node-b joins by phrase from smb (advertise its join daemon AND its
-#     WireGuard endpoint separately).
-out=$(ip netns exec smb env SUPERMOX_ETC=/run/smb "$BIN/supermox-join" join --words "$W" --endpoint 10.99.0.1:$JOIN_PORT --name node-b --my-endpoint 10.99.0.2:$JOIN_PORT --my-wg-endpoint 10.99.0.2:$WG_PORT 2>&1)
-printf '%s\n' "$out"
-if printf '%s\n' "$out" | grep -q '^joined as node-b'; then
+# 8. node-b joins by phrase from smb, then runs its own daemon.
+mkdir -p "$ETC_B"
+ip netns exec smb env SUPERMOX_ETC="$ETC_B" "$BIN/supermox-join" join --words "$W" \
+  --endpoint "10.99.0.1:$JOIN_PORT" --name node-b \
+  --my-endpoint "10.99.0.2:$JOIN_PORT" --my-wg-endpoint "10.99.0.2:$WG_PORT" >/run/join.log 2>&1
+if grep -q '^joined as node-b' /run/join.log; then
   pass "node-b phrase join"
 else
   fmsg "node-b phrase join"
+  sed 's/^/    /' /run/join.log
 fi
-
-# 4. bring up wg0 in sma and smb from their wg0.conf, then ping across the tunnel.
-# node-a's wg0.conf is regenerated from its (now two-member) state.
-# 4. wg0.conf must name the WireGuard port for every peer, never the join port.
-check_conf() {
-  bad=0
-  for n in "$@"; do
-    [ -f "/run/$n/wg0.conf" ] || { printf '    /run/%s/wg0.conf missing\n' "$n"; bad=1; continue; }
-    while read -r e; do
-      case "$e" in
-        *:$WG_PORT) ;;
-        *) printf '    %s: Endpoint %s\n' "$n" "$e"; bad=1 ;;
-      esac
-    done < <(grep '^Endpoint = ' "/run/$n/wg0.conf" | cut -d' ' -f3)
-    if grep -q "^Endpoint = .*:$JOIN_PORT" "/run/$n/wg0.conf"; then
-      printf '    %s: wg0.conf points at the join port\n' "$n"; bad=1
-    fi
-  done
-  return "$bad"
-}
-for n in sma smb; do
-  SUPERMOX_ETC=/run/$n "$BIN/supermox-join" conf >/dev/null || fmsg "conf for $n"
-done
-if check_conf sma smb; then
-  pass "wg0.conf [Peer] Endpoint is host:$WG_PORT, never the join port"
+if start_daemon smb; then
+  pass "join daemon for node-b running"
 else
-  fmsg "wg0.conf [Peer] Endpoint port"
+  fmsg "join daemon for node-b"
 fi
 
-# bring_up <ns> creates wg0 in that namespace from /run/<ns>/wg0.conf. This
-# iproute2 names the device type "wireguard"; setconf here rejects the Address
-# and PresharedKey lines, so the address is added with ip addr add and the
-# (optional) PSK stays in the conf file only. Peers are reached at their
-# overlay address (the AllowedIPs value).
-bring_up() {
-  local ns="$1" conf="/run/$1/wg0.conf"
-  ip netns exec "$ns" sh -c '
-    CONF="$1"
-    ip link add wg0 type wireguard
-    A=$(grep "^Address" "$CONF" | cut -d" " -f3 | cut -d/ -f1)
-    grep -v -e "^Address" -e "^PresharedKey" "$CONF" > "$CONF.setconf"
-    wg setconf wg0 "$CONF.setconf"
-    ip -6 addr add "$A/128" dev wg0
-    ip link set wg0 up
-    grep "^AllowedIPs" "$CONF" | cut -d" " -f3 | while read ip; do
-      ip -6 route add "$ip" dev wg0
-    done
-  ' sh "$conf" || fmsg "wg0 bring-up failed in $ns"
-}
-
-# 5. invite join for node-c (smc): invite from sma, join in smc, approve in sma.
-URI=$(ip netns exec sma env SUPERMOX_ETC=/run/sma "$BIN/supermox-join" invite --ttl 900 | head -n1)
-ip netns exec smc env SUPERMOX_ETC=/run/smc "$BIN/supermox-join" join --uri "$URI" --endpoint 10.99.1.1:$JOIN_PORT --name node-c --my-endpoint 10.99.1.2:$JOIN_PORT --my-wg-endpoint 10.99.1.2:$WG_PORT >/run/join-c.log 2>&1 &
-JC=$!
-rid=""
-for _ in $(seq 1 20); do
-  rid=$(ip netns exec sma env SUPERMOX_ETC=/run/sma "$BIN/supermox-join" pending 2>/dev/null | awk '$1!="no"{print $1; exit}')
-  [ -n "$rid" ] && break
-  sleep 0.5
-done
-if [ -n "$rid" ]; then
-  pass "node-c invite join pending (request $rid)"
-  if ip netns exec sma env SUPERMOX_ETC=/run/sma "$BIN/supermox-join" approve "$rid" --endpoint 127.0.0.1:$JOIN_PORT >/run/approve.log 2>&1; then
-    pass "approved node-c join request"
-  else
-    fmsg "approve node-c"; sed 's/^/    /' /run/approve.log
-  fi
+# 9. node-c joins through an invite that node-a's operator approves.
+URI=$(ip netns exec sma "$BIN/supermox-join" invite --ttl 900 | head -n1)
+ip netns exec smc env SUPERMOX_ETC=/tmp/supermox-e2e-throwaway "$BIN/supermox-join" join --uri "$URI" \
+  --endpoint "10.99.0.1:$JOIN_PORT" --name node-c \
+  --my-endpoint "10.99.1.2:$JOIN_PORT" --my-wg-endpoint "10.99.1.2:$WG_PORT" >/run/join.log 2>&1 &
+sleep 2
+RID=$(ip netns exec sma "$BIN/supermox-join" pending | awk '$1 != "no" {print $1; exit}')
+if [ -n "$RID" ]; then
+  ip netns exec sma "$BIN/supermox-join" approve "$RID" --endpoint "127.0.0.1:$JOIN_PORT" >/dev/null
+  wait
+  mkdir -p "$ETC_C"
+  cp /tmp/supermox-e2e-throwaway/* "$ETC_C/" 2>/dev/null
+  start_daemon smc
+  pass "node-c invite join approved by node-a, daemon running"
 else
-  fmsg "node-c invite join never went pending"
-fi
-wait "$JC" 2>/dev/null
-if grep -q '^joined as node-c' /run/join-c.log; then
-  pass "node-c invite join completed"
-else
-  fmsg "node-c invite join"; sed 's/^/    /' /run/join-c.log
+  fmsg "node-c invite join (no pending request)"
+  sed 's/^/    /' /run/join.log
 fi
 
-# 6. all three tunnels: regenerate confs, bring up wg0 everywhere, ping.
+# 10. every member ran a daemon when the change happened, so all three nodes
+#     must now agree on the member list.
+A=$(names sma); B=$(names smb); C=$(names smc)
+if [ "$A" = "$B" ] && [ "$A" = "$C" ] && printf '%s\n' "$A" | grep -q node-a \
+  && printf '%s\n' "$A" | grep -q node-b && printf '%s\n' "$A" | grep -q node-c; then
+  pass "all three nodes agree on the member list ($A)"
+else
+  fmsg "membership differs: sma=$A smb=$B smc=$C"
+fi
+
+# 11. wg0.conf must name the WireGuard port for every peer, never the join port.
+# The daemon only rewrites the config when membership changes, so generate it.
 for n in sma smb smc; do
-  SUPERMOX_ETC=/run/$n "$BIN/supermox-join" conf >/dev/null || fmsg "conf for $n"
+  if [ "$n" = sma ]; then "$BIN/supermox-join" conf >/dev/null
+  else SUPERMOX_ETC="/etc/supermox/e2e/$n" "$BIN/supermox-join" conf >/dev/null; fi
 done
-if check_conf sma smb smc; then
-  pass "all three wg0.conf files name host:$WG_PORT for every peer"
+conf_ok=1
+for n in sma smb smc; do
+  if [ "$n" = sma ]; then f=/etc/supermox/wg0.conf; else f="/etc/supermox/e2e/$n/wg0.conf"; fi
+  grep -q "$WG_PORT" "$f" || conf_ok=0
+  grep -q "$JOIN_PORT" "$f" && conf_ok=0
+  grep -q AllowedIPs "$f" || conf_ok=0
+  # wg's parser rejects PresharedKey outside [Peer]; one per peer, no more.
+  peers=$(grep -c '^\[Peer\]' "$f" 2>/dev/null); peers=${peers:-0}
+  psk=$(grep -c '^PresharedKey' "$f" 2>/dev/null); psk=${psk:-0}
+  [ "$psk" -eq "$peers" ] || conf_ok=0
+done
+if [ "$conf_ok" -eq 1 ]; then
+  pass "wg0.conf on every node: WG port only, AllowedIPs, PSK per peer"
 else
-  fmsg "wg0.conf after node-c joined"
+  fmsg "wg0.conf contents"
 fi
-ADDR_A=$(grep -m1 '^Address = ' /run/sma/wg0.conf | awk '{print $3}' | cut -d/ -f1)
-ADDR_B=$(grep -m1 '^Address = ' /run/smb/wg0.conf | awk '{print $3}' | cut -d/ -f1)
-ADDR_C=$(grep -m1 '^Address = ' /run/smc/wg0.conf | awk '{print $3}' | cut -d/ -f1)
-bring_up sma
-bring_up smb
-bring_up smc
-sleep 1
-ping_across() {
-  local from="$1" to="$2" label="$3"
-  if ip netns exec "$from" ping -n -c 3 "$to" >/run/ping.log 2>&1; then
-    pass "$label"
-    sed 's/^/    /' /run/ping.log
-  else
-    fmsg "$label"; sed 's/^/    /' /run/ping.log
-  fi
+
+# 12. the overlay addresses are unreachable before the tunnels exist.
+ADDR_A=$(my_addr sma); ADDR_B=$(my_addr smb); ADDR_C=$(my_addr smc)
+if ping_ok sma "$ADDR_B"; then
+  fmsg "overlay address reachable without a tunnel (test would be vacuous)"
+else
+  pass "overlay addresses unreachable with no tunnel up"
+fi
+
+# 13. tunnels up in all three namespaces, then ping the overlay addresses.
+bring_up sma a && bring_up smb b && bring_up smc c || fmsg "wg-quick up"
+# The first handshake takes a moment; retry the pings instead of sleeping once.
+ping_wait() {
+  i=0
+  while [ "$i" -lt 6 ]; do
+    ip netns exec "$1" ping -n -c 2 -W 3 "$2" >/dev/null 2>&1 && return 0
+    i=$((i + 1))
+    sleep 2
+  done
+  return 1
 }
-ping_across smb "$ADDR_A" "smb pings node-a over wg0 ($ADDR_A)"
-ping_across smc "$ADDR_A" "smc pings node-a over wg0 ($ADDR_A)"
-ping_across sma "$ADDR_B" "sma pings node-b over wg0 ($ADDR_B)"
-ping_across sma "$ADDR_C" "sma pings node-c over wg0 ($ADDR_C)"
-
-# 7. the 12-word phrase must not appear in any state file.
-if [ -z "$W" ]; then
-  fmsg "leak check skipped (no phrase captured)"
-elif grep -rqF "$W" /run/sma /run/smb /run/smc 2>/dev/null; then
-  fmsg "the 12-word phrase leaked into a state file"
+if ping_wait sma "$ADDR_B" && ping_wait smb "$ADDR_A"; then
+  pass "node-a <-> node-b through the WireGuard tunnel"
 else
-  pass "no 12-word phrase in /run/sma /run/smb /run/smc"
+  fmsg "node-a <-> node-b tunnel ping"
+  ip netns exec sma wg show 2>/dev/null | sed 's/^/    /'
+fi
+if ping_wait sma "$ADDR_C" && ping_wait smc "$ADDR_A"; then
+  pass "node-a <-> node-c through the WireGuard tunnel"
+else
+  fmsg "node-a <-> node-c tunnel ping"
+fi
+if ip netns exec sma wg show 2>/dev/null | grep -q "endpoint: 10.99.0.2:$WG_PORT"; then
+  pass "node-a's tunnel reports node-b's WireGuard endpoint"
+else
+  fmsg "wg show endpoints on node-a"
+  ip netns exec sma wg show 2>/dev/null | sed 's/^/    /'
 fi
 
-exit "$fail"
+# 13. stop the daemons; the reboot in the next phase must bring node-a's back
+#     by itself, through the rc symlinks.
+stop_daemon sma; stop_daemon smb; stop_daemon smc
+if [ "$fail" -eq 0 ]; then exit 0; else exit 1; fi
 REMOTE
 then
-  pass "join sequence (create/join/wg0/invite/approve/leak-check)"
+  pass "three-node join: joins, membership, wg0.conf, tunnels"
 else
-  fail_msg "join sequence"
+  fail_msg "three-node join (see the FAIL lines above)"
 fi
 
-if [ "$fail" -ne 0 ]; then
-  exit 1
+# --- Step 14: reboot the VM. The join daemons must come back through the
+#     sysvinit script; the WireGuard tunnels cannot (netns do not survive a
+#     boot), so the test rebuilds them and the configs must regenerate from
+#     the state that survived. ---
+vm_ssh 'sync; nohup sh -c "sleep 2; reboot" >/dev/null 2>&1 &' >/dev/null 2>&1 || true
+waited=0
+until ! vm_ssh true 2>/dev/null; do
+  if [ "$waited" -ge 60 ]; then break; fi
+  sleep 2
+  waited=$((waited + 2))
+done
+waited=0
+until vm_ssh true 2>/dev/null; do
+  if [ "$waited" -ge 180 ]; then
+    fail_msg "ssh not reachable again within 180s after reboot"
+    break
+  fi
+  sleep 5
+  waited=$((waited + 5))
+done
+
+if vm_ssh 'bash -s' <<'REMOTE'
+set -u
+fail=0
+pass() { printf 'PASS: %s\n' "$1"; }
+fmsg() { printf 'FAIL: %s\n' "$1"; fail=1; }
+BIN=/opt/supermox/bin
+INITD=/etc/init.d/supermox-joind
+JOIN_PORT=8743
+WG_PORT=51820
+. /opt/supermox/e2e-net.sh
+
+# node-a's daemon is started by init at boot; its state is at the default
+# /etc/supermox, which is what the service script reads.
+sleep 2
+if "$INITD" status | grep -q "is running"; then
+  pass "join daemon came back at boot (init.d status)"
+else
+  fmsg "join daemon not running after reboot"
 fi
-printf 'ALL STEPS PASSED.\n'
+
+names() {
+  if [ "$1" = sma ]; then
+    "$BIN/supermox-join" members
+  else
+    SUPERMOX_ETC="/etc/supermox/e2e/$1" "$BIN/supermox-join" members
+  fi | awk '{print $1}' | sort | tr '\n' ' '
+}
+A=$(names sma); B=$(names smb); C=$(names smc)
+if [ "$A" = "$B" ] && [ "$A" = "$C" ] && printf '%s\n' "$A" | grep -q node-c; then
+  pass "membership survived the reboot on all three nodes ($A)"
+else
+  fmsg "membership after reboot: sma=$A smb=$B smc=$C"
+fi
+
+# rebuild the tunnels from the persisted state and ping again.
+net_star || fmsg "veth star after reboot"
+bring_up() {
+  ns=$1
+  sfx=$2
+  if [ "$ns" = sma ]; then
+    "$BIN/supermox-join" conf >/dev/null || return 1
+    cp /etc/supermox/wg0.conf "/etc/wireguard/wg-$sfx.conf"
+  else
+    SUPERMOX_ETC="/etc/supermox/e2e/$ns" "$BIN/supermox-join" conf >/dev/null || return 1
+    cp "/etc/supermox/e2e/$ns/wg0.conf" "/etc/wireguard/wg-$sfx.conf"
+  fi
+  ip netns exec "$ns" wg-quick up "wg-$sfx"
+}
+my_addr() {
+  if [ "$1" = sma ]; then f=/etc/supermox/wg0.conf; else f="/etc/supermox/e2e/$1/wg0.conf"; fi
+  grep '^Address' "$f" | head -n1 | awk '{print $3}' | cut -d/ -f1
+}
+ADDR_A=$(my_addr sma); ADDR_B=$(my_addr smb)
+bring_up sma a && bring_up smb b || fmsg "wg-quick up after reboot"
+ping_wait() {
+  i=0
+  while [ "$i" -lt 6 ]; do
+    ip netns exec "$1" ping -n -c 2 -W 3 "$2" >/dev/null 2>&1 && return 0
+    i=$((i + 1))
+    sleep 2
+  done
+  return 1
+}
+if ping_wait sma "$ADDR_B" && ping_wait smb "$ADDR_A"; then
+  pass "the tunnel works again after the reboot"
+else
+  fmsg "tunnel ping after reboot"
+  ip netns exec sma wg show 2>/dev/null | sed 's/^/    /'
+fi
+for pair in "sma a" "smb b" "smc c"; do
+  set -- $pair
+  ip netns exec "$1" wg-quick down "wg-$2" 2>/dev/null
+done
+for n in sma smb smc; do ip netns del "$n" 2>/dev/null; done
+rm -f /etc/wireguard/wg-a.conf /etc/wireguard/wg-b.conf /etc/wireguard/wg-c.conf
+for v in veth-a veth-b veth-c veth-d; do ip link del "$v" 2>/dev/null; done
+[ "$fail" -eq 0 ]
+REMOTE
+then
+  pass "cluster survived the reboot"
+else
+  fail_msg "cluster did not survive the reboot"
+fi
+
+if [ "$fail" -eq 0 ]; then
+  printf '\nAll checks passed.\n'
+  exit 0
+fi
+printf '\njoin-e2e: FAILURES ABOVE\n'
+exit 1

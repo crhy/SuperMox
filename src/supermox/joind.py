@@ -751,7 +751,9 @@ def write_wg_conf(state: node_state.NodeState, path: str = None) -> str:
         "Address = %s/128" % me["overlay_addr"],
         "PrivateKey = %s" % b64(state.identity["wg_priv"]),
         "ListenPort = %d" % WG_LISTEN_PORT,
-        "PresharedKey = %s" % b64(state.derived["wg_psk"]),
+        # No PresharedKey here on purpose: wg's parser only accepts it inside
+        # a [Peer] block, and an [Interface] one makes the whole config fail
+        # to load ("Line unrecognized", "Configuration parsing error").
         "",
     ]
     for m in state.membership:
