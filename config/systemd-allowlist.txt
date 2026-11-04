@@ -2,5 +2,11 @@
 # are excluded from the systemd list and the COUNT. Format:
 #   <glob relative to DIR>  # <reason>
 # A non-comment line without a "# reason" is an error (exit 2).
+# build/r03-scan.sh reuses this file for deb scans; there the id is
+# "<deb basename>/<member path>", so deb entries must contain ".deb/" and
+# can never match a --source path.
 pve-container/pve-container/src/test/*  # guest OS fixtures for container setup tests
 pve-container/pve-container/src/PVE/LXC/Setup/*  # configures init inside guest containers
+librust-proxmox-systemd-dev_*.deb/./usr/share/cargo/*  # SuperMox's own copy of the proxmox-systemd crate: Rust sources only, libsystemd FFI calls replaced by stubs in src/sys.rs, no unit files, build-time -dev package
+librust-proxmox-systemd-dev_*.deb/./usr/share/doc/*  # package docs of that crate (name contains "systemd")
+supermox-tmpfiles_*.deb/./usr/bin/systemd-tmpfiles  # our own POSIX-sh tmpfiles.d processor shipped by supermox-tmpfiles; PVE tooling calls this name (same carve-out as scripts/check-no-systemd.sh image_mode)
