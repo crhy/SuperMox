@@ -43,6 +43,40 @@ if [ ! -x "$rules" ]; then
   fail=1
 fi
 
+# The package owns /etc/supermox/sync-users, the list of users that get a
+# Syncthing instance, and nothing else creates it: the init script and the CLI
+# both read it and fail without it.  So the package needs a postinst that
+# creates it, keeps an existing one, and carries the #DEBHELPER# token dh_install
+# uses to insert the enable/start snippets (0.1.7 removed an older postinst that
+# hand-rolled those, so it must not hand-roll them again).
+postinst="$dir/postinst"
+if [ ! -f "$postinst" ]; then
+  echo "FAIL: $postinst does not exist: nothing creates /etc/supermox/sync-users"
+  fail=1
+else
+  if [ ! -x "$postinst" ]; then
+    echo "FAIL: $postinst is not executable"
+    fail=1
+  fi
+  if ! grep -q '#DEBHELPER#' "$postinst"; then
+    echo "FAIL: $postinst has no #DEBHELPER# token"
+    fail=1
+  fi
+  if ! grep -q '/etc/supermox/sync-users' "$postinst"; then
+    echo "FAIL: $postinst does not create /etc/supermox/sync-users"
+    fail=1
+  fi
+  if ! grep -qE '! -e[[:space:]]+/etc/supermox/sync-users' "$postinst"; then
+    echo "FAIL: $postinst can overwrite an existing sync-users"
+    fail=1
+  fi
+  if grep -qE 'update-rc\.d|invoke-rc\.d' "$postinst";
+  then
+    echo "FAIL: $postinst hand-rolls rc links or service starts"
+    fail=1
+  fi
+fi
+
 if [ "$fail" -ne 0 ]; then
   exit 1
 fi

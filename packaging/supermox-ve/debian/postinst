@@ -1,0 +1,27 @@
+#!/bin/sh
+# Only one job here: give the node the file that says which users get a
+# Syncthing instance.  Creating it is what makes the package self-contained:
+# /etc/init.d/supermox-sync reads it to decide which instances to start, and
+# /usr/bin/supermox-sync reads it to work out a user's port and state
+# directory.  It is created empty, with a comment that explains the format,
+# so a fresh node has no home folder sync until an admin opts a user in;
+# an existing file is never overwritten, or an upgrade would wipe the
+# admin's list.  No enable/start loop here: debhelper's own snippet (the
+# #DEBHELPER# token below, inserted by dh_installinit) does that.
+set -e
+
+if [ ! -e /etc/supermox/sync-users ]; then
+    mkdir -p /etc/supermox
+    printf '%s\n' \
+        '# Users with a Syncthing instance on this node, one per line.' \
+        '# Blank lines and # comments are ignored.' \
+        '# File order fixes the port of each user: the first user gets' \
+        '# 127.0.0.1:8384, the next 127.0.0.1:8385, and so on.' \
+        '' >/etc/supermox/sync-users
+    chmod 0644 /etc/supermox/sync-users
+fi
+
+# DEBHELPER token required by debhelper
+#DEBHELPER#
+
+exit 0

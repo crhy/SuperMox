@@ -1,3 +1,30 @@
+supermox-ve (0.1.11) unstable; urgency=medium
+
+  * Fix /etc/init.d/supermox-sync so it can start an instance at all. It exec'd
+    "syncthing --port 127.0.0.1:<port> --state <dir>": syncthing has no such
+    flags (the daemon subcommand is serve, the state directory is --home and
+    the listen address is --gui-address), and it passed start-stop-daemon
+    --okstart, which is not an option either (--oknodo is). It now runs
+    "syncthing serve --no-browser --no-restart --no-default-folder --home
+    /var/lib/supermox-sync/<user> --gui-address http://127.0.0.1:<port>" under
+    start-stop-daemon --oknodo. --no-default-folder because serve otherwise
+    makes its own "default" share of the user's home on first launch, and
+    supermox-sync reconcile already manages that path as the home-<user> folder:
+    two Syncthing folders cannot share a path, so reconcile would have failed
+    on every fresh instance.
+  * The init script's last line is "exit $?" instead of "exit 0", so a user
+    whose instance could not start (deleted account, bad port) makes "service
+    supermox-sync start" exit 1 rather than lie success; an empty user list is
+    still success. Its empty-list message now says whether the file is missing
+    or simply lists no users.
+  * Ship debian/postinst creating /etc/supermox/sync-users when absent, with a
+    comment giving the format (one user per line, file order fixes the port).  Nothing
+    else created it, and both the init script and /usr/bin/supermox-sync read
+    it and fail without it. It never overwrites an existing file, and it does
+    not touch rc links or start services: debhelper's own snippet does that.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 04 Nov 2026 14:21:25 +0000
+
 supermox-ve (0.1.10) unstable; urgency=medium
 
   * Depend on supermox-ui: the SuperMox dark theme, logo and favicon that

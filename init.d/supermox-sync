@@ -45,6 +45,29 @@ instance_dir() {
     printf '%s/%s' "$STATE_DIR" "$1"
 }
 
+syncthing_args() {
+    # The arguments syncthing is exec'd with, one per line: $1 is the
+    # instance's home directory, $2 its localhost GUI/API port.
+    #
+    # serve is syncthing's daemon subcommand (running it with no subcommand
+    # is an error); --home is the instance's state directory (keys, device
+    # id, db, config.xml); --gui-address puts the GUI and its REST API on
+    # localhost only; --no-browser/--no-restart keep it headless and let
+    # start-stop-daemon own the process instead of syncthing restarting itself;
+    # --no-default-folder stops syncthing inventing a "default" share of the
+    # user's home on first launch, which would collide with the home-<user>
+    # folder supermox-sync reconcile creates for the same path.
+    # Kept in one function so tests/test-init-sync-flags.sh can run the exact
+    # argv against the real binary.
+    printf '%s\n' \
+        serve \
+        --no-browser \
+        --no-restart \
+        --no-default-folder \
+        --home "$1" \
+        --gui-address "http://127.0.0.1:$2"
+}
+
 pid_file() {
     printf '%s/%s.pid' "$PID_DIR" "$1"
 }
@@ -64,15 +87,25 @@ prepare() {
 start_one() {
     # One instance, as its own user, GUI on localhost only.
     # $1 is the user, $2 the port.
-    if start-stop-daemon --start --quiet --okstart --background \
-        --make-pidfile --pidfile "$(pid_file "$1")" --chuid "$1" \
-        --chdir "$(instance_dir "$1")" --exec "$SYNCTHING" -- \
-        --port "127.0.0.1:$2" --state "$(instance_dir "$1")" \
-        >>"$(log_file "$1")" 2>&1; then
-        log_action_msg "supermox-sync: $1 running on 127.0.0.1:$2"
+    suser=$1
+    sport=$2
+    # start-stop-daemon has no --okstart: --oknodo is the option that makes
+    # "nothing to do" (an instance already running) exit 0.
+    # Load syncthing's argv into the positional parameters, one word each.
+    set --
+    while IFS= read -r sarg; do
+        set -- "$@" "$sarg"
+    done <<ARGS
+$(syncthing_args "$(instance_dir "$suser")" "$sport")
+ARGS
+    if start-stop-daemon --start --quiet --oknodo --background \
+        --make-pidfile --pidfile "$(pid_file "$suser")" --chuid "$suser" \
+        --chdir "$(instance_dir "$suser")" --exec "$SYNCTHING" -- \
+        "$@" >>"$(log_file "$suser")" 2>&1; then
+        log_action_msg "supermox-sync: $suser running on 127.0.0.1:$sport"
         return 0
     fi
-    log_failure_msg "supermox-sync: $1 could not start on 127.0.0.1:$2"
+    log_failure_msg "supermox-sync: $suser could not start on 127.0.0.1:$sport"
     return 1
 }
 
@@ -101,7 +134,11 @@ reconcile_one() {
 do_start() {
     ulist=$(users)
     if [ -z "$ulist" ]; then
-        log_warning_msg "supermox-sync: no $USERS_FILE, nothing to start"
+        if [ -e "$USERS_FILE" ]; then
+            log_warning_msg "supermox-sync: $USERS_FILE lists no users, nothing to start"
+        else
+            log_warning_msg "supermox-sync: no $USERS_FILE, nothing to start"
+        fi
         return 0
     fi
     ui=0
@@ -120,7 +157,7 @@ do_stop() {
     for suser in $(users); do
         spod=$(pid_file "$suser")
         [ -f "$spod" ] || continue
-        start-stop-daemon --stop --quiet --okstart --pidfile "$spod" \
+        start-stop-daemon --stop --quiet --oknodo --pidfile "$spod" \
             --retry=TERM/10/KILL/5
     done
     rm -f "$PID_DIR"/*.pid 2>/dev/null
@@ -175,4 +212,7 @@ case "$1" in
         ;;
 esac
 
-exit 0
+# The status of the action above. sysvinit and update-rc.d report a failing
+# start, and a script that always exits 0 hides one: start_one's failure was
+# invisible to boot for exactly this reason.
+exit $?
