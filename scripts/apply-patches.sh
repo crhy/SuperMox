@@ -32,7 +32,7 @@ for c in "${components[@]}"; do
   pdir="$PATCHES_DIR/$c"
   if [ -d "$pdir" ]; then
     while IFS= read -r -d '' p; do
-      # --backup-dir keeps patch's .orig backups out of the source tree: a stray
+      # --no-backup-if-mismatch keeps patch's .orig backups out of the source tree: a stray
       # debian/control.orig or Makefile.orig would ship inside the built package.
       if ! out="$( cd "$dest" && patch -p1 --forward --batch --no-backup-if-mismatch < "$p" 2>&1 )"; then
         printf 'ERROR: patch failed: %s\n' "$p" >&2
