@@ -227,6 +227,8 @@ step "deferring 'make prepare' to the sudo command (it needs root for chroot bui
 # --- post-prepare config (written to a script the human runs after make prepare) ---
 post_prepare="$repo_root/build/iso-post-prepare.sh"
 step "writing post-prepare config script: $post_prepare"
+[ -f "$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-no-systemd" ] \
+  || fail "missing packaging/supermox-ve/etc/apt/preferences.d/supermox-no-systemd: the ISO copies it to /etc/apt/preferences.d/"
 if [ "$dry_run" -eq 1 ]; then
   printf 'DRY-RUN: write %s\n' "$post_prepare"
 else
@@ -258,10 +260,19 @@ Explanation: qemu-server needs Proxmox's patched swtpm (0.10.2+pve1), not Devuan
 Package: swtpm swtpm-libs swtpm-tools
 Pin: origin download.proxmox.com
 Pin-Priority: 600
-
-Explanation: ZERO systemd. sysvinit-core and the standalone sysusers/tmpfiles
-binaries installed at bootstrap stay; nothing may pull systemd in later.
-Package: systemd systemd-sysv libsystemd0 libpam-systemd libsystemd-twitch-1 libsystemd-twitch2 systemd-notify systemd-loginctl
+PREF
+# ZERO systemd: copy the very file supermox-ve ships as its conffile. live-build
+# installs config/archives/<name>.pref.chroot as /etc/apt/preferences.d/<name>.pref
+# for the chroot phase only and deletes it again before the binary stage, so the
+# pin exists before supermox-ve can be installed at all, and the ISO that gets
+# shipped carries exactly one copy of it: the package's conffile at
+# /etc/apt/preferences.d/supermox-no-systemd.
+cp -f "$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-no-systemd" "$lb_dir/config/archives/supermox-no-systemd.pref.chroot"
+# The ISO pins four systemd-tainted names the package does not; they live in a
+# file the package does not own, so installing supermox-ve cannot drop them.
+cat > "$lb_dir/config/archives/supermox-iso-extra.pref.chroot" <<'PREF'
+Explanation: additional systemd-tainted names, pinned on the ISO only.
+Package: libsystemd-twitch-1 libsystemd-twitch2 systemd-notify systemd-loginctl
 Pin: version *
 Pin-Priority: -1
 PREF
@@ -300,6 +311,7 @@ fi
 
 step "apt sources: $lb_dir/config/archives/proxmox.list.chroot (download.proxmox.com pve + devel, trixie)"
 step "Proxmox key: $lb_dir/config/archives/proxmox.key.chroot (live-build installs it into /etc/apt/trusted.gpg.d/)"
-step "pins: $lb_dir/config/archives/supermox.pref.chroot (local 999 > Proxmox 100, swtpm+pve1 600, systemd -1)"
+step "pins: $lb_dir/config/archives/supermox.pref.chroot (local 999 > Proxmox 100, swtpm+pve1 600)"
+step "pins: $lb_dir/config/archives/supermox-no-systemd.pref.chroot (a copy of the supermox-ve conffile: systemd -1, chroot-only, the shipped ISO keeps the conffile) and supermox-iso-extra.pref.chroot (extra systemd names -1)"
 step "branding: $lb_dir/config/includes.chroot/etc/supermox/release (Spaced's /etc/os-release is left as is)"
 collect_iso

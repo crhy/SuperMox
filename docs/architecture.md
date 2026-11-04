@@ -26,7 +26,11 @@ anything SuperMox ships.
   sysvinit (t57).
 - **No-systemd proof**: `scripts/check-no-systemd.sh` checks the source tree and a running
   system; [systemd-inventory.md](systemd-inventory.md) lists every systemd dependency that was
-  replaced and how.
+  replaced and how. `supermox-ve` also ships the apt pin that keeps systemd out of the picture
+  as a conffile at `/etc/apt/preferences.d/supermox-no-systemd` (systemd, systemd-sysv,
+  libsystemd0, libpam-systemd and the two standalone sysusers/tmpfiles packages at
+  `Pin-Priority: -1`), so a plain Devuan Ceres host that installs `supermox-ve` gets the pin
+  too; the rootfs and ISO builds write that same file before the package can be installed.
 - **Packages**: `supermox-ve` (meta-package), `supermox-tmpfiles`, `supermox-joind`, the
   rebuilt PVE packages, and `supermox-manager` (the desktop client).
 

@@ -14,6 +14,16 @@ override_dh_auto_install:
 	           debian/supermox-ve/usr/sbin/supermox-joind \
 	           debian/supermox-ve/usr/sbin/supermox-node-caps
 	chmod 0644 debian/supermox-ve/usr/lib/python3/dist-packages/supermox/*.py
+	# ZERO systemd: the apt pin that keeps systemd out of the picture ships with
+	# the package as a conffile at /etc/apt/preferences.d/supermox-no-systemd —
+	# the same name scripts/build-rootfs.sh writes during the rootfs build, so
+	# installing the package replaces that copy instead of leaving a second one
+	# behind, and a plain Devuan host that only installs supermox-ve gets the
+	# pin too. debian/conffiles declares the path: debhelper only auto-registers
+	# conffiles it installs itself (the init scripts), not files copied in here.
+	mkdir -p debian/supermox-ve/etc/apt/preferences.d
+	cp -a etc/apt/preferences.d/supermox-no-systemd debian/supermox-ve/etc/apt/preferences.d/supermox-no-systemd
+	chmod 0644 debian/supermox-ve/etc/apt/preferences.d/supermox-no-systemd
 
 override_dh_installinit:
 	dh_installinit --name=networking --no-start

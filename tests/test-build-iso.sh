@@ -20,6 +20,7 @@ for pat in \
   'config/archives/proxmox.list.chroot' \
   'config/archives/proxmox.key.chroot' \
   'config/archives/supermox.pref.chroot' \
+  'config/archives/supermox-no-systemd.pref.chroot' \
   'supermox-10.26-pc-amd64.iso' \
   'supermox-ve' \
   'config/includes.chroot/etc/supermox/release' \
@@ -69,8 +70,23 @@ if ! printf '%s\n' "$out" | grep -qF -- 'systemd -1'; then
   missing=1
 fi
 
+# The ISO stages the pin before supermox-ve can be installed, so it must copy
+# the conffile itself rather than keep its own list of names. live-build installs
+# config/archives/<name>.pref.chroot as /etc/apt/preferences.d/<name>.pref for the
+# chroot phase only and removes it before the binary stage, so the shipped ISO is
+# left with exactly one copy of the pin: the package's conffile.
+if ! grep -qF -- 'cp -f "$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-no-systemd" "$lb_dir/config/archives/supermox-no-systemd.pref.chroot"' "$target"; then
+  echo "FAIL: $target does not copy the supermox-ve pin conffile into config/archives"
+  missing=1
+fi
+# The ISO's own pref stanza may only add names the package does not pin.
+if grep -qE '^Package: .*(libsystemd0|libpam-systemd|systemd-standalone)' "$target"; then
+  echo "FAIL: $target duplicates supermox-ve pin names in a stanza of its own"
+  missing=1
+fi
+
 if [ "$missing" -ne 0 ]; then
   exit 1
 fi
 
-echo "OK: build-iso.sh --dry-run prints the worktree, packages.chroot staging, the three archive files, the ISO name and the 2 GiB limit"
+echo "OK: build-iso.sh --dry-run prints the worktree, packages.chroot staging, the archive and pin files, the ISO name and the 2 GiB limit"

@@ -1,3 +1,18 @@
+supermox-ve (0.1.13) unstable; urgency=medium
+
+  * Ship the apt pin that keeps systemd out of the picture as a conffile at
+    /etc/apt/preferences.d/supermox-no-systemd: systemd, systemd-sysv,
+    libsystemd0, libpam-systemd, systemd-standalone-sysusers and
+    systemd-standalone-tmpfiles at Pin-Priority: -1. A plain Devuan Ceres host
+    that installs supermox-ve now gets the pin as well; scripts/build-rootfs.sh
+    copies this same file to the same path during the bootstrap, so installing
+    the package replaces that copy instead of leaving a second one behind.
+    debian/conffiles declares the path, and scripts/build-iso.sh stages the
+    same file as config/archives/supermox-no-systemd.pref.chroot, with the
+    ISO-only systemd names in a separate supermox-iso-extra.pref.chroot.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 12:00:00 +0000
+
 supermox-ve (0.1.12) unstable; urgency=medium
 
   * Ship /etc/init.d/supermox-hosts, which maps the node's hostname to the

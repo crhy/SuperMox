@@ -62,9 +62,19 @@ fi
 tarball="$VM_DIR/rootfs.tar"
 img="$VM_DIR/rootfs.img"
 
-setup_hook='printf "Package: systemd\nPin: version *\nPin-Priority: -1\n\nPackage: systemd-sysv\nPin: version *\nPin-Priority: -1\n\nPackage: libsystemd0\nPin: version *\nPin-Priority: -1\n\nPackage: libpam-systemd\nPin: version *\nPin-Priority: -1\n\nPackage: systemd-standalone-sysusers\nPin: version *\nPin-Priority: -1\n\nPackage: systemd-standalone-tmpfiles\nPin: version *\nPin-Priority: -1\n" > "$1/etc/apt/preferences.d/no-systemd"'
-
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+
+# ZERO systemd: the pin must exist before supermox-ve can be installed, so the
+# rootfs build writes it itself. It copies the very file the package ships
+# (packaging/supermox-ve/etc/apt/preferences.d/supermox-no-systemd) to the path
+# that file's conffile occupies, so installing the package replaces this copy
+# instead of leaving a second, drifting one behind.
+pin_src="$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-no-systemd"
+if [ ! -f "$pin_src" ]; then
+  printf 'ERROR: missing apt pin file %s\n' "$pin_src" >&2
+  exit 1
+fi
+setup_hook="$(printf 'mkdir -p "$1/etc/apt/preferences.d" && cp -f %q "$1/etc/apt/preferences.d/supermox-no-systemd"' "$pin_src")"
 
 customize_hooks=(
   'echo supermox > "$1/etc/hostname"'

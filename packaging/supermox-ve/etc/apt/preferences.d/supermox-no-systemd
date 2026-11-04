@@ -1,0 +1,28 @@
+Explanation: ZERO systemd. SuperMox runs on sysvinit: sysvinit-core and the
+  standalone sysusers/tmpfiles binaries stay, and nothing may pull systemd in
+  later - not on a SuperMox host, and not on a plain Devuan Ceres host that
+  installs supermox-ve either. apt's preferences parser only continues a record
+  on indented lines, so these continuations are indented.
+Package: systemd
+Pin: version *
+Pin-Priority: -1
+
+Package: systemd-sysv
+Pin: version *
+Pin-Priority: -1
+
+Package: libsystemd0
+Pin: version *
+Pin-Priority: -1
+
+Package: libpam-systemd
+Pin: version *
+Pin-Priority: -1
+
+Package: systemd-standalone-sysusers
+Pin: version *
+Pin-Priority: -1
+
+Package: systemd-standalone-tmpfiles
+Pin: version *
+Pin-Priority: -1
