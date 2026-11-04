@@ -22,6 +22,10 @@ pve-manager pve-manager pvestatd
 pve-manager pve-manager spiceproxy
 qemu-server qemu-server qmeventd
 supermox-ve supermox-ve networking
+# rrdcached: Debian ships only a systemd unit for it, and upstream pve-cluster
+# starts it through Wants=rrdcached.service; without a sysvinit script the RRD
+# archives pvestatd files stay empty, so the graphs page has no history.
+supermox-ve supermox-ve rrdcached
 supermox-ve supermox-ve supermox-binfmt
 supermox-ve supermox-ve supermox-hosts
 supermox-tmpfiles supermox-tmpfiles supermox-tmpfiles

@@ -23,10 +23,53 @@ image_mode() {
   local fail=0
   local status="$root/var/lib/dpkg/status"
 
+  # Installed package names we may ship ourselves even though the name says
+  # "systemd" (the proxmox-systemd stub crate). Same "<id>  # <reason>" format
+  # as config/systemd-allowlist.txt; a line without a reason exits 2.
+  local image_allow_file="${SYSTEMD_IMAGE_ALLOWLIST_FILE:-$repo_root/config/systemd-image-allowlist.txt}"
+  local allow_names=() allow_reasons=()
+  if [ -f "$image_allow_file" ]; then
+    local line name reason
+    while IFS= read -r line || [ -n "$line" ]; do
+      line="${line#"${line%%[![:space:]]*}"}"
+      [ -n "$line" ] || continue
+      case "$line" in
+        '#'*) continue ;;
+      esac
+      if [[ "$line" != *'#'* ]]; then
+        printf 'ERROR: allowlist line without reason: %s\n' "$line" >&2
+        return 2
+      fi
+      name="${line%%#*}"
+      reason="${line#*#}"
+      name="${name%"${name##*[![:space:]]}"}"
+      reason="${reason#"${reason%%[![:space:]]*}"}"
+      if [ -z "$name" ] || [ -z "$reason" ]; then
+        printf 'ERROR: allowlist line without reason: %s\n' "$line" >&2
+        return 2
+      fi
+      allow_names+=("$name")
+      allow_reasons+=("$reason")
+    done < "$image_allow_file"
+  fi
+
   if [ -f "$status" ]; then
-    local pkg
+    local pkg i match allow_reason
     while IFS= read -r pkg; do
       [ -n "$pkg" ] || continue
+      match=0
+      allow_reason=""
+      for i in "${!allow_names[@]}"; do
+        if [ "$pkg" = "${allow_names[$i]}" ]; then
+          match=1
+          allow_reason="${allow_reasons[$i]}"
+          break
+        fi
+      done
+      if [ "$match" -eq 1 ]; then
+        printf 'ALLOWED: installed package matches systemd: %s (%s)\n' "$pkg" "$allow_reason"
+        continue
+      fi
       printf 'FAIL: installed package matches systemd: %s\n' "$pkg"
       fail=1
     done < <(awk '

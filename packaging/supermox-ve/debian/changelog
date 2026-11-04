@@ -1,3 +1,18 @@
+supermox-ve (0.1.14) unstable; urgency=medium
+
+  * Ship init.d/rrdcached and enable it at boot: Debian installs rrdcached with
+    only a systemd unit, and upstream pve-cluster.service pulls it in with
+    Wants=rrdcached.service, so under sysvinit nothing ever started it. PVE's
+    PVE::RRD talks to unix:/var/run/rrdcached.sock, which Debian gets from
+    systemd socket activation, so the script passes -l /var/run/rrdcached.sock
+    (and -p /run/rrdcached.pid) on top of the unit's -B -b/-j arguments from
+    /etc/default/rrdcached; -g is dropped because the daemon has to fork.
+    Without it the RRD archives pvestatd files stay empty and the graphs page
+    has no history. config/init-scripts.txt lists the new script, and rrdcached
+    is now an explicit dependency.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 18:00:00 +0000
+
 supermox-ve (0.1.13) unstable; urgency=medium
 
   * Ship the apt pin that keeps systemd out of the picture as a conffile at

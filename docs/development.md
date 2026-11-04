@@ -95,6 +95,7 @@ symlink to it), which is why no machine-specific path appears anywhere in the re
 | `vm-setup-proxmox-repos.sh`, `vm-prepare-build.sh`, `vm-missing-build-deps.sh`, `vm-build-pkg.sh` | Build PVE packages inside the build VM. |
 | `vm-test-install.sh` | Install our packages on a clean VM, start PVE under sysvinit, prove there is no systemd. |
 | `join-e2e.sh` | Real WireGuard join between network namespaces in the test VM. |
+| `release-check.sh` | One command that proves a release candidate: the gate plus every live suite against a test VM it starts and stops. |
 | `build-iso.sh` | PC edition ISO (needs a Spaced Linux checkout). |
 | `build-manager.sh` | The architecture-neutral `supermox-manager` package. |
 | `build-website.sh`, `branding-assets.sh` | Website and branding exports. |
@@ -113,6 +114,28 @@ bash tests/manager-live.sh
 Needs the booted test VM (ssh 2224, root password `supermox` in the test image). It reads the
 VM's certificate fingerprint over ssh and runs `tests/manager-live/test_*.py` against the real
 API. Not part of the gate; skips when no VM is running.
+
+## Release check
+
+```sh
+bash scripts/release-check.sh            # the gate plus every live suite
+bash scripts/release-check.sh --offline  # the gate only
+```
+
+The live suites are otherwise run by hand and get skipped, so this is the one
+command that proves a release candidate. Steps, in order: the gate, `vm-status.sh`
+(it refuses to start if a VM is already up, because the script owns the VM it
+stops), boot the test VM from `SUPERMOX_TEST_DIR` (ssh 2224, RAM from
+`SUPERMOX_VM_RAM` default 2048, host 18006 forwarded) and wait for ssh and for
+`https://127.0.0.1:18006/`, `tests/manager-live.sh`, `scripts/join-e2e.sh`,
+`check-no-systemd.sh --image /` inside the VM, and `status` on every enabled
+`/etc/init.d` service. It always stops the VM it booted (trap, so a failure or
+Ctrl-C leaves nothing running), prints `PASS:`/`FAIL:`/`SKIP:` per step and a
+summary table, and exits 1 if anything FAILED — a SKIP of a step that applies
+counts as a failure unless `--allow-skip`. `--help` documents the steps, the
+flags and the `RELEASE_CHECK_*` overrides `tests/test-release-check.sh` uses to
+exercise the step logic without a VM. The live tests need a prepared image,
+so run `scripts/vm-test-install.sh` first.
 
 ## How work is done here
 

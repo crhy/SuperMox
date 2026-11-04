@@ -30,6 +30,12 @@ override_dh_installinit:
 	dh_installinit --name=supermox-hosts
 	dh_installinit --name=supermox-binfmt
 	dh_installinit --name=supermox-sync
+	# rrdcached: Debian ships only a systemd unit for it, and upstream pve-cluster
+	# starts it through Wants=rrdcached.service; without a sysvinit script the RRD
+	# archives pvestatd files stay empty, so the graphs page has no history.
+	# pve-cluster's Should-Start: rrdcached puts it in front, so it is enabled
+	# at boot like the join services (no --no-start).
+	dh_installinit --name=rrdcached
 	# The join daemon and the overlay bring-up both have to be enabled at boot
 	# for a joined node to be a joined node after a reboot: supermox-joind answers
 	# join and membership traffic, supermox-wg puts wg0 back up from the config
