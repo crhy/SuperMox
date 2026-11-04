@@ -44,6 +44,9 @@ ROOTFS=${WAYDROID_ROOTFS:-/var/lib/waydroid/rootfs}
 NET_SH=${WAYDROID_NET_SH:-/usr/lib/waydroid/data/scripts/waydroid-net.sh}
 LXC_BIN=${WAYDROID_LXC_BIN:-/usr/bin/lxc-start}
 CONT_PIDFILE=${WAYDROID_CONTAINER_PIDFILE:-/run/waydroid-container.lxc.pid}
+LXC_INFO=${WAYDROID_LXC_INFO:-/usr/bin/lxc-info}
+# How long start waits for the container to reach RUNNING (seconds).
+WAIT_SECS=${WAYDROID_WAIT_SECS:-15}
 
 # waydroid's container manager bind-mounts with the binder API; without the
 # module the container dies on start. Load it here as well as through
@@ -103,6 +106,42 @@ stop_container() {
   return 0
 }
 
+# TERM/KILL the container manager daemon by pidfile (its clean shutdown path).
+stop_daemon() {
+  if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+    start-stop-daemon --stop --quiet --retry=TERM/20/KILL/5 --pidfile "$PIDFILE"
+  fi
+  rm -f "$PIDFILE"
+  return 0
+}
+
+# The LXC state of the container, as lxc-info prints it ("RUNNING", "STOPPED",
+# ...); empty when lxc-info is missing or the container does not exist.
+container_state() {
+  "$LXC_INFO" -n waydroid -P "$LXC_DIR" -s 2>/dev/null
+}
+
+container_running() {
+  case "$(container_state)" in
+    *RUNNING*) return 0 ;;
+  esac
+  return 1
+}
+
+# Poll for the container to reach RUNNING. lxc-start -F only returns once the
+# container is up, and a container that dies at once (bad config, missing binder
+# nodes) leaves both pidfiles looking fine, so the state - not the pids - is
+# what proves the Android layer is actually alive.
+wait_container() {
+  i=0
+  while [ "$i" -lt "$WAIT_SECS" ]; do
+    container_running && return 0
+    sleep 1
+    i=$((i + 1))
+  done
+  return 1
+}
+
 case "$1" in
   start)
     log_begin_msg "Starting $NAME"
@@ -140,6 +179,15 @@ case "$1" in
       log_end_msg 1
       exit 1
     fi
+    # Success means the container is RUNNING, not merely that two processes
+    # were launched: a container that dies at once (the t60b failure) must not
+    # report a clean start. Undo whatever was started before failing.
+    if ! wait_container; then
+      log_failure_msg "$NAME: container did not reach RUNNING state within ${WAIT_SECS}s"
+      stop_daemon
+      stop_container
+      exit 1
+    fi
     log_end_msg 0
     ;;
   stop)
@@ -166,19 +214,34 @@ case "$1" in
     "$0" start
     ;;
   status)
+    daemon_pid=""
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-      printf '%s is running (pid %s)\n' "$NAME" "$(cat "$PIDFILE")"
+      daemon_pid=$(cat "$PIDFILE")
+    else
+      # The daemon outlives /run across a reboot, so a missing pidfile does
+      # not mean not running; match the daemon's own command line.
+      orphan=$(pgrep -f "$DAEMON container start" | head -1)
+      [ -n "$orphan" ] && daemon_pid=$orphan
+    fi
+    state=$(container_state)
+    running=0
+    case "$state" in *RUNNING*) running=1 ;; esac
+    # Running means both halves: the manager daemon AND a RUNNING container.
+    if [ -n "$daemon_pid" ] && [ "$running" = 1 ]; then
+      printf '%s is running (daemon pid %s, container RUNNING)\n' "$NAME" "$daemon_pid"
       exit 0
     fi
-    # The daemon outlives /run across a reboot, so a missing pidfile does not
-    # mean not running; match the daemon's own command line.
-    orphan=$(pgrep -f "$DAEMON container start" | head -1)
-    if [ -n "$orphan" ]; then
-      printf '%s is running (pid %s, no pidfile)\n' "$NAME" "$orphan"
-      exit 0
+    if [ -z "$daemon_pid" ] && [ "$running" = 0 ]; then
+      printf '%s is not running\n' "$NAME"
+      exit 3
     fi
-    printf '%s is not running\n' "$NAME"
-    exit 3
+    # Exactly one half is up (daemon without a container, or a container
+    # brought up by hand without the daemon): the service is half-broken and
+    # a boot must not read that as healthy. LSB 1 = "dead but pid file exists"
+    # is the closest code for a service that is only partly up.
+    [ -n "$state" ] || state="not RUNNING"
+    printf '%s: daemon %s, container %s\n' "$NAME" "${daemon_pid:-not running}" "$state"
+    exit 1
     ;;
   *)
     echo "Usage: $0 {start|stop|restart|status}" >&2
