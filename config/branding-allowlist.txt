@@ -1,0 +1,10 @@
+# Allowlist for the branding/trademark gate (tests/test-branding.sh).
+# The SuperMox web UI must not present "Proxmox" as our product name (AGENTS.md:
+# "Proxmox" is a trademark). The gate greps the patched web UI (www/manager6) for
+# "Proxmox VE" / "Proxmox Virtual Environment"; every hit whose source line
+# contains one of the fragments below is permitted, anything else FAILS.
+# Format: <fragment>  # <reason>   (two spaces before the #)
+console.log('Starting Proxmox VE Manager')  # console.log only, never shown to a user
+already filtered for the node's architecture and Proxmox VE release  # source comment, not user-visible
+the Proxmox VE documentation for cleanup steps  # points at the bundled upstream Ceph docs (attribution)
+The official Proxmox VE Administration Guide  # the locally served upstream admin guide (attribution)

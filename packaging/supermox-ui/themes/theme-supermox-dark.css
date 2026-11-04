@@ -151,8 +151,6 @@ div[id^="pveResourceTree-"][id$="-body"]{border-color:#092b32}
 body.x-border-layout-ct,div.x-border-layout-ct{background-color:#07252c}
 .x-mask{background-color:rgba(9,43,50,0.5)}
 .x-css-shadow{box-shadow:black 0 -1px 15px 5px !important}
-img[id^="proxmoxlogo-"][id$="-img"]{filter:invert(1) hue-rotate(180deg)}
-img[id^="proxmoxLogoSvg-"][id$="-img"]{filter:invert(1) hue-rotate(180deg)}
 div[id^="versioninfo-"]+div[id^="panel-"]>div[id^="panel-"][id$="-bodyWrap"]>div,div.eol-notice+div[id^="panel-"]>div[id^="panel-"][id$="-bodyWrap"]>div{background-color:transparent;border-color:transparent}
 .x-fieldset-header-default>.x-fieldset-header-text{color:#eef5ef}
 .proxmox-invalid-row{background-color:#521414}
