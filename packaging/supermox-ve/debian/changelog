@@ -1,3 +1,20 @@
+supermox-ve (0.1.12) unstable; urgency=medium
+
+  * Ship /etc/init.d/supermox-hosts, which maps the node's hostname to the
+    node's own non-loopback IPv4 address in /etc/hosts before pve-cluster starts
+    (X-Start-Before: pve-cluster). A fresh install left the hostname on Debian's
+    default "127.0.1.1 <hostname>" line, which pmxcfs rejects: pve-cluster then
+    starts "not running ... failed", and only scripts/vm-test-install.sh, which
+    no install path runs, had ever written the mapping. It manages exactly one
+    line ending in "# supermox-managed", rewrites it on every boot because
+    DHCP moves the address, strips the hostname from a loopback line, leaves an
+    admin's own static mapping alone, and writes the file atomically with mode
+    0644. If no IPv4 address exists after 20 s it logs a warning and exits 0
+    rather than blocking the boot. "status" is LSB 0 when the hostname resolves
+    to a non-loopback address of this node and LSB 3 otherwise.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 04 Nov 2026 15:20:00 +0000
+
 supermox-ve (0.1.11) unstable; urgency=medium
 
   * Fix /etc/init.d/supermox-sync so it can start an instance at all. It exec'd

@@ -17,5 +17,6 @@ override_dh_auto_install:
 
 override_dh_installinit:
 	dh_installinit --name=networking --no-start
+	dh_installinit --name=supermox-hosts
 	dh_installinit --name=supermox-binfmt
 	dh_installinit --name=supermox-sync

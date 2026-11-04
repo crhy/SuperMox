@@ -1,0 +1,302 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          supermox-hosts
+# Required-Start:    $network $remote_fs
+# Required-Stop:     $remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# X-Start-Before:    pve-cluster
+# Short-Description: Map this node's hostname to its own IP in /etc/hosts
+### END INIT INFO
+
+# pmxcfs (pve-cluster) refuses to start unless `hostname` resolves to a
+# non-loopback IP of this node: it rejects the Debian default
+# "127.0.1.1 <hostname>" line outright, and without a usable mapping the
+# cluster filesystem fails and the web UI on 8006 stays dead. PCs get their
+# address from DHCP, so it changes between boots and nothing else in the
+# stack maintains it.
+#
+# This script owns exactly ONE line in the hosts file, marked at the end with
+# "# supermox-managed". It rewrites that line when the node's address changes
+# and never touches any other line, with two deliberate exceptions:
+#   * an admin's own (unmanaged) line that already maps the hostname to a
+#     non-loopback address of this node wins outright: nothing is written;
+#   * the hostname is removed from a loopback line (Debian's 127.0.1.1),
+#     which is the mapping pmxcfs rejects.
+#
+# HOSTS_FILE and IP_CMD are overridable so the tests can point the script at
+# a hosts file and an `ip` stub under build/; WAIT_SECS bounds the DHCP wait.
+# The file is rewritten atomically (temp file + mv) with mode 0644.
+#
+# No address after WAIT_SECS seconds is a warning, never a boot failure:
+# `start` exits 0 so the rest of the boot continues.
+
+. /lib/lsb/init-functions
+
+NAME=supermox-hosts
+HOSTS_FILE=${HOSTS_FILE:-/etc/hosts}
+IP_CMD=${IP_CMD:-ip}
+WAIT_SECS=${WAIT_SECS:-20}
+MARKER='# supermox-managed'
+
+# The two names this node answers to: the short hostname pmxcfs looks up,
+# and the FQDN when the host has one (it is kept on the managed line so
+# `hostname -f` resolves too).
+node_hn() {
+  hostname 2>/dev/null | awk '{print $1; exit}'
+}
+
+node_fqdn() {
+  hn=$1
+  f=$(hostname -f 2>/dev/null | awk '{print $1; exit}')
+  if [ -z "$f" ] || [ "$f" = "." ] || [ "$f" = "$hn" ]; then
+    printf '%s\n' ''
+  else
+    printf '%s\n' "$f"
+  fi
+}
+
+# Loopback addresses: pmxcfs rejects these for the hostname mapping.
+is_loopback() {
+  case "$1" in
+    127.* | ::1 | 0:0:0:0) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Every IPv4 address configured on this node (scope global). Used both to
+# sanity-check the address we are about to write and to decide whether an
+# admin's static line really points at this node.
+node_addrs() {
+  "$IP_CMD" -4 -o addr show scope global 2>/dev/null | awk '
+    { for (i = 1; i < NF; i++) if ($i == "inet") {
+        a = $(i + 1); sub(/\/[0-9]+$/, "", a); print a; next } }'
+}
+
+is_node_ip() {
+  node_addrs | grep -qxF "$1"
+}
+
+# The node's primary IPv4: the source address of the route a packet to a
+# foreign address would take (the default-route gateway address of this
+# host), falling back to the first global address configured.
+primary_ip() {
+  out=$("$IP_CMD" -4 route get 1.1.1.1 2>/dev/null)
+  ip=$(printf '%s\n' "$out" | awk '
+    { for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit } }')
+  case "$ip" in
+    *[0-9]*) ;;
+    *) ip='' ;;
+  esac
+  if is_loopback "$ip"; then
+    ip=''
+  fi
+  if [ -z "$ip" ]; then
+    ip=$(node_addrs | head -n 1)
+  fi
+  printf '%s\n' "$ip"
+}
+
+# Wait for DHCP to have given the node an address.
+wait_ip() {
+  i=0
+  while [ "$i" -lt "$WAIT_SECS" ]; do
+    ip=$(primary_ip)
+    if [ -n "$ip" ]; then
+      printf '%s\n' "$ip"
+      return 0
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+# Fields after the address of hosts line <l>, and whether they name <hn>.
+line_names() {
+  l=$1
+  hn=$2
+  fqn=$3
+  printf '%s\n' "$l" | awk -v hn="$hn" -v fqn="$fqn" '
+    {
+      for (i = 2; i <= NF; i++)
+        if ($i == hn || (fqn != "" && $i == fqn)) { print "yes"; exit }
+    }'
+}
+
+line_ip() {
+  printf '%s\n' "$1" | awk '{print $1; exit}'
+}
+
+is_managed() {
+  case "$1" in
+    *"$MARKER") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# An unmanaged line that maps the hostname to a non-loopback address of
+# this node: the admin configured it, so leave the file alone.
+admin_static() {
+  hn=$1
+  fqn=$2
+  f=$3
+  [ -f "$f" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    is_managed "$line" && continue
+    [ "$(line_names "$line" "$hn" "$fqn")" = yes ] || continue
+    ip=$(line_ip "$line")
+    is_loopback "$ip" && continue
+    is_node_ip "$ip" || continue
+    return 0
+  done < "$f"
+  return 1
+}
+
+# Managed hosts line for address <ip>: "<ip> <fqdn-if-any> <hostname> #
+# supermox-managed".
+managed_line() {
+  hn=$1
+  fqn=$2
+  ip=$3
+  if [ -n "$fqn" ]; then
+    printf '%s %s %s %s\n' "$ip" "$fqn" "$hn" "$MARKER"
+  else
+    printf '%s %s %s\n' "$ip" "$hn" "$MARKER"
+  fi
+}
+
+# Drop every name field equal to <hn> or <fqn> from a hosts line.
+strip_names() {
+  l=$1
+  hn=$2
+  fqn=$3
+  printf '%s\n' "$l" | awk -v hn="$hn" -v fqn="$fqn" '
+    {
+      out = ""
+      for (i = 2; i <= NF; i++) {
+        if ($i == hn || (fqn != "" && $i == fqn)) continue
+        out = out " " $i
+      }
+      if (out == "") print $1; else print $1 out
+    }'
+}
+
+# Rewrite the hosts file: the managed line is replaced in place (appended
+# when there is none), the hostname is stripped from loopback lines, every
+# other line is copied verbatim. Written to a temp file in the same directory
+# and moved over the original, mode 0644.
+write_hosts() {
+  hn=$1
+  fqn=$2
+  ip=$3
+  dir=${HOSTS_FILE%/*}
+  [ -n "$dir" ] || dir=.
+  tmp="$HOSTS_FILE.supermox-tmp"
+  [ -f "$HOSTS_FILE" ] || : > "$HOSTS_FILE"
+  if [ ! -w "$HOSTS_FILE" ]; then
+    printf '%s: %s is not writable\n' "$NAME" "$HOSTS_FILE" >&2
+    return 1
+  fi
+  : > "$tmp"
+  placed=0
+  if [ -f "$HOSTS_FILE" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      if is_managed "$line"; then
+        if [ "$placed" -eq 0 ]; then
+          managed_line "$hn" "$fqn" "$ip" >> "$tmp"
+          placed=1
+        fi
+        continue
+      fi
+      if [ "$(line_names "$line" "$hn" "$fqn")" = yes ]; then
+        lip=$(line_ip "$line")
+        if is_loopback "$lip"; then
+          strip_names "$line" "$hn" "$fqn" >> "$tmp"
+          continue
+        fi
+      fi
+      printf '%s\n' "$line" >> "$tmp"
+    done < "$HOSTS_FILE"
+  fi
+  if [ "$placed" -eq 0 ]; then
+    managed_line "$hn" "$fqn" "$ip" >> "$tmp"
+  fi
+  chmod 0644 "$tmp"
+  mv -f "$tmp" "$HOSTS_FILE"
+  return 0
+}
+
+# The address the hosts file maps the hostname to (the same lookup pmxcfs
+# does; with an overridden HOSTS_FILE the file is read directly, since the
+# name service would not consult it).
+resolved_ip() {
+  hn=$1
+  fqn=$2
+  if [ "$HOSTS_FILE" = /etc/hosts ] && command -v getent >/dev/null 2>&1; then
+    getent hosts "$hn" 2>/dev/null | awk '{print $1; exit}'
+    return 0
+  fi
+  [ -f "$HOSTS_FILE" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ "$(line_names "$line" "$hn" "$fqn")" = yes ] || continue
+    printf '%s\n' "$(line_ip "$line")"
+    return 0
+  done < "$HOSTS_FILE"
+  return 1
+}
+
+case "${1:-}" in
+  start)
+    hn=$(node_hn)
+    if [ -z "$hn" ]; then
+      log_warning_msg "$NAME: no hostname, /etc/hosts not updated"
+      exit 0
+    fi
+    fqn=$(node_fqdn "$hn")
+    if admin_static "$hn" "$fqn" "$HOSTS_FILE"; then
+      log_begin_msg "$NAME: hostname already mapped by an admin line, leaving $HOSTS_FILE alone"
+      log_end_msg 0
+      exit 0
+    fi
+    ip=$(wait_ip)
+    if [ -z "$ip" ]; then
+      log_warning_msg "$NAME: no IPv4 address after $WAIT_SECS s, $HOSTS_FILE not updated"
+      exit 0
+    fi
+    if ! write_hosts "$hn" "$fqn" "$ip"; then
+      log_begin_msg "$NAME: cannot rewrite $HOSTS_FILE"
+      log_end_msg 1
+      exit 1
+    fi
+    log_begin_msg "$NAME: $HOSTS_FILE maps $hn to $ip"
+    log_end_msg 0
+    exit 0
+    ;;
+  stop)
+    # The mapping is boot-time state, not a service: removing the line would
+    # only break pmxcfs until the next boot. Deliberately a no-op.
+    exit 0
+    ;;
+  restart)
+    "$0" start
+    ;;
+  status)
+    hn=$(node_hn)
+    [ -n "$hn" ] || exit 3
+    fqn=$(node_fqdn "$hn")
+    ip=$(resolved_ip "$hn" "$fqn")
+    if [ -z "$ip" ] || is_loopback "$ip" || ! is_node_ip "$ip"; then
+      printf '%s: %s does not resolve to a non-loopback address of this node\n' "$NAME" "$hn" >&2
+      exit 3
+    fi
+    printf '%s: %s resolves to %s\n' "$NAME" "$hn" "$ip"
+    exit 0
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|status}" >&2
+    exit 2
+    ;;
+esac
+
+exit 0
