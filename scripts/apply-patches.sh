@@ -32,9 +32,18 @@ for c in "${components[@]}"; do
   pdir="$PATCHES_DIR/$c"
   if [ -d "$pdir" ]; then
     while IFS= read -r -d '' p; do
-      if ! ( cd "$dest" && patch -p1 --forward --batch < "$p" >/dev/null ); then
+      # --backup-dir keeps patch's .orig backups out of the source tree: a stray
+      # debian/control.orig or Makefile.orig would ship inside the built package.
+      if ! out="$( cd "$dest" && patch -p1 --forward --batch --no-backup-if-mismatch < "$p" 2>&1 )"; then
         printf 'ERROR: patch failed: %s\n' "$p" >&2
+        printf '%s\n' "$out" >&2
         exit 1
+      fi
+      # A hunk that lands with fuzz or an offset means the patch no longer matches
+      # the pinned upstream exactly: it can silently attach to the wrong context.
+      if printf '%s\n' "$out" | grep -qE 'fuzz|offset'; then
+        printf 'WARN: %s applies to %s with fuzz/offset (rebase against the pinned upstream):\n' "${p##*/}" "$c" >&2
+        printf '%s\n' "$out" | grep -E 'fuzz|offset' | sed 's/^/  /' >&2
       fi
     done < <(find "$pdir" -maxdepth 1 -type f -name '*.patch' -print0 | LC_ALL=C sort -z)
   fi

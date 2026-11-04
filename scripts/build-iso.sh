@@ -20,7 +20,9 @@ source "$repo_root/scripts/arch.sh"
 source "$repo_root/scripts/local-env.sh"
 
 SPACED_REPO="$SUPERMOX_SPACED_REPO"
-DEB_DIR="${SUPERMOX_DEB_DIR:-$repo_root/build/vm-data/debs}"
+# The .deb files vm-build-pkg.sh writes are read from SUPERMOX_DEBS_DIR (see
+# config/local.env.example); a hard-coded default would stage stale debs.
+DEB_DIR="$SUPERMOX_DEBS_DIR"
 WORKTREE="$repo_root/build/spaced-iso"
 KEY_URL='https://enterprise.proxmox.com/debian/proxmox-archive-keyring-trixie.gpg'
 HOST_KEY='/usr/share/keyrings/proxmox-archive-keyring.gpg'

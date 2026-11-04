@@ -108,8 +108,37 @@ if ! grep -qF 'LINE2 EDITED' "$patchfile"; then
   fail=1
 fi
 
+# --- fuzz/offset must be visible: apply-patches.sh must WARN, not swallow it ---
+export UPSTREAM_PACKAGES="$PWD/build/test-patch/fuzzy/packages"
+export PATCHES_DIR="$PWD/build/test-patch/fuzzy/patches"
+export INIT_SCRIPTS="$PWD/build/test-patch/fuzzy/no-init-scripts"
+rm -rf build/test-patch/fuzzy
+mkdir -p "$UPSTREAM_PACKAGES/pve-firewall/pve-firewall" "$PATCHES_DIR/pve-firewall"
+printf 'line1\nline2\nline3\nline4\nline5\nline6\n' > "$UPSTREAM_PACKAGES/pve-firewall/pve-firewall/fuzzme.txt"
+cat > "$PATCHES_DIR/pve-firewall/0001-fuzzy.patch" <<'PATCH'
+--- a/fuzzme.txt
++++ b/fuzzme.txt
+@@ -1,2 +1,2 @@
+ line5
+-line6
++line6 edited
+PATCH
+run scripts/apply-patches.sh build/test-patch/fuzzy/out
+assert_rc 0
+assert_has "WARN"
+assert_has "offset"
+if ! grep -qF 'line6 edited' build/test-patch/fuzzy/out/pve-firewall/pve-firewall/fuzzme.txt 2>/dev/null; then
+  echo "FAIL: fuzzy patch did not reach the output tree"
+  fail=1
+fi
+if [ -n "$(find build/test-patch/fuzzy/out -name '*.orig' -print -quit)" ]; then
+  echo "FAIL: .orig backup left inside the patched tree"
+  fail=1
+fi
+
 unset UPSTREAM_PACKAGES
 unset PATCHES_DIR
+unset INIT_SCRIPTS
 
 rm -rf build/patched build/test-patch build/work/fakecomp
 

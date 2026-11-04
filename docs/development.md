@@ -101,6 +101,7 @@ symlink to it), which is why no machine-specific path appears anywhere in the re
 | `check.sh`, `check-no-systemd.sh`, `check-overrides.sh`, `inventory-systemd.sh`, `build-deps-report.sh` | Gate and audits. |
 | `supermox-node-caps.sh` | Node capability tier probe (KVM / LXC / TCG). |
 | `supermox-android-setup.sh` | Prepare a node for the Android layer (Waydroid + Lawnchair). |
+| `supermox-onion-setup.sh` | Give a node a Tor onion service rendezvous for its join daemon. |
 | `supermox-logpipe` | Send a daemon's stderr to syslog under sysvinit. |
 
 ## Live Manager tests

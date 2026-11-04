@@ -49,6 +49,20 @@ if [ "${ve_count:-0}" -gt 1 ]; then
   missing=1
 fi
 
+# The deb dir must be the documented SUPERMOX_DEBS_DIR (where vm-build-pkg.sh
+# writes debs), never a hard-coded path: a fresh clone has no such directory and
+# would either fail or stage stale debs into the ISO.
+marker_dir="$PWD/build/test-iso-debs"
+rm -rf "$marker_dir"
+mkdir -p "$marker_dir"
+: > "$marker_dir/supermox-ve_9.9.9_all.deb"
+marker_out="$(SUPERMOX_DEBS_DIR="$marker_dir" bash "$target" --dry-run)"
+if ! printf '%s\n' "$marker_out" | grep -qF -- "$marker_dir/supermox-ve_9.9.9_all.deb"; then
+  echo "FAIL: --dry-run does not stage debs from SUPERMOX_DEBS_DIR"
+  missing=1
+fi
+rm -rf "$marker_dir"
+
 # ZERO systemd: the ISO must pin systemd away.
 if ! printf '%s\n' "$out" | grep -qF -- 'systemd -1'; then
   echo "FAIL: --dry-run output missing the systemd -1 pin"
