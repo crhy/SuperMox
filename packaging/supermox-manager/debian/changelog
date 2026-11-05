@@ -1,3 +1,12 @@
+supermox-manager (10.26.5) supermox; urgency=medium
+
+  * Changing one DNS field no longer wipes the node's other name servers
+    (the server writes resolv.conf from exactly the fields it receives).
+  * Graphs: a node or guest with no history yet shows an empty graph
+    instead of an error.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 06:35:34 -0800
+
 supermox-manager (10.26.4) supermox; urgency=medium
 
   * Create container offers only templates for the node's own architecture.
