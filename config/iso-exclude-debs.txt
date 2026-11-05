@@ -28,3 +28,6 @@ lua-rrd-dev  # Lua development files for the rrd Lua bindings
 python3-rrdtool  # Python 3 bindings for rrdtool; PVE's PVE::RRD uses librrds-perl
 ruby-rrd  # Ruby bindings for rrdtool, nothing in SuperMox uses them
 supermox-android  # the Waydroid/Android layer is for phones (M5, issue #7); the PC edition is MATE on X11, Waydroid needs a Wayland compositor and its container service fails at boot without Android images
+proxmox-ve  # Proxmox's meta-package: Depends systemd-sysv and the Proxmox kernel; SuperMox's meta-package is supermox-ve on the Devuan kernel
+pve-headers  # meta-package for Proxmox kernel headers (proxmox-default-headers); SuperMox runs the Devuan kernel
+pve-ha-simulator  # GTK simulator for developing HA logic, not part of a node
