@@ -18,7 +18,7 @@
 isc-dhcp-server  # a DHCP server daemon on every desktop; SuperMox does DHCP with dhcpcd + ifupdown2 (scripts/build-rootfs.sh)
 isc-dhcp-server-ldap  # LDAP backend of the DHCP server we do not install
 isc-dhcp-relay  # DHCP failover relay daemon, nothing in SuperMox uses it
-isc-dhcp-keama  # Keama (RFC 1101) DHCP daemon, nothing in SuperMox uses it
+isc-dhcp-keama  # Kea migration assistant (converts ISC DHCP configs for Kea); nothing in SuperMox uses it
 isc-dhcp-dev  # development headers and libraries for building against isc-dhcp
 isc-dhcp-client-ddns  # DDNS update hook for the DHCP client, not used by SuperMox
 librrd-dev  # development headers for building against librrd
