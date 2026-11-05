@@ -331,7 +331,10 @@ cp "$KEY_CACHE" "$lb_dir/config/archives/proxmox.key.chroot"
 # shipped carries exactly one copy of it: the package's conffile at
 # /etc/apt/preferences.d/supermox-origins. Its -1 stanza names every binary
 # package SuperMox rebuilds from patches/, so a missing staged .deb fails the
-# build instead of silently pulling Proxmox's systemd build of that name.
+# build instead of silently pulling Proxmox's systemd build of that name. The
+# same conffile also carries the libpve-network-* version hold (1.6.7) that keeps
+# the ISO install and later upgrades off the libpve-access-control skew, so the
+# ISO needs no pin of its own for it: copying the conffile brings the hold too.
 cp -f "$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-origins" "$lb_dir/config/archives/supermox-origins.pref.chroot"
 # ZERO systemd: copy the very file supermox-ve ships as its conffile. live-build
 # installs config/archives/<name>.pref.chroot as /etc/apt/preferences.d/<name>.pref

@@ -40,3 +40,12 @@ Explanation: rrdtool and isc-dhcp are SuperMox forks of Debian sources
 Package: isc-dhcp-client isc-dhcp-client-ddns isc-dhcp-client-udeb isc-dhcp-common isc-dhcp-dev isc-dhcp-keama isc-dhcp-relay isc-dhcp-server isc-dhcp-server-ldap librrd-dev librrd8t64 librrdp-perl librrds-perl lua-rrd lua-rrd-dev python3-rrdtool rrdcached rrdtool rrdtool-tcl ruby-rrd
 Pin: release o=Devuan
 Pin-Priority: -1
+
+Explanation: the pinned PXVIRT tree builds libpve-access-control 9.1.2, but the
+ Proxmox repo's newest libpve-network-perl (1.6.8) requires libpve-access-control
+ (>= 9.2.0). Hold the libpve-network-* packages at the release the pinned tree
+ was cut with (1.6.7) so the ISO install resolves and an installed node never
+ upgrades into that skew; re-derive whenever upstream/pinned-commit.txt moves.
+Package: libpve-network-*
+Pin: version 1.6.7*
+Pin-Priority: 990

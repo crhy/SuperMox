@@ -136,7 +136,7 @@ if [ -f "$origins_pin" ]; then
       }
       print pkg "|" pin "|" prio
     }' "$origins_pin")"
-  for want in '*|origin ""|999' '*|origin download.proxmox.com|100' 'swtpm swtpm-libs swtpm-tools|origin download.proxmox.com|600'; do
+  for want in '*|origin ""|999' '*|origin download.proxmox.com|100' 'swtpm swtpm-libs swtpm-tools|origin download.proxmox.com|600' 'libpve-network-*|version 1.6.7*|990'; do
     if ! printf '%s\n' "$records" | grep -qF "$want"; then
       echo "FAIL: $origins_pin has no record matching $want"
       fail=1

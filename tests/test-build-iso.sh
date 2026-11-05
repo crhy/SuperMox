@@ -123,6 +123,20 @@ if grep -qE '^Package: .*(libsystemd0|libpam-systemd|systemd-standalone)' "$targ
   missing=1
 fi
 
+# The ISO install must not fail on the libpve-network-perl/libpve-access-control
+# version skew. The hold lives in the supermox-origins conffile, which the ISO
+# copies into config/archives before supermox-ve can be installed, so assert both
+# halves: the ISO copies that conffile, and the conffile it copies holds libpve-network-*
+# at 1.6.7.
+if ! grep -qF -- 'cp -f "$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-origins" "$lb_dir/config/archives/supermox-origins.pref.chroot"' "$target"; then
+  echo "FAIL: $target does not copy the supermox-origins conffile (with the libpve-network version hold) into config/archives"
+  missing=1
+fi
+if ! grep -qE '^Pin: version 1\.6\.7\*\r?$' packaging/supermox-ve/etc/apt/preferences.d/supermox-origins; then
+  echo "FAIL: the supermox-origins conffile the ISO copies has no libpve-network 1.6.7 version hold"
+  missing=1
+fi
+
 # The ISO must not ship a DHCP server or development packages: our forks build
 # binaries SuperMox does not depend on, and live-build installs every deb stage_debs
 # stages. config/iso-exclude-debs.txt is the deny list, matched by EXACT package
