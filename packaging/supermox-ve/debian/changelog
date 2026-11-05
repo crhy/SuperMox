@@ -1,3 +1,23 @@
+supermox-ve (0.1.20) unstable; urgency=medium
+
+  * etc/apt/preferences.d/supermox-origins: hold libpve-network-* at 1.6.7*
+    (Pin-Priority: 990). The pinned PXVIRT tree builds libpve-access-control
+    9.1.2+supermox1, while the newest libpve-network-perl in the Proxmox
+    repository (1.6.8) requires libpve-access-control (>= 9.2.0~), and pve-
+    manager pulls libpve-network-perl (>= 1.6.5). A fresh ISO install therefore
+    resolved to 1.6.8 and stopped with "Unable to satisfy dependencies", and an
+    installed node would have hit the same skew on apt upgrade. The hold keeps
+    every libpve-network-* package at the release the pinned tree was cut with,
+    so the install resolves and a node can never upgrade into the gap; re-derive
+    the version whenever the pinned upstream commit moves. The ISO carries the
+    same hold because scripts/build-iso.sh stages this conffile verbatim into
+    config/archives/supermox-origins.pref.chroot, so the pin lives in one file
+    for the ISO and for the installed node; tests/test-supermox-ve.sh asserts
+    the record and tests/test-build-iso.sh asserts the ISO stages the file that
+    holds it.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 11:02:38 -0800
+
 supermox-ve (0.1.19) unstable; urgency=medium
 
   * init.d/supermox-cgroups: new service script. LXC containers could not start
