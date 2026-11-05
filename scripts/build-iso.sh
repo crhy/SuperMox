@@ -133,6 +133,7 @@ stage_debs() {
   local f base name ver arch_f key
   local -A best_ver=()
   local -A best_file=()
+  local -A managed=()
   local -a names=()
 
   if [ ! -d "$dir" ]; then
@@ -156,6 +157,7 @@ stage_debs() {
     name="${BASH_REMATCH[1]}"
     ver="${BASH_REMATCH[2]}"
     arch_f="${BASH_REMATCH[3]}"
+    managed[$name]=1
     if [ "$arch_f" != all ] && [ "$arch_f" != "$SUPERMOX_ARCH" ]; then
       printf 'WARN: skipping %s (deb arch %s != target %s)\n' "$base" "$arch_f" "$SUPERMOX_ARCH" >&2
       continue
@@ -181,6 +183,18 @@ stage_debs() {
     return 0
   fi
   run mkdir -p "$WORKTREE/build/local-packages"
+  # Earlier runs left their copies here (other versions, and packages since
+  # added to config/iso-exclude-debs.txt): live-build installs every deb in the
+  # pool, so remove every version of each package we manage before staging.
+  # Spaced's own builds in the same directory (marco, compiz, ...) are not ours
+  # and stay.
+  local stale
+  for key in "${!managed[@]}"; do
+    for stale in "$WORKTREE/build/local-packages/${key}_"*.deb; do
+      [ -e "$stale" ] || continue
+      run rm -f "$stale"
+    done
+  done
   while IFS= read -r key; do
     step "  ${best_file[$key]##*/}"
     run cp "${best_file[$key]}" "$WORKTREE/build/local-packages/"
