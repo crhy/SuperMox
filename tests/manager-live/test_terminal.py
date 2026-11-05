@@ -135,10 +135,13 @@ class TerminalLive(unittest.TestCase):
 
     def _template(self):
         """A template ready to use: a cached one, else download the newest alpine."""
-        ready = sorted(ct_ops.templates(self.client, self.node))
+        # The appliance index is multi-arch: only this node's architecture can start.
+        arch = ct_ops.node_architecture(self.client, self.node)
+        ready = sorted(v for v in ct_ops.templates(self.client, self.node)
+                       if not arch or "_{}.".format(arch) in v)
         if ready:
             return ready[-1]
-        rows = [row for row in ct_ops.available_templates(self.client, self.node)
+        rows = [row for row in ct_ops.available_templates(self.client, self.node, arch)
                 if row["os"] == "alpine"]
         if not rows:
             return None
