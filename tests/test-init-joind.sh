@@ -124,6 +124,12 @@ st.save()
 EOF
 
 out="$(run_joind start "$root/state-member")" || true
+# start-stop-daemon --background returns before the daemon has run: wait for
+# the stub to record its start (up to 10 s) instead of racing it.
+for _ in $(seq 1 100); do
+  [ -e "$stub_log" ] && break
+  sleep 0.1
+done
 if [ ! -e "$stub_log" ]; then
   echo "FAIL: joind start on a cluster member did not exec the daemon: $out"
   exit 1
