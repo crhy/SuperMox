@@ -6,8 +6,13 @@ set -euo pipefail
 source "$(dirname "$0")/arch.sh"
 # Paths: environment > config/local.env > build/ default (see docs/development.md).
 source "$(dirname "$0")/local-env.sh"
+# Shared pidfile/command-line lookup (also used by vm-stop.sh).
+source "$(dirname "$0")/vm-pid.sh"
 
-VM_DIR="$SUPERMOX_VM_DIR"
+# Absolute, symlink-free VM_DIR: vm-start.sh writes this path into the -pidfile argument,
+# and vm-stop.sh matches that argument to find the process, so a relative SUPERMOX_VM_DIR
+# (e.g. build/test-data) has to be canonicalised here first.
+VM_DIR="$(supermox_canon_path "$SUPERMOX_VM_DIR")"
 VM_RAM="${SUPERMOX_VM_RAM:-4096}"
 VM_CPUS="${SUPERMOX_VM_CPUS:-4}"
 VM_SSH_PORT="${SUPERMOX_VM_SSH_PORT:-2223}"
@@ -29,6 +34,7 @@ for arg in "$@"; do
 done
 
 qemu_bin="$(supermox_qemu_bin)"
+expected_comm="$(supermox_qemu_comm)"
 console="$(supermox_console)"
 mapfile -t mach_opts < <(supermox_machine_opts)
 
@@ -92,6 +98,17 @@ print_cmd() {
 if [ "$dry_run" -eq 1 ]; then
   print_cmd "${cmd[@]}"
   exit 0
+fi
+
+# Never start a second qemu for a VM_DIR that already has one running: two processes
+# sharing one disk image corrupt it, and their pidfiles fight each other (QEMU unlinks
+# -pidfile when it exits), which is how a running VM became un-stoppable and two VMs
+# ran at once. --dry-run starts nothing, so it is not blocked by this check.
+running_pid="$(supermox_find_qemu_pid "$VM_DIR/qemu.pid" "$expected_comm" || true)"
+if [ -n "$running_pid" ]; then
+  printf 'ERROR: a qemu process for VM_DIR %s is already running (pid %s); refusing to start a second instance.\n' "$VM_DIR" "$running_pid" >&2
+  printf 'Stop it first: bash scripts/vm-stop.sh (with the same SUPERMOX_VM_DIR).\n' >&2
+  exit 1
 fi
 
 missing=0
