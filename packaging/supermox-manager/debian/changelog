@@ -1,3 +1,14 @@
+supermox-manager (10.26.4) supermox; urgency=medium
+
+  * Create container offers only templates for the node's own architecture.
+    The appliance index is multi-architecture, and a container made from a
+    foreign template can never start (its /sbin/init cannot execute). ops.containers
+    maps the node's current-kernel.machine to the Debian architecture name and
+    available_templates() leaves out the other architectures; a template that
+    names no architecture is still offered.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 05:50:46 -0800
+
 supermox-manager (10.26.3) supermox; urgency=medium
 
   * Fit every page in a small laptop screen: help text wraps, and the nav list

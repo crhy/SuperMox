@@ -1,3 +1,23 @@
+supermox-ve (0.1.19) unstable; urgency=medium
+
+  * init.d/supermox-cgroups: new service script. LXC containers could not start
+    on our nodes: lxc-pve 7.x is built for cgroup v2 only and nothing in the
+    sysvinit boot sequence mounts a cgroup hierarchy at /sys/fs/cgroup, so
+    `pct start` died with "Failed to receive the container state". The script
+    mounts the unified cgroup2 hierarchy, delegates the controllers LXC and
+    QEMU resource limits need, and is enabled so it runs in rcS.d right after
+    mountkernfs, before lxcfs and the PVE services.
+  * init.d/supermox-wg: `up` and `conf` now sync the routing table as well as
+    the keys. wg syncconf never touches routes, so a member added after the
+    interface came up was listed by `wg show` and unreachable in fact ("Network
+    is unreachable"); routes of members that left the cluster are removed too.
+  * Pairs with pve-cluster 9.1.7+supermox2, whose init script seeds
+    /etc/pve/storage.cfg: a clean node had no storage defined at all, so
+    `pct create` and the web UI's Create CT failed with
+    "volume 'local:...' does not exist".
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 05:50:46 -0800
+
 supermox-ve (0.1.18) unstable; urgency=medium
 
   * init.d/supermox-joind: `start` on a node that has no cluster yet exits 0
