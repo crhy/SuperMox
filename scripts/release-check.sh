@@ -302,13 +302,17 @@ boot_step() {
         fi
         sleep 10
     done
-    if [ "$ok" -ne 1 ]; then
-        printf 'FAIL: vm-boot: the node did not settle (services + first history) within %ss\n' "$api_timeout"
-        record "vm-boot" "FAIL (node not settled)" 1
-        return
-    fi
     vm_up=1
     record "vm-boot" "PASS" 1
+    # Recorded on its own line so the live steps still run and report: on the
+    # first boot after an install, pvestatd can stall in its QEMU CPU-flag probe
+    # (crhy/SuperMox#12) and file no history until it is restarted.
+    if [ "$ok" -ne 1 ]; then
+        printf 'FAIL: first-history: every PVE service running and the node history answering, not within %ss\n' "$api_timeout"
+        record "first-history" "FAIL (node not settled, see #12)" 1
+    else
+        record "first-history" "PASS" 1
+    fi
 }
 
 # The installed system, not our source tree, must be free of systemd.
