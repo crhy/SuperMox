@@ -29,6 +29,18 @@ override_dh_auto_install:
 	cp -a etc/apt/preferences.d/supermox-no-systemd debian/supermox-ve/etc/apt/preferences.d/supermox-no-systemd
 	cp -a etc/apt/preferences.d/supermox-origins debian/supermox-ve/etc/apt/preferences.d/supermox-origins
 	chmod 0644 debian/supermox-ve/etc/apt/preferences.d/supermox-no-systemd debian/supermox-ve/etc/apt/preferences.d/supermox-origins
+	# ZERO systemd: the package also ships a dpkg config file so packages a node
+	# installs later never unpack systemd unit files. dpkg reads every file in
+	# /etc/dpkg/dpkg.cfg.d, and path-exclude drops the three trees stock Devuan
+	# packages (ssh, lightdm, avahi, nfs-common, lvm2, lxc, wpa_supplicant ...) drop
+	# unit files into. The ISO build stages this very file before any package is
+	# installed, and scripts/build-rootfs.sh passes the same three excludes to
+	# mmdebstrap, so the ISO, the rootfs and the installed node agree by construction.
+	# Declared in debian/conffiles for the same reason as the apt pins: debhelper
+	# only auto-registers conffiles it installs itself.
+	mkdir -p debian/supermox-ve/etc/dpkg/dpkg.cfg.d
+	cp -a etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units debian/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units
+	chmod 0644 debian/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units
 
 override_dh_installinit:
 	dh_installinit --name=networking --no-start

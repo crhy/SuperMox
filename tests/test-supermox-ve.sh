@@ -237,6 +237,36 @@ for f in supermox-no-systemd supermox-origins; do
     fail=1
   fi
 done
+# ZERO systemd unit files: the package also ships a dpkg config file so packages a
+# node installs later never unpack systemd unit files. dpkg reads every file in
+# /etc/dpkg/dpkg.cfg.d; path-exclude drops the three trees stock Devuan packages
+# (ssh, lightdm, avahi, nfs-common, lvm2, lxc, wpa_supplicant ...) drop unit files
+# into. The ISO build stages this very file before any package installs, and
+# scripts/build-rootfs.sh passes the same three excludes to mmdebstrap, so the
+# installed node, the ISO and the rootfs agree by construction.
+dpkg_cfg="$pkg_root/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units"
+if [ ! -f "$dpkg_cfg" ]; then
+  echo "FAIL: supermox-ve does not ship etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units"
+  fail=1
+fi
+for pat in 'path-exclude=/lib/systemd/\*' 'path-exclude=/usr/lib/systemd/\*' 'path-exclude=/etc/systemd/\*'; do
+  if ! grep -qE "$pat" "$dpkg_cfg"; then
+    echo "FAIL: supermox-no-systemd-units is missing $pat"
+    fail=1
+  fi
+done
+if ! grep -qF 'cp -a etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units debian/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units' "$pkg_root/debian/rules"; then
+  echo "FAIL: debian/rules does not copy the dpkg config file"
+  fail=1
+fi
+if ! grep -qF 'chmod 0644 debian/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units' "$pkg_root/debian/rules"; then
+  echo "FAIL: debian/rules does not install the dpkg config file as 0644"
+  fail=1
+fi
+if [ ! -f "$pkg_root/debian/conffiles" ] || ! grep -qx "/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units" "$pkg_root/debian/conffiles"; then
+  echo "FAIL: debian/conffiles does not declare /etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units"
+  fail=1
+fi
 for f in scripts/build-rootfs.sh scripts/build-iso.sh; do
   if ! grep -qF 'supermox-no-systemd' "$f"; then
     echo "FAIL: $f does not use the supermox-no-systemd pin file name"

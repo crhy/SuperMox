@@ -1,0 +1,11 @@
+# ZERO systemd: SuperMox runs on sysvinit (sysvinit-core is init, supermox-tmpfiles
+# replaces systemd-tmpfiles). Stock Devuan packages (ssh, lightdm, avahi, nfs-common,
+# lvm2, lxc, wpa_supplicant ...) ship systemd unit files under these three trees;
+# dpkg's path-exclude drops them at unpack time, so a node that installs one of those
+# packages later never carries systemd unit files. scripts/build-rootfs.sh passes the
+# same three excludes to mmdebstrap, and the ISO build stages this very file through
+# live-build's includes.chroot_before_packages so it is in place before any package
+# is installed.
+path-exclude=/lib/systemd/*
+path-exclude=/usr/lib/systemd/*
+path-exclude=/etc/systemd/*

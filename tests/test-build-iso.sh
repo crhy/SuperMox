@@ -30,6 +30,8 @@ for pat in \
   'config/archives/proxmox.key.chroot' \
   'config/archives/supermox.pref.chroot' \
   'config/archives/supermox-no-systemd.pref.chroot' \
+  'config/includes.chroot_before_packages/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units' \
+  'config/hooks/normal/9990-supermox-no-systemd-units.hook.chroot' \
   'supermox-10.26-pc-amd64.iso' \
   'supermox-ve' \
   'config/includes.chroot/etc/supermox/release' \
@@ -115,6 +117,18 @@ fi
 # left with exactly one copy of the pin: the package's conffile.
 if ! grep -qF -- 'cp -f "$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-no-systemd" "$lb_dir/config/archives/supermox-no-systemd.pref.chroot"' "$target"; then
   echo "FAIL: $target does not copy the supermox-ve pin conffile into config/archives"
+  missing=1
+fi
+# ZERO systemd unit files: the ISO must stage the supermox-ve dpkg path-exclude
+# conffile before any package installs (live-build copies includes.chroot_before_packages
+# into the chroot ahead of the package stages), and must write the hook that removes
+# the unit files the debootstrap stage left under lib/systemd, usr/lib/systemd, etc/systemd.
+if ! grep -qF -- 'cp -f "$repo_root/packaging/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units" "$lb_dir/config/includes.chroot_before_packages/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units"' "$target"; then
+  echo "FAIL: $target does not stage the supermox-ve dpkg path-exclude conffile into includes.chroot_before_packages"
+  missing=1
+fi
+if ! grep -qF -- 'cat > "$lb_dir/config/hooks/normal/9990-supermox-no-systemd-units.hook.chroot"' "$target"; then
+  echo "FAIL: $target does not write the 9990-supermox-no-systemd-units hook"
   missing=1
 fi
 # The ISO's own pref stanza may only add names the package does not pin.

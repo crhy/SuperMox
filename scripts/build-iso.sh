@@ -289,6 +289,8 @@ step "writing post-prepare config script: $post_prepare"
   || fail "missing packaging/supermox-ve/etc/apt/preferences.d/supermox-no-systemd: the ISO copies it to /etc/apt/preferences.d/"
 [ -f "$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-origins" ] \
   || fail "missing packaging/supermox-ve/etc/apt/preferences.d/supermox-origins: the ISO copies it to /etc/apt/preferences.d/"
+[ -f "$repo_root/packaging/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units" ] \
+  || fail "missing packaging/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units: the ISO stages it before any package is installed"
 if [ "$dry_run" -eq 1 ]; then
   printf 'DRY-RUN: write %s\n' "$post_prepare"
 else
@@ -351,6 +353,37 @@ Package: libsystemd-twitch-1 libsystemd-twitch2 systemd-notify systemd-loginctl
 Pin: version *
 Pin-Priority: -1
 PREF
+# ZERO systemd unit files: apt pins stop systemd PACKAGES from being installed, but
+# stock Devuan packages that ARE installed (ssh, lightdm, avahi, nfs-common, lvm2,
+# lxc, wpa_supplicant ...) unpack systemd unit files under lib/systemd, usr/lib/systemd
+# and etc/systemd. scripts/build-rootfs.sh keeps them out of the rootfs with mmdebstrap
+# --dpkgopt='path-exclude=...'; the ISO needs the same three excludes as a dpkg config
+# file that is in place BEFORE any package is unpacked. live-build copies
+# config/includes.chroot_before_packages/ into the chroot before the package-install
+# stages (see /usr/lib/live/build/chroot: includes_before_packages runs before
+# install-packages), so we stage the very file supermox-ve ships as its conffile.
+# The ISO that ships then carries exactly one copy: the package's conffile.
+mkdir -p "$lb_dir/config/includes.chroot_before_packages/etc/dpkg/dpkg.cfg.d"
+cp -f "$repo_root/packaging/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units" "$lb_dir/config/includes.chroot_before_packages/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units"
+# Belt and braces: debootstrap unpacks its packages before includes.chroot_before_packages
+# runs, so its copies of those unit files survive the dpkg config. This hook runs at
+# chroot_hooks (after every package install) and removes exactly the three trees the
+# path-excludes cover, printing what it removed. It never touches anything outside them.
+mkdir -p "$lb_dir/config/hooks/normal"
+cat > "$lb_dir/config/hooks/normal/9990-supermox-no-systemd-units.hook.chroot" <<'HOOK'
+#!/bin/sh
+# ZERO systemd: remove systemd unit files the debootstrap stage left under the three
+# trees the supermox-no-systemd-units dpkg path-excludes cover. Runs after every
+# package install, so packages installed after the dpkg config unpacked nothing here
+# and only the bootstrap leftovers remain. Never deletes anything outside these trees.
+set -eu
+for tree in /lib/systemd /usr/lib/systemd /etc/systemd; do
+  [ -d "\$tree" ] || continue
+  find "\$tree" -mindepth 1 \( -type f -o -type l \) -print -delete
+  find "\$tree" -depth -type d -empty -delete
+done
+HOOK
+chmod 0755 "$lb_dir/config/hooks/normal/9990-supermox-no-systemd-units.hook.chroot"
 cat > "$lb_dir/config/includes.chroot/etc/supermox/release" <<EOF
 SUPERMOX_VERSION=$release
 SUPERMOX_EDITION=pc
@@ -408,4 +441,6 @@ step "Proxmox key: $lb_dir/config/archives/proxmox.key.chroot (live-build instal
 step "pins: $lb_dir/config/archives/supermox.pref.chroot (local 999 > Proxmox 100, swtpm+pve1 600)"
 step "pins: $lb_dir/config/archives/supermox-no-systemd.pref.chroot (a copy of the supermox-ve conffile: systemd -1, chroot-only, the shipped ISO keeps the conffile) and supermox-iso-extra.pref.chroot (extra systemd names -1)"
 step "branding: $lb_dir/config/includes.chroot/etc/supermox/release (Spaced's /etc/os-release is left as is)"
+step "ZERO systemd units: $lb_dir/config/includes.chroot_before_packages/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units (a copy of the supermox-ve conffile: dpkg path-exclude for lib/systemd, usr/lib/systemd, etc/systemd, staged before any package installs)"
+step "ZERO systemd units: $lb_dir/config/hooks/normal/9990-supermox-no-systemd-units.hook.chroot (removes the unit files the debootstrap stage left under those three trees, prints them, touches nothing else)"
 collect_iso

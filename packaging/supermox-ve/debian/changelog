@@ -1,3 +1,18 @@
+supermox-ve (0.1.21) unstable; urgency=medium
+
+  * etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units: a new conffile with three dpkg
+    path-excludes (/lib/systemd/*, /usr/lib/systemd/*, /etc/systemd/*). Stock Devuan
+    packages that ARE installed (ssh, lightdm, avahi, nfs-common, lvm2, lxc,
+    wpa_supplicant ...) unpack systemd unit files into those trees; the excludes drop
+    them at unpack time, so a node that installs one of those packages later never
+    carries systemd unit files. Declared in debian/conffiles for the same reason as
+    the apt pins (debhelper only auto-registers conffiles it installs itself). The
+    ISO build stages this very file through live-build's includes.chroot_before_packages
+    (before any package installs) and adds a chroot hook that removes the unit files
+    the debootstrap stage left under those three trees; scripts/build-rootfs.sh already
+    passes the same three excludes to mmdebstrap, so the installed node, the ISO and
+    the rootfs agree by construction.
+
 supermox-ve (0.1.20) unstable; urgency=medium
 
   * etc/apt/preferences.d/supermox-origins: hold libpve-network-* at 1.6.7*
