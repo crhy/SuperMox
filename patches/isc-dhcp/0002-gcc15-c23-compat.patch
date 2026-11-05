@@ -1,0 +1,18 @@
+diff -ruN orig/debian/rules new/debian/rules
+--- a/debian/rules	2026-11-04 17:13:32.891897600 -0800
++++ b/debian/rules	2026-11-04 17:13:42.209941912 -0800
+@@ -10,6 +10,14 @@
+ LEASE_PATH=/var/lib/dhcp
+ DHCLIENT_SCRIPT=/usr/sbin/dhclient-script
+ 
++# GCC 15 (Devuan Ceres) defaults to -std=c23, where a parameter-less () means
++# "takes no arguments". isc-dhcp 4.4.3's DHCPv6-over-PPP code (server/dhcpv6.c:
++# void (*ia_pd_match)() etc. and the ia_na_*/ia_pd_* callbacks added by
++# debian/patches/0013-DHCPv6-over-PPP-support-626514.patch) relies on the pre-C23
++# reading, so the server build fails with "too many arguments" and
++# incompatible-pointer-type errors. Keep the old semantics rather than rewrite
++# the legacy prototypes.
++CFLAGS+=-std=gnu17
+ CFLAGS+=-Wall
+ CFLAGS+=-DCALL_SCRIPT_ON_ONETRY_FAIL
+ CFLAGS+=$(shell dpkg-buildflags --get CFLAGS)
