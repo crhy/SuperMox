@@ -279,6 +279,9 @@ def recv():
         buf += chunk.decode(errors='replace')
 
 recv()  # the greeting
+# QEMU rejects every command until the client leaves capabilities negotiation mode.
+s.sendall(b'{"execute":"qmp_capabilities"}\n')
+recv()
 for c in cmds:
     s.sendall(c.encode() + b'\n')
     print(json.dumps(recv()))
@@ -296,7 +299,7 @@ dump_screen() {
   png="$WORK/screen-$n.png"
   # QMP's key is "arguments": with "argument" the call gets no filename, QEMU
   # replies an error, and no screen-*.png is ever written.
-  if ! qmp_cmd "$QMP_SOCK" "{\"command\":\"screendump\",\"arguments\":{\"filename\":\"$ppm\"}}" >/dev/null; then
+  if ! qmp_cmd "$QMP_SOCK" "{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$ppm\"}}" >/dev/null; then
     printf 'WARN: QMP screendump failed\n' >&2
     return 1
   fi
@@ -370,7 +373,7 @@ stop_qemu() { # $1 pid (default: the one this script started); idempotent
   [ -n "$pid" ] || return 0
   qemu_alive "$pid" || return 0
   if [ -S "$QMP_SOCK" ]; then
-    qmp_cmd "$QMP_SOCK" '{"command":"quit"}' >/dev/null 2>&1 || true
+    qmp_cmd "$QMP_SOCK" '{"execute":"quit"}' >/dev/null 2>&1 || true
     for n in $(seq 1 10); do
       qemu_alive "$pid" || return 0
       sleep 1
@@ -593,7 +596,7 @@ while :; do
     dump_at=$((dump_at + ISO_DUMP_EVERY))
     dump_screen || true
   fi
-  if grep -qE "$BOOT_DONE_RE" "$SERIAL" 2>/dev/null; then
+  if grep -a -qE "$BOOT_DONE_RE" "$SERIAL" 2>/dev/null; then
     done_reason="the multi-user boot finished"
     break
   fi
@@ -602,7 +605,7 @@ while :; do
     size="$new_size"
     quiet_since=$SECONDS
   elif [ $((SECONDS - quiet_since)) -ge "$SETTLE_S" ] &&
-    [ "$(grep -cE '^[[:space:]]*Starting ' "$SERIAL" 2>/dev/null || true)" -ge "$MIN_SERVICE_STARTS" ]; then
+    [ "$(grep -a -cE '^[[:space:]]*Starting ' "$SERIAL" 2>/dev/null || true)" -ge "$MIN_SERVICE_STARTS" ]; then
     done_reason="the serial log stopped growing after $SETTLE_S s"
     break
   fi
@@ -615,7 +618,7 @@ dump_screen || true
 # Power off through QMP, then stop the process for good with stop_qemu (quit, TERM,
 # KILL after 10 s) and wait for it to exit: the checks below must read a serial log
 # that is finished being written, and nothing may survive this script.
-qmp_cmd "$QMP_SOCK" '{"command":"power_off"}' >/dev/null 2>&1 || true
+qmp_cmd "$QMP_SOCK" '{"execute":"system_powerdown"}' >/dev/null 2>&1 || true
 qemu_pid="$pid"
 stop_qemu "$pid"
 # Nothing of this run may survive: when QEMU did not daemonise the job above IS the
@@ -638,7 +641,7 @@ report() { # $1 name, $2 0 = pass, $3 detail
 }
 
 # 1. the kernel booted.
-kline="$(grep -m1 -F 'Linux version ' "$SERIAL" 2>/dev/null || true)"
+kline="$(grep -a -m1 -F 'Linux version ' "$SERIAL" 2>/dev/null || true)"
 if [ -n "$kline" ]; then
   report 'kernel booted' 0 "$kline"
 else
@@ -656,8 +659,8 @@ fi
 #   3 s for unsquashfs -ll over its 248,201 entries.
 # systemd-tmpfiles appears in this boot as a helper binary SuperMox ships; that is
 # not systemd running the system, so it must not fail this check.
-initline="$(grep -m1 -E 'INIT:[[:space:]]+version' "$SERIAL" 2>/dev/null || true)"
-sysdline="$(grep -m1 -E 'systemd\[1\]|Welcome to systemd|Running systemd' "$SERIAL" 2>/dev/null || true)"
+initline="$(grep -a -m1 -E 'INIT:[[:space:]]+version' "$SERIAL" 2>/dev/null || true)"
+sysdline="$(grep -a -m1 -E 'systemd\[1\]|Welcome to systemd|Running systemd' "$SERIAL" 2>/dev/null || true)"
 if [ -n "$initline" ] && [ -z "$sysdline" ]; then
   report 'init is sysvinit' 0 "serial banner: $initline"
 else
@@ -670,8 +673,8 @@ else
 fi
 
 # 3. the boot reached the login stage: every init.d service of runlevel 2 ran.
-ready="$(grep -m1 -E "$BOOT_DONE_RE" "$SERIAL" 2>/dev/null || true)"
-starts="$(grep -cE '^[[:space:]]*Starting ' "$SERIAL" 2>/dev/null || true)"
+ready="$(grep -a -m1 -E "$BOOT_DONE_RE" "$SERIAL" 2>/dev/null || true)"
+starts="$(grep -a -cE '^[[:space:]]*Starting ' "$SERIAL" 2>/dev/null || true)"
 if [ -n "$ready" ] || [ "$starts" -ge "$MIN_SERVICE_STARTS" ]; then
   if [ -n "$ready" ]; then
     report 'boot reached the login stage' 0 "$starts services started; last: $ready"
