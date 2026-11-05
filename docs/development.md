@@ -75,7 +75,6 @@ variables; copy it to `config/local.env` and edit.
 | `SUPERMOX_DEBS_DIR` | built `.deb` files | `$SUPERMOX_VM_DIR/debs` |
 | `SUPERMOX_SPACED_REPO` | Spaced Linux checkout for `build-iso.sh` | `$REPO/../spaced` (a fresh clone has none: `build-iso.sh` stops and names this variable) |
 | `SUPERMOX_SPACED_WORKTREE` | live-build worktree `build-iso.sh` creates in that checkout | `$REPO/build/spaced-iso` |
-| `SUPERMOX_SPACED_WORKTREE` | live-build worktree `build-iso.sh` creates in that checkout | `$REPO/build/spaced-iso` |
 
 Precedence: an exported environment variable wins over `config/local.env`, which
 wins over the default. So `SUPERMOX_VM_DIR=/data/vm bash scripts/vm-start.sh`
