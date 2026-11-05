@@ -56,6 +56,15 @@ Explanation: qemu-server needs Proxmox's patched swtpm (0.10.2+pve1), not Devuan
 Package: swtpm swtpm-libs swtpm-tools
 Pin: origin download.proxmox.com
 Pin-Priority: 600
+
+Explanation: the pinned PXVIRT tree builds libpve-access-control 9.1.2, but the
+ Proxmox repo's newest libpve-network-perl (1.6.8) requires libpve-access-control
+ (>= 9.2.0). Hold the libpve-network-* packages at the release the pinned tree was cut with
+ (1.6.7) so the locally built set stays self-consistent instead of half-upgraded.
+ Re-derive this hold whenever upstream/pinned-commit.txt moves.
+Package: libpve-network-*
+Pin: version 1.6.7*
+Pin-Priority: 990
 PIN
 
 printf 'deb http://deb.devuan.org/merged excalibur main\n' > /etc/apt/sources.list.d/excalibur-rust.list
@@ -113,6 +122,16 @@ else
   printf 'FAIL: apt-get -s install librust-proxmox-log-dev\n'
   fail=1
 fi
+
+for pkg in libpve-network-perl libpve-network-api-perl; do
+  pol="$(remote "apt-cache policy $pkg" 2>/dev/null || true)"
+  if printf '%s\n' "$pol" | grep -qE '^[[:space:]]*Candidate:[[:space:]]*1\.6\.7'; then
+    printf 'PASS: apt-cache policy %s candidate is the pinned-era 1.6.7\n' "$pkg"
+  else
+    printf 'FAIL: apt-cache policy %s candidate is not 1.6.7*\n' "$pkg"
+    fail=1
+  fi
+done
 
 if [ "$fail" -ne 0 ]; then
   exit 1

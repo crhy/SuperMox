@@ -1,7 +1,18 @@
 diff -ruN orig/debian/changelog new/debian/changelog
 --- a/debian/changelog	2026-03-01 02:47:50.000000000 -0800
 +++ b/debian/changelog	2026-11-04 14:30:22.301230830 -0800
-@@ -1,3 +1,34 @@
+@@ -1,3 +1,45 @@
++rrdtool (1.9.0-2.1+supermox1) unstable; urgency=medium
++
++  * init.d/rrdcached, which this package installs as /etc/init.d/rrdcached,
++    reads /etc/default/rrdcached the way the unit's EnvironmentFile did, passes
++    -l unix:/var/run/rrdcached.sock explicitly (Debian gets that socket from
++    service-manager socket activation, which sysvinit does not provide) and
++    forks with -p /run/rrdcached.pid instead of staying in the foreground for
++    a service manager that tracks the process itself.
++
++ -- SuperMox <noreply@supermox.me>  Wed, 04 Nov 2026 19:05:00 -0800
++
 +rrdtool (1.9.0-2.1+supermox) unstable; urgency=medium
 +
 +  * SuperMox fork: rrdcached runs under sysvinit, so nothing in this package

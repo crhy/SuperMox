@@ -6,8 +6,10 @@
 # directory.  It is created empty, with a comment that explains the format,
 # so a fresh node has no home folder sync until an admin opts a user in;
 # an existing file is never overwritten, or an upgrade would wipe the
-# admin's list.  No enable/start loop here: debhelper's own snippet (the
-# #DEBHELPER# token below, inserted by dh_installinit) does that.
+# admin's list.  No enable/start loop here: debhelper's own snippet (inserted
+# at the marker token near the bottom of this file by dh_installinit) does that;
+# the marker must never be spelled out in prose, or debhelper substitutes it there
+# too and leaves a dangling comment line that dash cannot parse.
 set -e
 
 if [ ! -e /etc/supermox/sync-users ]; then

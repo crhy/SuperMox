@@ -1,7 +1,17 @@
 diff -ruN orig/debian/changelog new/debian/changelog
 --- a/debian/changelog	2025-05-03 10:16:14.000000000 -0700
 +++ b/debian/changelog	2026-11-04 15:05:28.739376625 -0800
-@@ -1,3 +1,16 @@
+@@ -1,3 +1,26 @@
++isc-dhcp (4.4.3-P1-8+supermox2) unstable; urgency=medium
++
++  * Build with CFLAGS+=-std=gnu17 (debian/rules, patch 0002-gcc15-c23-compat):
++    Devuan Ceres' GCC 15 defaults to -std=c23, where a parameter-less () means
++    "takes no arguments"; isc-dhcp's DHCPv6-over-PPP callbacks (server/dhcpv6.c
++    ia_na_*/ia_pd_*) rely on the pre-C23 reading, so the server fails to build
++    with "too many arguments" and incompatible-pointer-type errors without it.
++
++ -- SuperMox <noreply@supermox.me>  Wed, 04 Nov 2026 17:38:10 -0800
++
 +isc-dhcp (4.4.3-P1-8+supermox1) unstable; urgency=medium
 +
 +  * Drop the dhclient hooks Debian ships for systemd-resolved (debian/resolved

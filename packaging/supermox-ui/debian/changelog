@@ -1,3 +1,13 @@
+supermox-ui (10.26.1) supermox; urgency=medium
+
+  * themes/theme-supermox-dark.css: drop the two rules that inverted Proxmox's
+    logo images. SuperMox does not ship that logo, and its trademark is not
+    ours to restyle.
+  * debian/copyright: full AGPL-3.0-or-later text instead of the bare
+    "AGPLv3" tag.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 04 Nov 2026 19:05:00 -0800
+
 supermox-ui (10.26) supermox; urgency=medium
 
   * Initial release: SuperMox web UI assets.

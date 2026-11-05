@@ -1,3 +1,15 @@
+supermox-ve (0.1.16) unstable; urgency=medium
+
+  * Fix the postinst, which dpkg ran with dash and aborted at line 92 with
+    `Syntax error: ")" unexpected`, leaving supermox-ve unpacked but unconfigured
+    on a fresh node. The header comment described debhelper's substitution marker
+    by spelling it out; debhelper substitutes that token wherever it appears,
+    so its init enable/start snippet was injected into the middle of the comment
+    and the remainder of the comment line became bare shell text. The marker is
+    now referred to in prose only, and the one real marker line is untouched.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 11 Nov 2026 12:00:00 +0000
+
 supermox-ve (0.1.15) unstable; urgency=medium
 
   * Depend on isc-dhcp-client (>= 4.4.3-P1-8+supermox1): pve-container pulls

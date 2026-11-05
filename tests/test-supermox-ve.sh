@@ -180,6 +180,20 @@ while IFS= read -r line || [ -n "$line" ]; do
   fi
 done < config/init-scripts.txt
 
+# debhelper substitutes its marker token wherever it appears in a maintainer
+# script, not only on a dedicated line: a script that spells the marker out in
+# prose gets the whole init snippet injected there and the rest of the comment
+# line becomes bare shell, which dash rejects. So each maintainer script may
+# contain the marker exactly once.
+for f in packaging/*/debian/post* packaging/*/debian/pre* packaging/*/debian/config; do
+  [ -f "$f" ] || continue
+  n=$(grep -c '#DEBHELPER#' "$f" || true)
+  if [ "$n" -gt 1 ]; then
+    echo "FAIL: $f mentions the debhelper marker $n times"
+    fail=1
+  fi
+done
+
 if [ "$fail" -ne 0 ]; then
   exit 1
 fi
