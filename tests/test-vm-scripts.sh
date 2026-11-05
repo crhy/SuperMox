@@ -41,3 +41,35 @@ if SUPERMOX_VM_FWD='tcp:10.0.0.1:18006-:8006' bash "$target" --dry-run >/dev/nul
 fi
 
 echo "OK: vm-start.sh --dry-run appends SUPERMOX_VM_FWD hostfwd entries and rejects a non-localhost one"
+
+# A VM whose pidfile is gone (QEMU unlinks it when an older instance exits)
+# must still be stoppable, only that VM, and vm-start.sh must refuse a second
+# instance for the same VM_DIR. Fakes: copies of bash named like qemu, so their
+# comm matches and their command line carries -pidfile <dir>/qemu.pid.
+fake_root="$(pwd)/build/test-vm-pidless"
+rm -rf "$fake_root"
+mkdir -p "$fake_root/a" "$fake_root/b"
+fake_bin="$fake_root/qemu-system-x86_64"
+cp /bin/bash "$fake_bin"
+"$fake_bin" -c 'sleep 60; :' x -pidfile "$fake_root/a/qemu.pid" &
+fake_a=$!
+"$fake_bin" -c 'sleep 60; :' x -pidfile "$fake_root/b/qemu.pid" &
+fake_b=$!
+cleanup_fakes() { kill "$fake_a" "$fake_b" 2>/dev/null || true; pkill -P "$fake_a" 2>/dev/null || true; pkill -P "$fake_b" 2>/dev/null || true; }
+trap cleanup_fakes EXIT
+sleep 1
+if SUPERMOX_VM_DIR="$fake_root/a" timeout 20 bash scripts/vm-start.sh --background >/dev/null 2>&1; then
+  echo "FAIL: vm-start.sh started a second instance for a VM_DIR that already runs one"
+  exit 1
+fi
+if ! SUPERMOX_VM_DIR="$fake_root/a" timeout 40 bash scripts/vm-stop.sh >/dev/null 2>&1 || kill -0 "$fake_a" 2>/dev/null; then
+  echo "FAIL: vm-stop.sh did not stop a running VM whose pidfile is missing"
+  exit 1
+fi
+if ! kill -0 "$fake_b" 2>/dev/null; then
+  echo "FAIL: vm-stop.sh for one VM_DIR stopped the VM of another"
+  exit 1
+fi
+cleanup_fakes
+rm -rf "$fake_root"
+echo "OK: vm-stop.sh stops a pidfile-less VM by its command line (only that one); vm-start.sh refuses a second instance"
