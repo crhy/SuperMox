@@ -78,7 +78,13 @@ fi
 
 # --- Step 2: python deps, wireguard-tools, ping (tolerate no apt; verify) ---
 if vm_ssh 'export DEBIAN_FRONTEND=noninteractive
-apt-get -y install python3-mnemonic python3-nacl python3-qrcode python3-cryptography wireguard-tools iputils-ping >/dev/null 2>&1 || true
+want="python3-mnemonic python3-nacl python3-qrcode python3-cryptography wireguard-tools iputils-ping"
+# Right after boot the package lists can be stale or apt briefly locked: retry
+# once after an update, and show the reason if it still fails.
+if ! apt-get -y install $want >/tmp/e2e-apt.log 2>&1; then
+  sleep 10; apt-get update >>/tmp/e2e-apt.log 2>&1
+  apt-get -y install $want >>/tmp/e2e-apt.log 2>&1 || tail -5 /tmp/e2e-apt.log >&2
+fi
 python3 -c "import nacl, mnemonic, qrcode, cryptography" && test -x /usr/bin/wg && test -x "$(command -v ping)"'; then
   pass "python deps, wireguard-tools and ping present in the VM"
 else
