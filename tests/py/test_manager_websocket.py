@@ -11,9 +11,11 @@ unmask them, exactly as a server would.
 """
 
 import os
+import select
 import socket
 import ssl
 import threading
+import time
 import unittest
 
 from supermox_manager import api, logic
@@ -157,7 +159,18 @@ class _EchoServer:
 
     refuse=True answers a plain 401 instead of upgrading; accept and subprotocol
     can be broken on purpose to check what the client insists on.
+
+    The listening socket stays plain and is polled with select(), and TLS is
+    applied per connection with a timeout. Wrapping the listening socket instead
+    parks the single serving thread inside accept(): closing a socket does not
+    wake a thread already blocked in accept() on it, so stop() burned its whole
+    join timeout and leaked the thread; and the handshake itself had no timeout,
+    so a client that connected without finishing it pinned the thread inside
+    accept() forever and the answer this server should have sent never arrived.
     """
+
+    _POLL = 0.2      # select() timeout, seconds
+    _CONNECTION = 10.0    # per-connection timeout, seconds
 
     def __init__(self, pem, key, accept=None, subprotocol="binary", refuse=False):
         self.requests = []
@@ -168,8 +181,8 @@ class _EchoServer:
         self.context.load_cert_chain(pem, key)
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.bind(("127.0.0.1", 0))
-        self.socket = self.context.wrap_socket(self.socket, server_side=True)
         self.socket.listen(8)
+        self._serving = True
         self.thread = threading.Thread(target=self._serve, daemon=True)
         self.thread.start()
 
@@ -178,17 +191,39 @@ class _EchoServer:
         return self.socket.getsockname()[1]
 
     def _serve(self):
-        while True:
+        while self._serving:
             try:
-                connection, _address = self.socket.accept()
+                ready, _, _ = select.select([self.socket], [self.socket], [],
+                                            self._POLL)
+            except (OSError, ValueError):
+                return          # stop() closed the listening socket
+            if not ready:
+                continue
+            try:
+                plain, _address = self.socket.accept()
             except OSError:
                 return
+            connection = self._wrap(plain)
+            if connection is None:
+                continue        # a client that never finished the handshake
             try:
                 self._handle(connection)
             except (OSError, websocket.WebSocketError):
                 pass
             finally:
                 connection.close()
+
+    def _wrap(self, plain):
+        """TLS on one connection, with a timeout on every read it takes."""
+        plain.settimeout(self._CONNECTION)
+        try:
+            connection = self.context.wrap_socket(plain, server_side=True,
+                                                  do_handshake_on_connect=False)
+            connection.do_handshake()
+        except OSError:
+            plain.close()
+            return None
+        return connection
 
     def _handle(self, connection):
         head = b""
@@ -222,7 +257,11 @@ class _EchoServer:
             connection.sendall(websocket.encode_frame(payload, 0x2, b""))
 
     def stop(self):
-        self.socket.close()
+        self._serving = False
+        try:
+            self.socket.close()
+        except OSError:
+            pass
         if self.thread:
             self.thread.join(timeout=5)
 
@@ -297,3 +336,17 @@ class Handshake(unittest.TestCase):
         with self.assertRaisesRegex(websocket.WebSocketError,
                                     "refused the websocket"):
             websocket.connect("127.0.0.1", server.port, "/x", self.pin)
+
+    def test_stop_leaves_no_thread_parked_in_accept(self):
+        # A refusing server returns from _handle at once, so its thread is
+        # already back in accept() when stop() runs. It must still shut down
+        # in one poll: a thread parked in accept() on a closed socket never
+        # wakes up, and every later test pays its join timeout.
+        server = self.serve(refuse=True)
+        with self.assertRaisesRegex(websocket.WebSocketError,
+                                    "refused the websocket"):
+            websocket.connect("127.0.0.1", server.port, "/x", self.pin)
+        started = time.time()
+        server.stop()
+        self.assertLess(time.time() - started, 3.0)
+        self.assertFalse(server.thread.is_alive())
