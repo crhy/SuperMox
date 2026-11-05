@@ -191,3 +191,26 @@ class Charts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoHistoryYet(unittest.TestCase):
+    """A node or guest without an archive yet shows no history, not an error."""
+
+    def test_http_500_from_rrddata_is_an_empty_history(self):
+        from supermox_manager import api
+
+        class NoArchive:
+            def request(self, method, path, params=None):
+                raise api.APIError("Operation failed (HTTP 500).", status=500)
+
+        self.assertEqual(metrics.rrd(NoArchive(), "pve", kind="qemu", vmid=101), [])
+
+    def test_other_errors_still_raise(self):
+        from supermox_manager import api
+
+        class Denied:
+            def request(self, method, path, params=None):
+                raise api.APIError("Your account does not have permission.", status=403)
+
+        with self.assertRaises(api.APIError):
+            metrics.rrd(Denied(), "pve")

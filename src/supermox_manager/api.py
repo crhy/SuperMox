@@ -17,7 +17,14 @@ from urllib.parse import quote, urlencode, urlsplit
 
 
 class APIError(Exception):
-    """A safe, user-facing connection or API failure."""
+    """A safe, user-facing connection or API failure.
+
+    status is the HTTP status when the node answered with an error, else None.
+    """
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 def fingerprint(value):
@@ -169,7 +176,8 @@ class Client:
             fields = decoded.get("errors", {}) if isinstance(decoded, dict) else {}
             names = ", ".join(str(k) for k in fields) if isinstance(fields, dict) else ""
             raise APIError("Operation failed (HTTP {}).{}".format(
-                response.status, " Check fields: " + names if names else ""))
+                response.status, " Check fields: " + names if names else ""),
+                status=response.status)
         try:
             decoded = json.loads(payload)
         except (ValueError, UnicodeError):

@@ -84,7 +84,15 @@ def rrd(client, node, kind=None, vmid=None, storage=None, timeframe="hour",
             timeframe, ", ".join(allowed)))
     if cf not in CONSOLIDATION:
         raise ValueError("Unknown consolidation function: {}".format(cf))
-    rows = client.request("GET", path, {"timeframe": timeframe, "cf": cf})
+    try:
+        rows = client.request("GET", path, {"timeframe": timeframe, "cf": cf})
+    except api.APIError as exc:
+        # A node or guest with no archive yet (a brand-new node before
+        # pvestatd's first cycle, a guest that never ran) is answered with
+        # HTTP 500 by the server: that is "no history yet", not a failure.
+        if exc.status == 500:
+            return []
+        raise
     return list(rows or [])
 
 
