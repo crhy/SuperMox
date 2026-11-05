@@ -3,6 +3,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Every path build-iso.sh uses comes from the local settings, so the test asks
+# for the same values instead of hard-coding a machine's paths.
+source scripts/local-env.sh
+
+if [ -z "$SUPERMOX_SPACED_WORKTREE" ]; then
+  echo "FAIL: SUPERMOX_SPACED_WORKTREE is empty (local-env.sh must default it)"
+  exit 1
+fi
+
 target="scripts/build-iso.sh"
 
 if [ ! -f "$target" ]; then
@@ -15,7 +24,7 @@ out="$(bash "$target" --dry-run)"
 missing=0
 for pat in \
   'worktree add --detach' \
-  'build/spaced-iso' \
+  "$SUPERMOX_SPACED_WORKTREE" \
   'config/packages.chroot/' \
   'config/archives/proxmox.list.chroot' \
   'config/archives/proxmox.key.chroot' \
@@ -43,12 +52,41 @@ if printf '%s\n' "$out" | grep -qE -- '-(dbgsym|build-deps)_[^/]*\.deb$'; then
   missing=1
 fi
 
-# Newest version only: supermox-ve must be staged exactly once.
-ve_count="$(printf '%s\n' "$out" | grep -cE 'supermox-ve_[^_]*_all\.deb$' || true)"
+# Newest version only: supermox-ve must be staged exactly once. Count the
+# staging lines stage_debs prints for each package it keeps; the pre-clean
+# prints `DRY-RUN: rm -f .../build/local-packages/supermox-ve_<ver>_all.deb` for
+# the copy an earlier run left in the worktree, and that removal is not a stage.
+ve_count="$(printf '%s\n' "$out" | grep -cE '^STEP:   supermox-ve_[^_]*_all\.deb$' || true)"
 if [ "${ve_count:-0}" -gt 1 ]; then
   echo "FAIL: supermox-ve staged $ve_count times (only the newest version may go in)"
   missing=1
 fi
+
+# The check above only catches a double stage if an earlier build happened to
+# leave a copy in the worktree. Reproduce that state instead of depending on it:
+# a stale supermox-ve of another version, in a scratch worktree, must be pre-
+# cleaned and must not make the package look staged twice, because live-build
+# installs every deb in the pool.
+scratch_wt="$PWD/build/test-iso-worktree"
+rm -rf "$scratch_wt"
+mkdir -p "$scratch_wt/.git" "$scratch_wt/build/local-packages"
+: > "$scratch_wt/build/local-packages/supermox-ve_0.0.1_all.deb"
+scratch_out="$(SUPERMOX_SPACED_WORKTREE="$scratch_wt" bash "$target" --dry-run)"
+scratch_count="$(printf '%s\n' "$scratch_out" | grep -cE '^STEP:   supermox-ve_[^_]*_all\.deb$' || true)"
+if [ "${scratch_count:-0}" -ne 1 ]; then
+  echo "FAIL: supermox-ve staged $scratch_count times with a stale copy in the worktree (must be 1)"
+  missing=1
+fi
+if ! printf '%s\n' "$scratch_out" | grep -qF -- \
+  "DRY-RUN: rm -f $scratch_wt/build/local-packages/supermox-ve_0.0.1_all.deb"; then
+  echo "FAIL: the stale supermox-ve_0.0.1_all.deb in the worktree is not pre-cleaned"
+  missing=1
+fi
+if ! printf '%s\n' "$scratch_out" | grep -qF -- "STEP:   supermox-ve_"; then
+  echo "FAIL: the newest supermox-ve is not staged over the stale copy in the worktree"
+  missing=1
+fi
+rm -rf "$scratch_wt"
 
 # The deb dir must be the documented SUPERMOX_DEBS_DIR (where vm-build-pkg.sh
 # writes debs), never a hard-coded path: a fresh clone has no such directory and

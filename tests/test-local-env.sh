@@ -40,6 +40,7 @@ expect "default SUPERMOX_VM_DIR" "$copy_root/build/vm" "$(probe SUPERMOX_VM_DIR)
 expect "default SUPERMOX_TEST_DIR" "$copy_root/build/test-data" "$(probe SUPERMOX_TEST_DIR)"
 expect "default SUPERMOX_DEBS_DIR" "$copy_root/build/vm/debs" "$(probe SUPERMOX_DEBS_DIR)"
 expect "default SUPERMOX_SPACED_REPO" "$(cd "$copy_root/.." && pwd)/spaced" "$(probe SUPERMOX_SPACED_REPO)"
+expect "default SUPERMOX_SPACED_WORKTREE" "$copy_root/build/spaced-iso" "$(probe SUPERMOX_SPACED_WORKTREE)"
 
 # Level 2: config/local.env wins over the default, and may set any SUPERMOX_* variable.
 cat > "$copy_root/config/local.env" <<'EOF'

@@ -39,8 +39,12 @@ fi
 : "${SUPERMOX_TEST_DIR:=$REPO/build/test-data}"
 : "${SUPERMOX_DEBS_DIR:=$SUPERMOX_VM_DIR/debs}"
 : "${SUPERMOX_SPACED_REPO:=$(cd "$REPO/.." && pwd)/spaced}"
+# The live-build worktree build-iso.sh creates in the Spaced checkout; it holds
+# the whole ISO tree, so it is the largest thing under build/ and the first
+# candidate for a data disk.
+: "${SUPERMOX_SPACED_WORKTREE:=$REPO/build/spaced-iso}"
 
-export SUPERMOX_VM_DIR SUPERMOX_TEST_DIR SUPERMOX_DEBS_DIR SUPERMOX_SPACED_REPO SUPERMOX_REPO
+export SUPERMOX_VM_DIR SUPERMOX_TEST_DIR SUPERMOX_DEBS_DIR SUPERMOX_SPACED_REPO SUPERMOX_SPACED_WORKTREE SUPERMOX_REPO
 
 # Not needed by the caller: keep the helper names out of its namespace.
 unset _smx_local_env_dir _smx_from_env _smx_kv _smx_name

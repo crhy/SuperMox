@@ -1,0 +1,61 @@
+diff -ruN orig/debian/changelog new/debian/changelog
+--- a/debian/changelog	2026-11-04 15:01:35.363637791 -0800
++++ b/debian/changelog	2026-11-05 07:34:36.245756004 -0800
+@@ -1,3 +1,19 @@
++qemu-server (9.2.13+supermox2) trixie; urgency=medium
++
++  * cpu flags: bound the throwaway probe VM query_supported_cpu_flags starts
++    with a 30 second run_command timeout, and force-stop the probe on every
++    path: a timeout or a non-zero exit used to leave it running with its pipes
++    open.
++    The probe is started with -daemonize, so run_command waits for EOF on pipes
++    the probe keeps open; a probe VM that never answers (seen on our test node,
++    itself a nested KVM guest) left pvestatd sitting in select() for 390 seconds
++    on the first boot after an install: no RRD history was filed at all, so every
++    graph stayed empty and guest status went stale until pvestatd was restarted.
++    The probe VM is now always stopped and the query reports no flags, so the
++    status daemon continues its cycle and retries after its delay.
++
++ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 07:20:39 -0800
++
+ qemu-server (9.2.13) trixie; urgency=medium
+ 
+   * migrate: wait for the 'failing' migration status introduced with QEMU 11.0
+diff -ruN orig/src/PVE/QemuServer.pm new/src/PVE/QemuServer.pm
+--- a/src/PVE/QemuServer.pm	2026-11-05 07:34:22.739003157 -0800
++++ b/src/PVE/QemuServer.pm	2026-11-05 07:34:30.193765187 -0800
+@@ -3030,8 +3030,19 @@
+             push @$cmd, '-cpu', 'host';
+         }
+ 
+-        my $rc = run_command($cmd, noerr => 1, quiet => 0);
+-        die "QEMU flag querying VM exited with code " . $rc if $rc;
++        # SuperMox (GitHub crhy/SuperMox#12): bound the probe. run_command reads
++        # the child's stdout/stderr until EOF; a probe VM that never finishes
++        # starting up keeps those pipes open, so pvestatd's first status cycle
++        # sat in select() for 390s and filed no history at all. run_command dies
++        # on a timeout even with noerr, so capture the error instead of letting
++        # it skip the force stop below: only vm_stop kills the daemonized probe
++        # (run_command's kill hits the already exited daemonize parent).
++        my $start_err;
++        eval {
++            my $rc = run_command($cmd, noerr => 1, quiet => 0, timeout => 30);
++            die "QEMU flag querying VM exited with code " . $rc if $rc;
++        };
++        $start_err = $@;
+ 
+         my $model = { name => $kvm ? 'host' : 'max' };
+         $model->{props} = { 'hv-passthrough' => JSON::true } if $kvm && $arch eq 'x86_64';
+@@ -3054,9 +3065,11 @@
+         };
+         my $err = $@;
+ 
+-        # force stop with 10 sec timeout and 'nocheck', always stop, even if QMP failed
++        # force stop with 10 sec timeout and 'nocheck', always stop, even if QMP
++        # failed or starting the probe VM timed out
+         vm_stop(undef, $fakevmid, 1, 1, 10, 0, 1);
+ 
++        die $start_err if $start_err;
+         die $err if $err;
+ 
+         return [sort keys %$flags];
