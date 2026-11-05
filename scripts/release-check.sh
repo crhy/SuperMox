@@ -37,7 +37,8 @@ FAIL, so one run reports everything that is broken:
   vm-boot       boot the test VM from $SUPERMOX_TEST_DIR (ssh port 2224,
                 RAM from $SUPERMOX_VM_RAM default 2048, host 18006 forwarded
                 to the guest), wait for ssh, then for
-                https://127.0.0.1:18006/ answering (5 min max).
+                https://127.0.0.1:18006/ answering and the node settled
+                (every PVE service running, first history filed; 5 min max each).
   manager-live  bash tests/manager-live.sh (timeout 3600)
   join-e2e      bash scripts/join-e2e.sh (timeout 1200)
   no-systemd    scripts/check-no-systemd.sh --image / inside the VM
@@ -284,6 +285,26 @@ boot_step() {
         printf 'FAIL: vm-boot: https://%s:%s/ never answered within %ss\n' \
             "$api_host" "$api_port" "$api_timeout"
         record "vm-boot" "FAIL (API not answering)" 1
+        return
+    fi
+    # The API answering is not "ready": the services ordered after pveproxy
+    # are still starting, and on a brand-new node pvestatd has not filed its
+    # first archive yet. Wait (same budget) until every PVE service reports
+    # running and the node's own history answers, as a user would a minute after boot.
+    deadline=$((SECONDS + api_timeout)) ok=0
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        if vm_ssh 'for s in pve-cluster pvedaemon pveproxy pvestatd pvescheduler pve-ha-crm pve-ha-lrm; do
+                       /etc/init.d/$s status >/dev/null 2>&1 || exit 1
+                   done
+                   pvesh get "/nodes/$(hostname)/rrddata" --timeframe hour >/dev/null 2>&1' >/dev/null 2>&1; then
+            ok=1
+            break
+        fi
+        sleep 10
+    done
+    if [ "$ok" -ne 1 ]; then
+        printf 'FAIL: vm-boot: the node did not settle (services + first history) within %ss\n' "$api_timeout"
+        record "vm-boot" "FAIL (node not settled)" 1
         return
     fi
     vm_up=1
