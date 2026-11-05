@@ -20,6 +20,10 @@ source "$repo_root/scripts/arch.sh"
 source "$repo_root/scripts/local-env.sh"
 
 SPACED_REPO="$SUPERMOX_SPACED_REPO"
+# Packages our forks build that must never be installed on the ISO (exact
+# package names, one per line, "# reason" comments allowed). stage_debs() skips
+# them by name, so a package that merely starts with a listed name is kept.
+EXCLUDE_FILE="$repo_root/config/iso-exclude-debs.txt"
 # The .deb files vm-build-pkg.sh writes are read from SUPERMOX_DEBS_DIR (see
 # config/local.env.example); a hard-coded default would stage stale debs.
 DEB_DIR="$SUPERMOX_DEBS_DIR"
@@ -67,6 +71,34 @@ fail() {
 }
 
 step() { printf 'STEP: %s\n' "$*"; }
+
+# Strip leading and trailing whitespace from a string.
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s\n' "$s"
+}
+
+# Read config/iso-exclude-debs.txt into EXCLUDE_REASON[<package name>]=<reason>.
+# Names are matched exactly, never as a prefix or glob.
+declare -A EXCLUDE_REASON=()
+load_exclude() {
+  local raw name reason
+  [ -f "$EXCLUDE_FILE" ] || fail "missing $EXCLUDE_FILE: the ISO must know which fork packages to skip"
+  while IFS= read -r raw || [ -n "$raw" ]; do
+    name="$(trim "${raw%%#*}")"
+    [ -n "$name" ] || continue
+    case "$name" in
+      *[!a-z0-9+._-]*)
+        printf 'WARN: ignoring invalid package name in %s: %s\n' "$EXCLUDE_FILE" "$name" >&2
+        continue
+        ;;
+    esac
+    reason="$(trim "${raw#*#}")"
+    EXCLUDE_REASON["$name"]="$reason"
+  done < "$EXCLUDE_FILE"
+}
 
 # Run a command, or just show it under --dry-run.
 run() {
@@ -128,6 +160,11 @@ stage_debs() {
       printf 'WARN: skipping %s (deb arch %s != target %s)\n' "$base" "$arch_f" "$SUPERMOX_ARCH" >&2
       continue
     fi
+    if [ -n "${EXCLUDE_REASON[$name]:-}" ]; then
+      printf 'SKIP: %s (%s is listed in config/iso-exclude-debs.txt: %s)\n' \
+        "$base" "$name" "${EXCLUDE_REASON[$name]}"
+      continue
+    fi
     if [ -z "${best_ver[$name]:-}" ] || dpkg --compare-versions "$ver" gt "${best_ver[$name]}"; then
       if [ -z "${best_file[$name]:-}" ]; then
         names+=("$name")
@@ -138,7 +175,7 @@ stage_debs() {
   done
   shopt -u nullglob
 
-  step "stage ${#names[@]} SuperMox .deb from $dir (newest version per package, no -dbgsym, no -build-deps)"
+  step "stage ${#names[@]} SuperMox .deb from $dir (newest version per package, no -dbgsym, no -build-deps, no config/iso-exclude-debs.txt entries)"
   if [ "${#names[@]}" -eq 0 ]; then
     printf 'WARN: no SuperMox .debs found in %s\n' "$dir" >&2
     return 0
@@ -213,6 +250,7 @@ else
 fi
 
 # --- our packages -----------------------------------------------------------
+load_exclude
 stage_debs "$DEB_DIR"
 
 # The Manager is built on the host (build-manager.sh), not in the VM; stage the

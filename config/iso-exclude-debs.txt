@@ -1,0 +1,29 @@
+# Packages our forks build that must never be installed on the PC ISO.
+# scripts/build-iso.sh stage_debs() stages the newest .deb of every package in
+# SUPERMOX_DEBS_DIR, and live-build installs everything it finds in
+# config/packages.chroot/, so any binary our forks build that SuperMox does not
+# depend on would otherwise land on every desktop (a DHCP server daemon on
+# every laptop is unacceptable).
+# Format: <package name>  # <reason>   (two spaces before the #)
+# Matching is by EXACT package name: a package whose name merely starts with one
+# of these (isc-dhcp-server-extra, say) is staged unless it is listed itself.
+# Kept on purpose, i.e. deliberately NOT listed below: isc-dhcp-client and
+# isc-dhcp-common (supermox-ve depends on the client for /sbin/dhclient, which
+# pve-container needs for host-managed container networks), rrdcached and
+# librrds-perl (upstream pve-cluster depends on both; PVE::RRD talks to
+# rrdcached over /var/run/rrdcached.sock), rrdtool (the CLI the graphs page
+# and the admin guide use), librrd8t64 (their shared library), librrdp-perl.
+# Every rrdtool binary that IS installed comes from our +supermox build, so
+# their exact-version dependencies on librrd8t64 still match.
+isc-dhcp-server  # a DHCP server daemon on every desktop; SuperMox does DHCP with dhcpcd + ifupdown2 (scripts/build-rootfs.sh)
+isc-dhcp-server-ldap  # LDAP backend of the DHCP server we do not install
+isc-dhcp-relay  # DHCP failover relay daemon, nothing in SuperMox uses it
+isc-dhcp-keama  # Keama (RFC 1101) DHCP daemon, nothing in SuperMox uses it
+isc-dhcp-dev  # development headers and libraries for building against isc-dhcp
+isc-dhcp-client-ddns  # DDNS update hook for the DHCP client, not used by SuperMox
+librrd-dev  # development headers for building against librrd
+rrdtool-tcl  # Tcl bindings for rrdtool; PVE's PVE::RRD uses librrds-perl
+lua-rrd  # Lua bindings for rrdtool, nothing in SuperMox uses them
+lua-rrd-dev  # Lua development files for the rrd Lua bindings
+python3-rrdtool  # Python 3 bindings for rrdtool; PVE's PVE::RRD uses librrds-perl
+ruby-rrd  # Ruby bindings for rrdtool, nothing in SuperMox uses them
