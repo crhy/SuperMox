@@ -1,0 +1,23 @@
+diff -ruN orig/debian/rrdtool.install new/debian/rrdtool.install
+--- a/debian/rrdtool.install	2026-11-04 23:22:11.496457412 -0800
++++ b/debian/rrdtool.install	2026-11-04 23:22:11.518576446 -0800
+@@ -70,6 +70,7 @@
+ usr/share/man/man1/rrdtutorial.1
+ usr/share/man/man1/rrdupdate.1
+ usr/share/man/man1/rrdxport.1
++usr/share/man/man1/rrdrados.1
+ usr/share/man/man3/librrd.3
+ usr/share/rrdtool/examples/*.cgi usr/share/doc/rrdtool/examples/
+ usr/share/rrdtool/examples/*.pl usr/share/doc/rrdtool/examples/
+diff -ruN orig/src/rrd_open.c new/src/rrd_open.c
+--- a/src/rrd_open.c	2026-11-04 23:22:11.495050980 -0800
++++ b/src/rrd_open.c	2026-11-04 23:22:11.518451667 -0800
+@@ -229,7 +229,7 @@
+ 
+         if (rdwr & RRD_LOCK) {
+             /* Note: rados read lock is not implemented.  See rrd_lock(). */
+-            if (rrd_rwlock(rrd_file, rdwr & RRD_READWRITE) != 0) {
++            if (rrd_rwlock(rrd_file, rdwr & RRD_READWRITE, rdwr & RRD_LOCK_MASK) != 0) {
+                 rrd_set_error("could not lock RRD");
+                 goto out_close;
+             }

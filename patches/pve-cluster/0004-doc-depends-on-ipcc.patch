@@ -1,22 +1,3 @@
-diff -ruN orig/debian/libpve-cluster-api-perl.install new/debian/libpve-cluster-api-perl.install
---- a/debian/libpve-cluster-api-perl.install	2026-10-28 04:35:07.193585841 -0700
-+++ b/debian/libpve-cluster-api-perl.install	2026-11-04 05:13:19.362894231 -0800
-@@ -1,7 +1,4 @@
- usr/bin/pvecm
--usr/share/bash-completion/completions/pvecm
--usr/share/man/man1/pvecm.1
- usr/share/perl5/PVE/API2
- usr/share/perl5/PVE/CLI
- usr/share/perl5/PVE/Cluster/Setup.pm
--usr/share/zsh/vendor-completions/_pvecm
-diff -ruN orig/debian/libpve-cluster-perl.install new/debian/libpve-cluster-perl.install
---- a/debian/libpve-cluster-perl.install	2026-10-28 04:35:07.193585841 -0700
-+++ b/debian/libpve-cluster-perl.install	2026-11-04 05:13:19.362964700 -0800
-@@ -1,4 +1,3 @@
--usr/share/man/man5/datacenter.cfg.5
- usr/share/perl5/PVE/Corosync.pm
- usr/share/perl5/PVE/DataCenterConfig.pm
- usr/share/perl5/PVE/RRD.pm
 diff -ruN orig/Makefile new/Makefile
 --- a/Makefile	2026-10-28 13:16:11.577284141 -0700
 +++ b/Makefile	2026-11-04 05:13:19.363023390 -0800

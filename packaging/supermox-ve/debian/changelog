@@ -1,3 +1,22 @@
+supermox-ve (0.1.17) unstable; urgency=medium
+
+  * Ship /etc/apt/preferences.d/supermox-origins: our own packages win over
+    every repository (origin "" at 999), Proxmox's repository is only a
+    dependency source (100), swtpm comes from Proxmox (600), and every binary
+    package scripts/apply-patches.sh rebuilds is pinned out of Proxmox's
+    repository outright (-1), as are the rrdtool and isc-dhcp forks out of
+    Devuan, so `apt upgrade` can never replace a SuperMox sysvinit build with
+    Proxmox's or Devuan's systemd one. scripts/supermox-pin-packages.sh generates
+    the name list from the patched trees' debian/control files and tests/
+    test-supermox-ve.sh fails the gate if the stanza drifts. debian/rules now
+    installs that file and debian/conffiles lists it.
+  * Every rebuilt upstream component in this release carries a +supermox1
+    version suffix added by scripts/apply-patches.sh (for example pve-manager
+    9.2.24+supermox1), a version no repository can produce, so the -1 pins
+    above are belt-and-braces rather than the only protection.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 11 Nov 2026 13:05:00 +0000
+
 supermox-ve (0.1.16) unstable; urgency=medium
 
   * Fix the postinst, which dpkg ran with dash and aborted at line 92 with

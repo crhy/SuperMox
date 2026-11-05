@@ -238,14 +238,18 @@ for d in "${dirs[@]}"; do
     sed -e "s|@PERLAPI@|perlapi-$(perl -MConfig -e 'print $Config{debian_abi}//$Config{version};')|g" debian/control.in > debian/control
   fi
   mk-build-deps --build-profiles=nocheck --install --remove --tool 'apt-get -y --no-install-recommends' debian/control
+  # "make deb" can fail after the debs are built (lintian) or before (compile);
+  # a failed build must not pass on debs an earlier component left in the parent
+  # dir, so gate on a deb carrying this tree's version, which is removed first.
+  ver=$(dpkg-parsechangelog -l debian/changelog -S Version)
+  rm -f "./*_${ver}"*.deb "../*_${ver}"*.deb 2>/dev/null || true
   if grep -qE '^deb[[:space:]:]' Makefile; then
     make deb || true
   else
     dpkg-buildpackage -b -us -uc
   fi
-  # Debs land in this dir (make deb) or its parent (dpkg-buildpackage); ls fails if either glob is empty.
-  if ! ls ./*.deb ../*.deb 2>/dev/null | grep -q .; then
-    echo "ERROR: no .deb produced in $d" >&2
+  if ! ls ./*"_${ver}"*.deb ../*"_${ver}"*.deb 2>/dev/null | grep -q .; then
+    echo "ERROR: build failed in $d: no .deb for version $ver" >&2
     exit 1
   fi
   cp ./*.deb /root/localrepo/ 2>/dev/null || true
