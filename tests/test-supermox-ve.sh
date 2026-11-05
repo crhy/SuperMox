@@ -177,6 +177,25 @@ if [ -f "$origins_pin" ]; then
   fi
   rm -rf "$patched" "$patched.log"
 fi
+# The forks (rrdtool, isc-dhcp) replace Devuan packages: a newer Devuan upload
+# must not replace them, so they also need a -1 pin against Devuan's origin.
+if [ -f "$origins_pin" ]; then
+  for p in rrdcached librrd8t64 librrds-perl isc-dhcp-client isc-dhcp-common; do
+    if ! awk -v RS='' -v pkg="$p" '
+        { ok_pkg=0; ok_pin=0; ok_prio=0
+          n=split($0, L, "\n")
+          for (i=1; i<=n; i++) {
+            if (L[i] ~ /^Package: / && (" " substr(L[i], 10) " ") ~ (" " pkg " ")) ok_pkg=1
+            if (L[i] == "Pin: release o=Devuan") ok_pin=1
+            if (L[i] == "Pin-Priority: -1") ok_prio=1
+          }
+          if (ok_pkg && ok_pin && ok_prio) found=1 }
+        END { exit(found ? 0 : 1) }' "$origins_pin"; then
+      echo "FAIL: $origins_pin does not pin $p to -1 from Devuan (o=Devuan)"
+      fail=1
+    fi
+  done
+fi
 for f in "$pin" "$origins_pin"; do
   [ -f "$f" ] || continue
   # apt's preferences parser only continues a record on indented lines: a

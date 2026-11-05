@@ -31,3 +31,12 @@ Explanation: every binary package SuperMox rebuilds from patches/ (scripts/
 Package: isc-dhcp-client isc-dhcp-client-ddns isc-dhcp-client-udeb isc-dhcp-common isc-dhcp-dev isc-dhcp-keama isc-dhcp-relay isc-dhcp-server isc-dhcp-server-ldap libpmg-rs-perl libproxmox-rs-perl libpve-access-control libpve-cluster-api-perl libpve-cluster-perl libpve-common-perl libpve-guest-common-perl libpve-http-server-perl libpve-notify-perl libpve-rs-perl libpve-storage-perl librrd-dev librrd8t64 librrdp-perl librrds-perl lua-rrd lua-rrd-dev proxmox-ve pve-cluster pve-container pve-firewall pve-ha-manager pve-ha-simulator pve-headers pve-manager python3-rrdtool qemu-server rrdcached rrdtool rrdtool-tcl ruby-rrd
 Pin: origin download.proxmox.com
 Pin-Priority: -1
+
+Explanation: rrdtool and isc-dhcp are SuperMox forks of Debian sources
+  (patches/rrdtool, patches/isc-dhcp): Devuan's own builds ship systemd
+  units only (rrdcached) or are not in Ceres at all (isc-dhcp), so a newer
+  Devuan upload must never replace ours either, or our rrdcached init script
+  would be removed and librrd8t64 would drift from librrds-perl.
+Package: isc-dhcp-client isc-dhcp-client-ddns isc-dhcp-client-udeb isc-dhcp-common isc-dhcp-dev isc-dhcp-keama isc-dhcp-relay isc-dhcp-server isc-dhcp-server-ldap librrd-dev librrd8t64 librrdp-perl librrds-perl lua-rrd lua-rrd-dev python3-rrdtool rrdcached rrdtool rrdtool-tcl ruby-rrd
+Pin: release o=Devuan
+Pin-Priority: -1
