@@ -18,7 +18,9 @@ anything SuperMox ships.
 - **Our changes to upstream** live as patch files under `patches/` (applied by
   `scripts/apply-patches.sh`, recorded with `scripts/patch-save.sh`) or as new files. Nothing
   under `upstream/` is edited directly. `apply-patches.sh` also prepends one changelog entry per
-  component bumping its version to `<upstream>+supermox1`, so a SuperMox build can never carry
+  component bumping its version to `<upstream>+supermoxN` (N starts at 1; a
+  component we rebuild without an upstream version change moves to N+1, as
+  pve-firewall did for the ebtables fix), so a SuperMox build can never carry
   the version string Proxmox's repository produces for the same package.
 - **Init scripts** for every PVE daemon live in `init.d/` (pve-cluster, pvedaemon, pveproxy,
   pvestatd, pve-firewall, pve-ha-crm/lrm, pvescheduler, qmeventd, spiceproxy, networking...)

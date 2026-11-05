@@ -18,14 +18,39 @@
 # Bind address and port come from the environment (JOIND_HOST, JOIND_PORT) so
 # tests and non-default deployments can point it at 127.0.0.1 and a free port;
 # defaults are 0.0.0.0:8743.
+#
+# The daemon answers joins for a cluster this node belongs to. A node that has
+# not created or joined one has nothing to serve: the daemon says so on stderr
+# and exits (src/supermox/joind.py main: state.load() false), so starting it
+# would report success, leave a pidfile for a process that already exited and
+# hide the reason, since an init script's stderr is /dev/null at boot.
 
 . /lib/lsb/init-functions
 
 DAEMON=${JOIND_BIN:-/usr/sbin/supermox-joind}
 PIDFILE=${JOIND_PIDFILE:-/run/supermox-joind.pid}
 NAME=supermox-joind
+LOGPIPE=${JOIND_LOGPIPE:-/usr/lib/supermox/supermox-logpipe}
+PYTHON=${JOIND_PYTHON:-python3}
 JOIND_HOST=${JOIND_HOST:-0.0.0.0}
 JOIND_PORT=${JOIND_PORT:-8743}
+
+# The same test the daemon applies to itself (NodeState.load() is true only
+# if the derived keys exist). SUPERMOX_ETC moves the state directory and the
+# probe reads it, so a test or a nested namespace is checked where it lives.
+# Prints yes or no; anything else means the probe itself could not run.
+cluster_probe() {
+  "$PYTHON" -c 'from supermox import state; print("yes" if state.NodeState().load() else "no")' 2>/dev/null
+}
+
+start_daemon() {
+  # The daemon's stderr carries the reason it died; supermox-logpipe sends
+  # it to syslog (facility daemon, severity err) under this service's tag,
+  # because an init script's stderr is /dev/null at boot.
+  "$LOGPIPE" "$NAME" start-stop-daemon --start --quiet --background --make-pidfile \
+    --pidfile "$PIDFILE" --exec "$DAEMON" -- \
+    --host "$JOIND_HOST" --port "$JOIND_PORT"
+}
 
 case "$1" in
   start)
@@ -34,13 +59,38 @@ case "$1" in
       log_end_msg 1
       exit 1
     fi
-    /usr/lib/supermox/supermox-logpipe "$NAME" start-stop-daemon --start --quiet --background --make-pidfile \
-      --pidfile "$PIDFILE" --exec "$DAEMON" -- \
-      --host "$JOIND_HOST" --port "$JOIND_PORT"
+    case "$(cluster_probe)" in
+      yes)
+        start_daemon
+        ;;
+      no)
+        # Idle is the correct state for a standalone node, not a failure: the
+        # service is enabled on every node and starts serving as soon as the
+        # node creates or joins a cluster. Exit 0 with no pidfile and say why
+        # on stderr (the release check lists this service as idle by design).
+        printf '%s: no cluster here, not starting (run supermox-join create)\n' "$NAME" >&2
+        log_end_msg 0
+        exit 0
+        ;;
+      *)
+        # The probe could not run (no python3, no supermox import, unreadable
+        # state). Do not let a broken check keep a cluster member without its
+        # join daemon: start anyway and let the daemon's own guard decide,
+        # reporting the check failure on stderr.
+        printf '%s: cluster check failed, starting the daemon anyway\n' "$NAME" >&2
+        start_daemon
+        ;;
+    esac
     log_end_msg $?
     ;;
   stop)
     log_begin_msg "Stopping $NAME"
+    if [ ! -e "$PIDFILE" ]; then
+      # Nothing was started (a standalone node never gets a pidfile): stopping
+      # an already stopped service is not an error.
+      log_end_msg 0
+      exit 0
+    fi
     start-stop-daemon --stop --quiet --pidfile "$PIDFILE" --remove-pidfile
     log_end_msg $?
     ;;

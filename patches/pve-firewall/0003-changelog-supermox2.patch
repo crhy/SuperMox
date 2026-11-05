@@ -1,0 +1,17 @@
+diff -ruN orig/debian/changelog new/debian/changelog
+--- a/debian/changelog	2026-11-04 15:01:31.315642322 -0800
++++ b/debian/changelog	2026-11-05 02:18:46.845850912 -0800
+@@ -1,3 +1,13 @@
++pve-firewall (6.0.6+supermox2) trixie; urgency=medium
++
++  * debian: init.d/pve-firewall no longer pins the iptables family to the legacy
++    backend. SuperMox kernels carry no legacy ebtables bridge module, so the
++    pin made every pve-firewall status update fail with
++    "modprobe: FATAL: Module ebtables not found" once every 10 seconds; the
++    nft backend Debian selects by default is the one that works.
++
++ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 02:18:46 -0800
++
+ pve-firewall (6.0.6) trixie; urgency=medium
+ 
+   * rules: read protocols, services and ethertypes from the new

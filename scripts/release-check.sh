@@ -322,9 +322,13 @@ no_systemd_step() {
     fi
 }
 
-# Every enabled service (an S link in /etc/rc2.d) must report status rc 0:
-# sysvinit depends on that exit code, so a script that always exits 0 hides a
-# failed start from the boot log, and this step is what catches that.
+# Every service script SuperMox ships must be enabled (an S link in rc2.d) and
+# must report status rc 0, or be idle by design and allowlisted; every enabled
+# script must do the same, Debian's own included. sysvinit depends on that exit
+# code, so a script that always exits 0 hides a failed start from the boot log.
+# The work lives in scripts/check-services.sh so the same check can run against
+# a fake tree in a test (f10d-4: walking rc2.d alone cannot see a script that
+# was installed but never enabled).
 services_step() {
     printf '\n== services ==\n'
     if [ -n "$services_cmd" ]; then
@@ -335,33 +339,18 @@ services_step() {
         record "services" "SKIP (no VM)" 1
         return
     fi
-    local rc=0
-    vm_ssh "bash -s -- '$services_allow'" <<'REMOTE' || rc=$?
-allow="$1"
-rc=0
-found=0
-for link in /etc/rc2.d/S*; do
-    [ -e "$link" ] || continue
-    name=$(basename "$link")
-    svc=${name#S[0-9][0-9]}
-    [ -x "/etc/init.d/$svc" ] || continue
-    found=$((found + 1))
-    if "/etc/init.d/$svc" status >/dev/null 2>&1; then
-        printf 'PASS: %s status\n' "$svc"
-        continue
-    fi
-    case " $allow " in
-        *" $svc "*) printf 'IDLE: %s status (enabled, idle by design)\n' "$svc" ;;
-        *) printf 'FAIL: %s status\n' "$svc"; rc=1 ;;
-    esac
-done
-printf 'checked %d enabled service(s)\n' "$found"
-exit "$rc"
-REMOTE
-    if [ "$rc" -eq 0 ]; then
+    # Both the checker and the shipped-script list are copied over: on the VM
+    # there is no repo, and the expected set must be the list the packaging
+    # copies from, not something the checker guesses.
+    sshpass -p supermox scp -P "$ssh_port" -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        "$repo_root/scripts/check-services.sh" \
+        "$repo_root/config/init-scripts.txt" \
+        root@127.0.0.1:/root/ >/dev/null
+    if vm_ssh "SERVICES_ALLOW='$services_allow' SERVICES_EXPECT_FILE=/root/init-scripts.txt bash /root/check-services.sh"; then
         record "services" "PASS" 1
     else
-        record "services" "FAIL (a service is not running)" 1
+        record "services" "FAIL (a service is not running or not enabled)" 1
     fi
 }
 

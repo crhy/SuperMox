@@ -3,6 +3,27 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# This test is about vm-start.sh's own defaults, so it must not inherit the
+# caller's SUPERMOX_* environment: config/local.env, a developer shell or a
+# wrapper that exports SUPERMOX_VM_SSH_PORT=2224 would make the dry-run print
+# that port and the assertions below would be about the caller's machine, not
+# about the script. Unset every SUPERMOX_* variable first, the way
+# tests/test-local-env.sh does since r01. The hostile exports below prove the
+# loop is what makes the test deterministic: delete it and this test fails.
+export SUPERMOX_VM_SSH_PORT=2224
+export SUPERMOX_VM_DIR="$PWD/build/test-vm-scripts-must-not-use-this"
+while IFS= read -r _smx_var; do
+  unset "$_smx_var"
+done < <(compgen -e | grep -E '^SUPERMOX_[A-Za-z_][A-Za-z0-9_]*$')
+unset _smx_var
+
+for v in SUPERMOX_VM_SSH_PORT SUPERMOX_VM_DIR; do
+  if [ -n "${!v:-}" ]; then
+    echo "FAIL: $v still exported after the unset loop"
+    exit 1
+  fi
+done
+
 target="scripts/vm-start.sh"
 
 if [ ! -f "$target" ]; then

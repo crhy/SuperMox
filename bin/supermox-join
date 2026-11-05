@@ -80,6 +80,13 @@ def cmd_create(args) -> int:
     if args.endpoint:
         wg_ep = args.my_wg_endpoint or joind.wg_endpoint_for(args.endpoint)
     st.create_cluster(phrase, args.name, endpoints, _arch(), _caps(), wg_ep)
+    # A cluster of one is still a cluster: write this node's wg0.conf and ask
+    # init.d/supermox-wg to bring the overlay up, exactly like join and conf
+    # do, so the first node is not left in a state where the cluster exists
+    # but the tunnel only appears after someone thinks to run `conf`.
+    path = joind.write_wg_conf(st)
+    _apply_overlay("start")
+    print("wrote %s" % path)
     print("Cluster created. The 12 words below are the whole cluster secret.")
     print("They are shown once, are not written to any file and are not")
     print("backed up anywhere. Write them down off this machine, or use")

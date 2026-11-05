@@ -1,3 +1,23 @@
+supermox-ve (0.1.18) unstable; urgency=medium
+
+  * init.d/supermox-joind: `start` on a node that has no cluster yet exits 0
+    with a "no cluster here; run supermox-join create" message instead of
+    failing. The daemon itself refuses to run without cluster state, so the
+    old start path made a fresh node's boot report a failed service and left
+    no pidfile; the service is now a no-op until a cluster exists. An unreadable
+    (present but corrupt) state file still starts the daemon, so a damaged
+    cluster is reported rather than silently ignored.
+  * supermox-join create: creating a cluster now writes /etc/wireguard/wg0.conf
+    and starts the WireGuard overlay, exactly like `join` and `conf` already
+    did. Before, a freshly created cluster had no tunnel until someone ran
+    `conf`, so the first node of a new cluster could not be reached.
+  * Pairs with pve-firewall 6.0.6+supermox2, whose init script no longer pins
+    the iptables family to the legacy backend (f10d-1: our kernels have no
+    legacy ebtables bridge module, so pve-firewall logged a status update
+    error every 10 seconds).
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 02:19:29 -0800
+
 supermox-ve (0.1.17) unstable; urgency=medium
 
   * Ship /etc/apt/preferences.d/supermox-origins: our own packages win over
