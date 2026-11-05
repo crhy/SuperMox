@@ -58,7 +58,31 @@ exit 0
 EOF
 cat >"$stub_bin/ip" <<'EOF'
 #!/bin/sh
-# "ip link show <iface>" exits non-zero when the interface is absent.
+# "ip link show <iface>" exits non-zero when the interface is absent. Route
+# calls are logged and applied to a fake routing table of their own, so the
+# bring-up assertions below stay readable while the routing table is still
+# observable.
+if [ "$1" = "-6" ] && [ "$2" = "route" ]; then
+    printf '%s\n' "$*" >> "$ROUTE_LOG"
+    case "$3" in
+        show)
+            cat "$ROUTE_TABLE" 2>/dev/null
+            exit 0
+            ;;
+        replace|add)
+            grep -v "^$4" "$ROUTE_TABLE" 2>/dev/null > "$ROUTE_TABLE.tmp" || true
+            printf '%s proto static metric 1 pref medium\n' "$4" >> "$ROUTE_TABLE.tmp"
+            mv "$ROUTE_TABLE.tmp" "$ROUTE_TABLE"
+            exit 0
+            ;;
+        del)
+            grep -v "^$4" "$ROUTE_TABLE" 2>/dev/null > "$ROUTE_TABLE.tmp" || true
+            mv "$ROUTE_TABLE.tmp" "$ROUTE_TABLE"
+            exit 0
+            ;;
+    esac
+    exit 0
+fi
 if [ -f "$IP_UP" ]; then
     printf '1: wg0\tinet\tstate up\n'
     exit 0
@@ -75,7 +99,9 @@ STUB_LOG="$tmp/calls.log"
 MODE_LOG="$tmp/modes.log"
 IP_UP="$tmp/ip-up"
 SYNC_COPY="$tmp/syncconf-copy"
-export STUB_LOG MODE_LOG IP_UP SYNC_COPY
+ROUTE_LOG="$tmp/route-calls.log"
+ROUTE_TABLE="$tmp/route-table"
+export STUB_LOG MODE_LOG IP_UP SYNC_COPY ROUTE_LOG ROUTE_TABLE
 
 fail=0
 LAST_RC=0
@@ -110,6 +136,7 @@ ListenPort = 51820
 Endpoint = 10.9.0.2 51821
 PublicKey = BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=
 AllowedApps = wg, wg-quick
+AllowedIPs = fd05:0000:0000:0000:0000:0000:0000:0001/128
 EOF
   chmod 0600 "$conf"
 }
@@ -219,6 +246,37 @@ up
 run start
 if [ "$(tr '\n' ' ' < "$STUB_LOG")" != "strip wg0 syncconf wg0 $conf_dir/.wg0.syncconf " ]; then
   echo "FAIL: start of an up overlay does not re-apply the config (got $(calls))"
+  fail=1
+fi
+
+# --- reload must also fix up the routing table -----------------------------
+# wg syncconf swaps keys and peers on the live interface but never touches the
+# routing table, and the kernel only sends a packet into the tunnel when a
+# route points the peer's address at wg0: a member added after the interface
+# came up is listed by `wg show` and unreachable in fact. The interface's own
+# address route is the kernel's and must survive.
+up
+: > "$ROUTE_LOG"
+printf 'fd0a:1111:1111:1111:1111:1111:1111:1111/128 proto kernel metric 256 pref medium\n' > "$ROUTE_TABLE"
+printf 'fd0b:2222:2222:2222:2222:2222:2222:2222/128 proto static metric 1 pref medium\n' >> "$ROUTE_TABLE"
+run reload
+if [ "$LAST_RC" -ne 0 ]; then
+  echo "FAIL: reload with a routing table to fix exits $LAST_RC"
+  fail=1
+fi
+if ! grep -q '^fd05:0000:0000:0000:0000:0000:0000:0001/128' "$ROUTE_TABLE"; then
+  echo "FAIL: reload leaves the new peer's address unrouted"
+  sed 's/^/    /' "$ROUTE_TABLE"
+  fail=1
+fi
+if grep -q '^fd0b:2222' "$ROUTE_TABLE"; then
+  echo "FAIL: reload leaves a departed peer's route pointing at wg0"
+  sed 's/^/    /' "$ROUTE_TABLE"
+  fail=1
+fi
+if ! grep -q 'proto kernel' "$ROUTE_TABLE"; then
+  echo "FAIL: reload deleted the interface's own address route"
+  sed 's/^/    /' "$ROUTE_TABLE"
   fail=1
 fi
 

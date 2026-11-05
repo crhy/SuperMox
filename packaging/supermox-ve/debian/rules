@@ -45,3 +45,7 @@ override_dh_installinit:
 	# nothing else in the boot sequence starts them.
 	dh_installinit --name=supermox-joind
 	dh_installinit --name=supermox-wg
+	# cgroup2 at /sys/fs/cgroup has to be up before lxcfs and the PVE services in
+	# rc2.d, so this one is enabled too (its LSB header puts it in rcS.d, right
+	# after mountkernfs).
+	dh_installinit --name=supermox-cgroups

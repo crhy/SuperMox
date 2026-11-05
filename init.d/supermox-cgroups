@@ -1,0 +1,144 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          supermox-cgroups
+# Required-Start:    mountkernfs
+# Required-Stop:
+# Default-Start:     S
+# Default-Stop:      0 1 6
+# X-Start-Before:    lxcfs pve-cluster pve-guests
+# Short-Description: Mount the unified cgroup2 hierarchy LXC needs
+### END INIT INFO
+
+# LXC containers cannot start without a cgroup filesystem: lxc-pve 7.x is
+# built for cgroup v2 only, and with nothing mounted at /sys/fs/cgroup the
+# daemonised start fails with
+#   wait_on_daemonized_start: 829 No such file or directory -
+#   Failed to receive the container state
+# An init system that mounts the hierarchy itself (Spaced/elogind, or an fstab
+# entry) leaves it in place; on our sysvinit nodes nothing mounts it at all
+# (mountkernfs.sh only mounts cgroup2 when EXTRAKERNELFS names it, and that
+# variable is unset in the base image), so this script owns the mount.
+#
+# It mounts the unified cgroup2 hierarchy at /sys/fs/cgroup and then delegates
+# the controllers LXC and QEMU resource limits need to child cgroups: a
+# container's own cgroup only gets the controllers its parent delegated through
+# cgroup.subtree_control, so without that write `lxc.start.memory_limit` etc.
+# would be dead even with the hierarchy mounted.
+#
+# Runs in rcS.d (Default-Start: S) right after mountkernfs, so the hierarchy
+# exists before lxcfs, pve-cluster and pve-guests come up in rc2.d.
+#
+# CGROUP_MNT, MOUNT_CMD and MOUNTPOINT_CMD are overridable so the offline
+# test can point the script at a directory and mount stubs under build/.
+#
+# A mount failure is a warning, never a boot failure: `start` exits 0 so the
+# rest of the boot continues (a node without cgroup2 support in its kernel
+# still boots, its containers just do not start).
+
+. /lib/lsb/init-functions
+
+NAME=supermox-cgroups
+CGROUP_MNT=${CGROUP_MNT:-/sys/fs/cgroup}
+MOUNT_CMD=${MOUNT_CMD:-mount}
+MOUNTPOINT_CMD=${MOUNTPOINT_CMD:-mountpoint}
+
+# The controllers LXC needs for container resource limits. Only the ones the
+# kernel actually lists in cgroup.controllers are delegated; a kernel without
+# one of them (io is absent on some builds) simply skips it.
+WANT_CONTROLLERS='cpu memory io pids cpuset'
+
+is_mounted() {
+  "$MOUNTPOINT_CMD" -q "$CGROUP_MNT" 2>/dev/null
+}
+
+# Mount the unified cgroup2 hierarchy. nsdelegate gives each container its
+# own mount namespace propagation, which is what LXC's private mounts expect.
+mount_cgroups() {
+  mkdir -p "$CGROUP_MNT" || return 1
+  "$MOUNT_CMD" -t cgroup2 -o rw,nosuid,nodev,noexec,relatime,nsdelegate \
+    cgroup2 "$CGROUP_MNT"
+}
+
+# Delegate the wanted controllers that the kernel offers and that are not
+# delegated yet. Writing the empty set would clear the delegation, so the
+# write only happens when there is something to add.
+delegate_controllers() {
+  ctl="$CGROUP_MNT/cgroup.controllers"
+  sub="$CGROUP_MNT/cgroup.subtree_control"
+  if [ ! -r "$ctl" ]; then
+    log_warning_msg "$NAME: $ctl is not readable, controllers not delegated"
+    return 0
+  fi
+  avail=$(tr '\t' ' ' < "$ctl")
+  have=''
+  if [ -r "$sub" ]; then
+    # '+' is write syntax, not what the file reads back; normalise it so a
+    # controller already delegated is recognised and not added a second time.
+    have=$(tr '\t+' '  ' < "$sub")
+  fi
+  add=''
+  for c in $WANT_CONTROLLERS; do
+    case " $avail " in
+      *" $c "*) ;;
+      *) continue ;;
+    esac
+    case " $have " in
+      *" $c "*) continue ;;
+    esac
+    if [ -n "$add" ]; then
+      add="$add "
+    fi
+    add="$add+$c"
+  done
+  if [ -z "$add" ]; then
+    return 0
+  fi
+  if ! printf '%s' "$add" > "$sub" 2>/dev/null; then
+    log_warning_msg "$NAME: cannot write $sub (controllers not delegated)"
+  fi
+  return 0
+}
+
+case "${1:-}" in
+  start)
+    if is_mounted; then
+      # Already mounted (Spaced/elogind, or an fstab entry, may do it): only
+      # the delegation is ours to make.
+      delegate_controllers
+      log_begin_msg "$NAME: cgroup2 already mounted on $CGROUP_MNT"
+      log_end_msg 0
+      exit 0
+    fi
+    if ! mount_cgroups; then
+      log_warning_msg "$NAME: cannot mount cgroup2 on $CGROUP_MNT, containers will not start"
+      exit 0
+    fi
+    delegate_controllers
+    log_begin_msg "$NAME: mounted cgroup2 on $CGROUP_MNT"
+    log_end_msg 0
+    exit 0
+    ;;
+  stop)
+    # The mount is boot-time state, not a service: unmounting it would pull
+    # the cgroup hierarchy out from under every running container. Deliberately
+    # a no-op; `umount /sys/fs/cgroup` stays an explicit admin action.
+    exit 0
+    ;;
+  restart)
+    "$0" start
+    ;;
+  status)
+    if is_mounted; then
+      printf '%s: cgroup2 mounted on %s\n' "$NAME" "$CGROUP_MNT"
+      exit 0
+    fi
+    printf '%s: cgroup2 not mounted on %s\n' "$NAME" "$CGROUP_MNT" >&2
+    exit 3
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|status}" >&2
+    exit 2
+    ;;
+esac
+
+exit 0

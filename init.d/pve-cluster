@@ -25,6 +25,38 @@
 DAEMON=/usr/bin/pmxcfs
 PIDFILE=/run/pve-cluster.pid
 NAME=pve-cluster
+STORAGE_CFG=/etc/pve/storage.cfg
+
+# pmxcfs creates /etc/pve/storage.cfg empty and no package in the tree ever
+# fills it (checked: pve-storage's postinst only migrates an existing file), so
+# a clean node boots with no storage defined at all. Everything that needs a
+# volume then fails with a misleading message -- `pct create` and the web UI's
+# Create CT both say "volume 'local:...' does not exist", `pvesm list local`
+# says the storage id is unknown -- so this script seeds the one stanza a
+# single-node SuperMox node always wants, the local directory storage under
+# /var/lib/vz. It writes only when no storage is defined yet, so an admin's
+# (or a cluster's) storage.cfg is never touched, and it waits for the cluster
+# filesystem to be mounted before writing: a write to /etc/pve before pmxcfs
+# is up lands in the plain directory and is lost when the mount covers it.
+seed_storage_cfg() {
+  i=0
+  while [ "$i" -lt 10 ]; do
+    mountpoint -q /etc/pve && break
+    i=$((i + 1))
+    sleep 1
+  done
+  if [ "$i" -ge 10 ]; then
+    log_warning_msg "$NAME: /etc/pve is not mounted, storage.cfg not seeded"
+    return 0
+  fi
+  if [ -s "$STORAGE_CFG" ]; then
+    return 0
+  fi
+  printf '%s\n' 'dir: local' ' path /var/lib/vz' ' content images,rootdir,vztmpl,iso,backup,snippets,import' > "$STORAGE_CFG" || {
+    log_warning_msg "$NAME: could not write $STORAGE_CFG"
+    return 0
+  }
+}
 
 case "$1" in
   start)
@@ -34,7 +66,9 @@ case "$1" in
       /etc/init.d/corosync start >/dev/null 2>&1
     fi
     /usr/lib/supermox/supermox-logpipe "$NAME" start-stop-daemon --start --quiet --pidfile "$PIDFILE" --exec "$DAEMON"
-    log_end_msg $?
+    rc=$?
+    seed_storage_cfg
+    log_end_msg "$rc"
     ;;
   stop)
     log_begin_msg "Stopping $NAME"

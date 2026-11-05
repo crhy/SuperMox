@@ -31,6 +31,9 @@ supermox-ve supermox-ve networking
 rrdtool rrdcached rrdcached
 supermox-ve supermox-ve supermox-binfmt
 supermox-ve supermox-ve supermox-hosts
+# cgroup2 at /sys/fs/cgroup: lxc-pve 7.x is built for cgroup v2 only and nothing
+# in the base image mounts it, so containers cannot start without this script.
+supermox-ve supermox-ve supermox-cgroups
 supermox-tmpfiles supermox-tmpfiles supermox-tmpfiles
 supermox-ve supermox-ve supermox-joind
 supermox-ve supermox-ve supermox-wg

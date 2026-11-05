@@ -64,6 +64,29 @@ up() {
     ip link show "$IFACE" >/dev/null 2>&1
 }
 
+# wg syncconf swaps keys and peers on the live interface but never touches the
+# routing table, and the kernel only sends a packet into the tunnel when a
+# route points the peer's address at wg0. Without this, a member added after
+# the interface came up is listed by `wg show` and unreachable in fact: a
+# ping to its overlay address answers "Network is unreachable".
+sync_routes() {
+    wanted=''
+    for a in $(grep '^AllowedIPs' "$CONF" | cut -d' ' -f3 | tr ',' ' '); do
+        # wanted holds the prefix without its mask, the way `ip route show`
+        # prints it, so the two sides of the comparison below match.
+        wanted="$wanted ${a%%/*}"
+        ip -6 route replace "$a" dev "$IFACE" 2>>"$LOG" || return 1
+    done
+    # A member that left the cluster: its route would still point at wg0 and
+    # the kernel would drop the packet, so the stale route goes too. The
+    # interface's own address route is the kernel's (proto kernel) and stays.
+    for a in $(ip -6 route show dev "$IFACE" 2>>"$LOG" | awk '!/proto kernel/ {print $1}' | cut -d/ -f1); do
+        case " $wanted " in *" $a "*) continue ;; esac
+        ip -6 route del "$a" dev "$IFACE" 2>>"$LOG" || true
+    done
+    return 0
+}
+
 # A config outside /etc/wireguard/ (a nested-namespace host's per-node
 # directory) is out of reach for wg-quick, which resolves the interface name
 # to /etc/wireguard/<name>.conf. Say so instead of failing with wg's own
@@ -149,6 +172,10 @@ case "$1" in
             exit 1
         fi
         rm -f "$SYNC"
+        if ! sync_routes; then
+            log_end_msg 1
+            exit 1
+        fi
         log_end_msg 0
         ;;
     status)
