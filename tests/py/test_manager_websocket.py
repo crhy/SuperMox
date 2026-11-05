@@ -160,17 +160,20 @@ class _EchoServer:
     refuse=True answers a plain 401 instead of upgrading; accept and subprotocol
     can be broken on purpose to check what the client insists on.
 
-    The listening socket stays plain and is polled with select(), and TLS is
-    applied per connection with a timeout. Wrapping the listening socket instead
-    parks the single serving thread inside accept(): closing a socket does not
-    wake a thread already blocked in accept() on it, so stop() burned its whole
-    join timeout and leaked the thread; and the handshake itself had no timeout,
-    so a client that connected without finishing it pinned the thread inside
-    accept() forever and the answer this server should have sent never arrived.
+    The listening socket stays plain and is polled with select(), and each
+    connection is handed its own daemon thread: the TLS handshake and _handle
+    for one connection can never delay another connection, because a single
+    serving thread finishes one connection before it accepts the next one, so
+    a client that connects and then sends nothing (abandoned, half-open) costs
+    every later client the whole per-connection timeout. Wrapping the listening
+    socket instead is worse still: it parks the serving thread inside accept(),
+    and closing a socket does not wake a thread already blocked in accept() on
+    it, so stop() burned its whole join timeout and leaked the thread.
     """
 
-    _POLL = 0.2      # select() timeout, seconds
+    _POLL = 0.2            # select() timeout, seconds
     _CONNECTION = 10.0    # per-connection timeout, seconds
+    _JOIN = 1.0           # total join budget for the connection threads, seconds
 
     def __init__(self, pem, key, accept=None, subprotocol="binary", refuse=False):
         self.requests = []
@@ -183,6 +186,9 @@ class _EchoServer:
         self.socket.bind(("127.0.0.1", 0))
         self.socket.listen(8)
         self._serving = True
+        self._lock = threading.Lock()
+        self._open = []     # (thread, connection) still being served
+        self._overlap = 0   # most connections served at once
         self.thread = threading.Thread(target=self._serve, daemon=True)
         self.thread.start()
 
@@ -190,7 +196,18 @@ class _EchoServer:
     def port(self):
         return self.socket.getsockname()[1]
 
+    def overlap(self):
+        """The most connections this server has ever served at once.
+
+        One is what a single serving thread can never exceed: it finishes one
+        connection before it accepts the next, so a stalled client shows up
+        here as overlap of 1 and every later client waits for it.
+        """
+        with self._lock:
+            return self._overlap
+
     def _serve(self):
+        """Accept in the poll loop; one thread per connection."""
         while self._serving:
             try:
                 ready, _, _ = select.select([self.socket], [self.socket], [],
@@ -203,18 +220,16 @@ class _EchoServer:
                 plain, _address = self.socket.accept()
             except OSError:
                 return
-            connection = self._wrap(plain)
-            if connection is None:
-                continue        # a client that never finished the handshake
-            try:
-                self._handle(connection)
-            except (OSError, websocket.WebSocketError):
-                pass
-            finally:
-                connection.close()
+            threading.Thread(target=self._connection,
+                             args=(plain,), daemon=True).start()
 
-    def _wrap(self, plain):
-        """TLS on one connection, with a timeout on every read it takes."""
+    def _connection(self, plain):
+        """TLS handshake + serving of ONE connection, in its own thread.
+
+        The timeout set on the plain socket bounds the handshake and every
+        read _handle takes, so a stalled client ends on its own; stop() also
+        closes the connection so it does not have to wait for that timeout.
+        """
         plain.settimeout(self._CONNECTION)
         try:
             connection = self.context.wrap_socket(plain, server_side=True,
@@ -222,8 +237,22 @@ class _EchoServer:
             connection.do_handshake()
         except OSError:
             plain.close()
-            return None
-        return connection
+            return
+        with self._lock:
+            if not self._serving:
+                connection.close()
+                return
+            self._open.append((threading.current_thread(), connection))
+            self._overlap = max(self._overlap, len(self._open))
+        try:
+            self._handle(connection)
+        except (OSError, websocket.WebSocketError):
+            pass
+        finally:
+            connection.close()
+            with self._lock:
+                self._open = [(thread, sock) for thread, sock in self._open
+                              if thread is not threading.current_thread()]
 
     def _handle(self, connection):
         head = b""
@@ -262,6 +291,16 @@ class _EchoServer:
             self.socket.close()
         except OSError:
             pass
+        with self._lock:
+            open_now = list(self._open)
+        for _thread, connection in open_now:
+            try:
+                connection.close()
+            except OSError:
+                pass
+        deadline = time.monotonic() + self._JOIN
+        for thread, _connection in open_now:
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
         if self.thread:
             self.thread.join(timeout=5)
 
@@ -303,6 +342,46 @@ class Handshake(unittest.TestCase):
             connection.close()
         self.assertIn("GET /api2/json/nodes/atlas/vncwebsocket?port=5&vncticket=x HTTP/1.1",
                       server.requests)
+
+    def abandon(self, server):
+        """One client that finishes the TLS handshake and then sends nothing.
+
+        This is what a half-open or abandoned connection looks like to the
+        server: the handshake completes, so the server starts serving it, and
+        then no request ever arrives.
+        """
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        plain = socket.create_connection(("127.0.0.1", server.port), timeout=5)
+        stalled = context.wrap_socket(plain, server_hostname="127.0.0.1")
+        self.addCleanup(stalled.close)
+        return stalled
+
+    def test_abandoned_connection_does_not_delay_the_next_one(self):
+        # A client that connects and then sends nothing must not cost the next
+        # client its answer: the handshake and the serving of a connection
+        # happen in that connection's own thread, so the two connections
+        # overlap instead of queueing behind the per-connection timeout.
+        # overlap() is checked instead of a wall-clock bound, because a
+        # wall-clock bound on a loaded machine is what makes a test flaky.
+        server = self.serve()
+        self.abandon(server)
+        connection = websocket.connect("127.0.0.1", server.port, "/x",
+                                       self.pin)
+        self.addCleanup(connection.close)
+        connection.send(b"still served", opcode=0x2)
+        self.assertEqual(connection.recv(), (0x2, b"still served"))
+        self.assertGreaterEqual(server.overlap(), 2)
+
+    def test_stop_returns_while_a_connection_is_stalled(self):
+        # stop() closes the open connections and joins with a short budget,
+        # so a stalled client cannot keep the test process waiting: the serving
+        # thread is gone even though that client never sent a request.
+        server = self.serve()
+        self.abandon(server)
+        server.stop()
+        self.assertFalse(server.thread.is_alive())
 
     def test_ping_round_trip(self):
         server = self.serve()
