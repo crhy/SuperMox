@@ -46,6 +46,43 @@ assert_rc 0
 baseline="$(tr -dc '0-9' < config/systemd-baseline.txt)"
 assert_has "COUNT $baseline"
 
+# --- version suffix (issue #10 part 2): every debian/changelog in the patched
+# tree must gain a top entry whose version ends in +supermoxN, so a SuperMox
+# .deb can never be mistaken for the same version from download.proxmox.com ---
+nosuffix=0
+while IFS= read -r -d '' cl; do
+  ver="$(sed -n '1{s/^[^(]*(//;s/).*//p}' "$cl")"
+  case "$ver" in
+    *+supermox*) ;;
+    *) printf 'no suffix: %s (%s)\n' "$cl" "$ver" >&2; nosuffix=1 ;;
+  esac
+done < <(find build/patched -name .git -prune -o -type f -path '*/debian/changelog' -print0)
+if [ "$nosuffix" -ne 0 ]; then
+  echo "FAIL: patched changelogs missing the +supermox version suffix"
+  fail=1
+fi
+if find build/patched -name .git -prune -o -type f -path '*/debian/changelog' -print0 |
+  xargs -0 grep -qE '\+supermox[0-9]+\+supermox'; then
+  echo "FAIL: changelog version got a double +supermox suffix"
+  fail=1
+fi
+
+# re-running must not stack a second entry on top of the first one
+cl_top=build/patched/pve-manager/pve-manager/debian/changelog
+head_before="$(sed -n '1p' "$cl_top")"
+run scripts/apply-patches.sh build/patched
+assert_rc 0
+head_after="$(sed -n '1p' "$cl_top")"
+if [ "$head_before" != "$head_after" ]; then
+  echo "FAIL: re-running apply-patches.sh changed the changelog version line"
+  printf '%s\n%s\n' "$head_before" "$head_after"
+  fail=1
+fi
+if [ "$(grep -cF -- "$head_before" "$cl_top")" != 1 ]; then
+  echo "FAIL: duplicate changelog entry for $head_before"
+  fail=1
+fi
+
 # --- unit: patch-workspace + patch-save on a tiny fake component ---
 export UPSTREAM_PACKAGES="$PWD/build/test-patch/packages"
 export PATCHES_DIR="$PWD/build/test-patch/patches"
@@ -107,6 +144,43 @@ if ! grep -qF 'LINE2 EDITED' "$patchfile"; then
   echo "FAIL: existing patch 0001 was overwritten"
   fail=1
 fi
+
+# --- unit: version suffix on fake upstream components (real component names,
+# because apply-patches.sh iterates over fetch-upstream.sh --list) ---
+export UPSTREAM_PACKAGES="$PWD/build/test-patch/ver/packages"
+export PATCHES_DIR="$PWD/build/test-patch/ver/patches"
+export INIT_SCRIPTS="$PWD/build/test-patch/ver/no-init-scripts"
+rm -rf build/test-patch/ver
+mkdir -p "$UPSTREAM_PACKAGES/pve-common/pve-common/debian" \
+          "$UPSTREAM_PACKAGES/pve-cluster/pve-cluster/debian" \
+          "$UPSTREAM_PACKAGES/pve-storage/pve-storage"
+printf 'pve-common (1.2.3) unstable; urgency=low\n\n  Upstream entry.\n\n -- Upstream <a@example.com>  Mon, 02 Jan 2006 15:00:00 +0000\n' > \
+  "$UPSTREAM_PACKAGES/pve-common/pve-common/debian/changelog"
+printf 'pve-cluster (9.9+supermox2) unstable; urgency=low\n\n  Already forked.\n\n -- Upstream <b@example.com>  Mon, 02 Jan 2006 15:00:00 +0000\n' > \
+  "$UPSTREAM_PACKAGES/pve-cluster/pve-cluster/debian/changelog"
+run scripts/apply-patches.sh build/test-patch/ver/out
+assert_rc 0
+ver_a="$(sed -n '1{s/^[^(]*(//;s/).*//p}' build/test-patch/ver/out/pve-common/pve-common/debian/changelog)"
+if [ "$ver_a" != "1.2.3+supermox1" ]; then
+  echo "FAIL: pve-common changelog version is '$ver_a', expected 1.2.3+supermox1"
+  fail=1
+fi
+if [ "$(grep -c '^pve-common (' build/test-patch/ver/out/pve-common/pve-common/debian/changelog)" != 2 ]; then
+  echo "FAIL: pve-common changelog does not hold exactly the new entry above the upstream one"
+  fail=1
+fi
+ver_b="$(sed -n '1{s/^[^(]*(//;s/).*//p}' build/test-patch/ver/out/pve-cluster/pve-cluster/debian/changelog)"
+if [ "$ver_b" != "9.9+supermox2" ]; then
+  echo "FAIL: already-suffixed pve-cluster was rewritten to $ver_b"
+  fail=1
+fi
+if [ "$(grep -c '^pve-cluster (' build/test-patch/ver/out/pve-cluster/pve-cluster/debian/changelog)" != 1 ]; then
+  echo "FAIL: pve-cluster gained a duplicate changelog entry"
+  fail=1
+fi
+unset UPSTREAM_PACKAGES
+unset PATCHES_DIR
+unset INIT_SCRIPTS
 
 # --- fuzz/offset must be fatal: apply-patches.sh must ERROR and exit 1 ---
 export UPSTREAM_PACKAGES="$PWD/build/test-patch/fuzzy/packages"

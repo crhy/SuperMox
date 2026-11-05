@@ -273,6 +273,8 @@ post_prepare="$repo_root/build/iso-post-prepare.sh"
 step "writing post-prepare config script: $post_prepare"
 [ -f "$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-no-systemd" ] \
   || fail "missing packaging/supermox-ve/etc/apt/preferences.d/supermox-no-systemd: the ISO copies it to /etc/apt/preferences.d/"
+[ -f "$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-origins" ] \
+  || fail "missing packaging/supermox-ve/etc/apt/preferences.d/supermox-origins: the ISO copies it to /etc/apt/preferences.d/"
 if [ "$dry_run" -eq 1 ]; then
   printf 'DRY-RUN: write %s\n' "$post_prepare"
 else
@@ -307,22 +309,16 @@ deb http://download.proxmox.com/debian/pve trixie pve-no-subscription
 deb http://download.proxmox.com/debian/devel trixie main
 LIST
 cp "$KEY_CACHE" "$lb_dir/config/archives/proxmox.key.chroot"
-cat > "$lb_dir/config/archives/supermox.pref.chroot" <<'PREF'
-Explanation: SuperMox ships its own rebuilt PVE stack; local .debs must win.
-Package: *
-Pin: origin ""
-Pin-Priority: 999
-
-Explanation: Proxmox's trixie pve and devel repositories fill in the rest.
-Package: *
-Pin: origin download.proxmox.com
-Pin-Priority: 100
-
-Explanation: qemu-server needs Proxmox's patched swtpm (0.10.2+pve1), not Devuan's.
-Package: swtpm swtpm-libs swtpm-tools
-Pin: origin download.proxmox.com
-Pin-Priority: 600
-PREF
+# The origin pins are the supermox-ve package's own conffile, so the ISO and
+# the package agree by construction: live-build installs
+# config/archives/<name>.pref.chroot as /etc/apt/preferences.d/<name>.pref for
+# the chroot phase only and deletes it again before the binary stage, so the
+# pin exists before supermox-ve can be installed at all, and the ISO that gets
+# shipped carries exactly one copy of it: the package's conffile at
+# /etc/apt/preferences.d/supermox-origins. Its -1 stanza names every binary
+# package SuperMox rebuilds from patches/, so a missing staged .deb fails the
+# build instead of silently pulling Proxmox's systemd build of that name.
+cp -f "$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-origins" "$lb_dir/config/archives/supermox-origins.pref.chroot"
 # ZERO systemd: copy the very file supermox-ve ships as its conffile. live-build
 # installs config/archives/<name>.pref.chroot as /etc/apt/preferences.d/<name>.pref
 # for the chroot phase only and deletes it again before the binary stage, so the

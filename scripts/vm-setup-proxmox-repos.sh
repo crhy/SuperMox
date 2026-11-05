@@ -43,31 +43,10 @@ fi
 printf 'deb [signed-by=%s] http://download.proxmox.com/debian/pve trixie pve-no-subscription\ndeb [signed-by=%s] http://download.proxmox.com/debian/devel trixie main\n' "$KEY_PATH" "$KEY_PATH" > /etc/apt/sources.list.d/proxmox.list
 rm -f /etc/apt/sources.list.d/pve.list
 
-cat > /etc/apt/preferences.d/supermox-origins <<'PIN'
-Package: *
-Pin: origin download.proxmox.com
-Pin-Priority: 100
-
-Package: *
-Pin: origin ""
-Pin-Priority: 999
-
-Explanation: qemu-server needs Proxmox's patched swtpm (0.10.2+pve1), not Devuan's.
-Package: swtpm swtpm-libs swtpm-tools
-Pin: origin download.proxmox.com
-Pin-Priority: 600
-
-Explanation: the pinned PXVIRT tree builds libpve-access-control 9.1.2, but the
- Proxmox repo's newest libpve-network-perl (1.6.8) requires libpve-access-control
- (>= 9.2.0). Hold the libpve-network-* packages at the release the pinned tree was cut with
- (1.6.7) so the locally built set stays self-consistent instead of half-upgraded.
- Re-derive this hold whenever upstream/pinned-commit.txt moves.
-Package: libpve-network-*
-Pin: version 1.6.7*
-Pin-Priority: 990
-PIN
-
-printf 'deb http://deb.devuan.org/merged excalibur main\n' > /etc/apt/sources.list.d/excalibur-rust.list
+# The origin pins (/etc/apt/preferences.d/supermox-origins) are pushed by the
+# caller from the supermox-ve package's conffile before this script runs, so
+# this VM and the shipped image get one copy of the same rules and apt-get
+# update below already sees them.
 
 cat > /etc/apt/preferences.d/supermox-rust-excalibur <<'RUSTPIN'
 Explanation: Rust crates are build-time source only; nothing from them ships.
@@ -91,8 +70,40 @@ Pin: origin download.proxmox.com
 Pin-Priority: 995
 RUSTPIN
 
+printf 'deb http://deb.devuan.org/merged excalibur main\n' > /etc/apt/sources.list.d/excalibur-rust.list
+
 apt-get update
 REMOTE
+
+# The origin pins are the supermox-ve package's own conffile, so the build VM
+# gets that exact file rather than a copy that can drift from it: the -1 stanza
+# of it names every binary package we rebuild from patches/, which keeps apt
+# from replacing our sysvinit builds with Proxmox's systemd ones. Push it before
+# the remote setup script runs (it is data, not script), 0644 like the package
+# installs it.
+pin_file="$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-origins"
+if [ ! -f "$pin_file" ]; then
+  printf 'ERROR: missing %s: the build VM needs the SuperMox origin pins\n' "$pin_file" >&2
+  exit 1
+fi
+if ! remote 'install -m 0644 /dev/stdin /etc/apt/preferences.d/supermox-origins' < "$pin_file"; then
+  printf 'FAIL: installing /etc/apt/preferences.d/supermox-origins in the VM\n' >&2
+  exit 1
+fi
+
+# The version hold lives in its own file, not in the conffile: appending it to
+# supermox-origins would make dpkg see that conffile as locally modified on
+# every later supermox-ve upgrade in this VM.
+remote 'cat > /etc/apt/preferences.d/supermox-vm-version-pins' <<'PIN'
+Explanation: the pinned PXVIRT tree builds libpve-access-control 9.1.2, but the
+ Proxmox repo's newest libpve-network-perl (1.6.8) requires libpve-access-control
+ (>= 9.2.0). Hold the libpve-network-* packages at the release the pinned tree
+ was cut with (1.6.7) so the locally built set stays self-consistent instead
+ of half-upgraded. Re-derive this hold whenever upstream/pinned-commit.txt moves.
+Package: libpve-network-*
+Pin: version 1.6.7*
+Pin-Priority: 990
+PIN
 
 if ! remote 'bash -s' < "$remote_script"; then
   printf 'FAIL: apt repository setup (keyring, sources, pins, apt-get update)\n' >&2

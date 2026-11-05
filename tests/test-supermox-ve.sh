@@ -77,19 +77,25 @@ else
   fi
 fi
 
-# ZERO systemd: the package itself must ship the apt pin that keeps systemd
+# ZERO systemd: the package itself must ship the apt pins that keep systemd
 # out of the picture, so a plain Devuan Ceres host that installs supermox-ve
-# can never have systemd pulled in behind it. The pin is a conffile at
-# /etc/apt/preferences.d/supermox-no-systemd; scripts/build-rootfs.sh and the
-# ISO build have to write it before the package can be installed, so they use
-# this same file name and installing the package replaces their copy instead
-# of leaving a second one behind.
+# can never have systemd pulled in behind it. Two conffiles live under
+# /etc/apt/preferences.d/: supermox-no-systemd (systemd names and the packages
+# that depend on them pinned out) and supermox-origins (our own builds win over
+# every repository, and every binary package we rebuild from patches/ is pinned
+# to -1 from download.proxmox.com so apt upgrade can never swap our sysvinit
+# build for Proxmox's systemd one). scripts/build-rootfs.sh and the ISO build
+# write the same file names before the package can be installed, so installing
+# the package replaces their copy instead of leaving a second one behind.
 pkg_root="packaging/supermox-ve"
 pin="$pkg_root/etc/apt/preferences.d/supermox-no-systemd"
-if [ ! -f "$pin" ]; then
-  echo "FAIL: supermox-ve ships no $pin"
-  fail=1
-fi
+origins_pin="$pkg_root/etc/apt/preferences.d/supermox-origins"
+for f in "$pin" "$origins_pin"; do
+  if [ ! -f "$f" ]; then
+    echo "FAIL: supermox-ve ships no $f"
+    fail=1
+  fi
+done
 if [ -f "$pin" ]; then
   for p in systemd systemd-sysv libsystemd0 libpam-systemd \
            systemd-standalone-sysusers systemd-standalone-tmpfiles; do
@@ -109,48 +115,109 @@ if [ -f "$pin" ]; then
       fail=1
     fi
   done
-  # the pin file may only ever demote: no positive priority anywhere in it
+  # the no-systemd pin may only ever demote: no positive priority anywhere in it
   if grep -qE '^Pin-Priority: [^-]' "$pin"; then
     echo "FAIL: $pin contains a non-negative Pin-Priority"
     fail=1
   fi
+fi
+if [ -f "$origins_pin" ]; then
+  # Print one pipe-separated line per apt record: Package | Pin | Pin-Priority.
+  # Explanation lines are continuation lines of the record and are ignored.
+  records="$(awk '
+    BEGIN { RS="" }
+    {
+      pkg=""; pin=""; prio=""
+      n=split($0, L, "\n")
+      for (i=1; i<=n; i++) {
+        if (L[i] ~ /^Package: /) pkg=substr(L[i], 10)
+        else if (L[i] ~ /^Pin: /) pin=substr(L[i], 6)
+        else if (L[i] ~ /^Pin-Priority: /) prio=substr(L[i], 15)
+      }
+      print pkg "|" pin "|" prio
+    }' "$origins_pin")"
+  for want in '*|origin ""|999' '*|origin download.proxmox.com|100' 'swtpm swtpm-libs swtpm-tools|origin download.proxmox.com|600'; do
+    if ! printf '%s\n' "$records" | grep -qF "$want"; then
+      echo "FAIL: $origins_pin has no record matching $want"
+      fail=1
+    fi
+  done
+  # The -1 stanza must name exactly the binary packages apply-patches.sh versions,
+  # i.e. the ones we rebuild from patches/: miss one and apt upgrade can replace
+  # our sysvinit build with Proxmox's systemd one, name an extra and a package
+  # we no longer build becomes uninstallable. scripts/supermox-pin-packages.sh
+  # derives the list from the patched trees' debian/control files, so the
+  # checked-in stanza cannot drift from what the build actually produces.
+  patched="build/test-pin-patched"
+  rm -rf "$patched"
+  if ! bash scripts/apply-patches.sh "$patched" > "$patched.log" 2>&1; then
+    echo "FAIL: scripts/apply-patches.sh $patched (needed to check the -1 stanza)"
+    fail=1
+  else
+    have="$(awk '
+      BEGIN { RS="" }
+      {
+        pkg=""; prio=""
+        n=split($0, L, "\n")
+        for (i=1; i<=n; i++) {
+          if (L[i] ~ /^Package: /) pkg=substr(L[i], 10)
+          else if (L[i] ~ /^Pin-Priority: /) prio=substr(L[i], 15)
+        }
+        if (prio == "-1") {
+          m=split(pkg, names, " ")
+          for (j=1; j<=m; j++) if (names[j] != "") print names[j]
+        }
+      }' "$origins_pin" | LC_ALL=C sort -u)"
+    want="$(bash scripts/supermox-pin-packages.sh "$patched" | LC_ALL=C sort -u)"
+    if [ "$have" != "$want" ]; then
+      echo "FAIL: the -1 stanza of $origins_pin does not list exactly the packages apply-patches.sh versions"
+      diff <(printf '%s\n' "$want") <(printf '%s\n' "$have") | sed 's/^/  /'
+      fail=1
+    fi
+  fi
+  rm -rf "$patched" "$patched.log"
+fi
+for f in "$pin" "$origins_pin"; do
+  [ -f "$f" ] || continue
   # apt's preferences parser only continues a record on indented lines: a
   # non-blank, unindented line that is not a key makes apt print
   # "E: Invalid record ... no Package header" on every apt run on the target.
-  bad_line="$(awk -v f="$pin" '
+  bad_line="$(awk -v f="$f" '
     NF && $0 !~ /^[ \t]/ && $0 !~/^(Package|Pin|Pin-Priority|Explanation|File|ExtrapolatePin):/ {
       print f ":" NR ": " $0
-    }' "$pin")"
+    }' "$f")"
   if [ -n "$bad_line" ]; then
-    echo "FAIL: $pin has a line apt cannot parse: $bad_line"
+    echo "FAIL: $f has a line apt cannot parse: $bad_line"
     fail=1
   fi
   if command -v apt-cache > /dev/null 2>&1; then
     pd="build/pin-parse.$$"
     mkdir -p "$pd"
-    cp "$pin" "$pd/"
+    cp "$f" "$pd/"
     apt_warn="$(apt-cache -o Dir::Etc::preferencesparts="$PWD/$pd" policy systemd 2>&1 | grep -E '^(E|W):' || true)"
     rm -rf "$pd"
     if [ -n "$apt_warn" ]; then
-      echo "FAIL: apt rejects $pin: $apt_warn"
+      echo "FAIL: apt rejects $f: $apt_warn"
       fail=1
     fi
   fi
-fi
-if ! grep -qE 'cp -a etc/apt/preferences\.d/supermox-no-systemd debian/supermox-ve/etc/apt/preferences\.d/supermox-no-systemd' "$rules"; then
-  echo "FAIL: $rules does not install the apt pin file"
-  fail=1
-fi
-if ! grep -qE 'chmod 0644 debian/supermox-ve/etc/apt/preferences\.d/supermox-no-systemd' "$rules"; then
-  echo "FAIL: $rules does not install the apt pin file as 0644"
-  fail=1
-fi
-# debhelper only registers conffiles it installs itself, so the path has to be
-# declared explicitly (upstream pve-cluster does the same in debian/conffiles).
-if [ ! -f "$pkg_root/debian/conffiles" ] || ! grep -qx '/etc/apt/preferences.d/supermox-no-systemd' "$pkg_root/debian/conffiles"; then
-  echo "FAIL: $pkg_root/debian/conffiles does not declare /etc/apt/preferences.d/supermox-no-systemd"
-  fail=1
-fi
+done
+for f in supermox-no-systemd supermox-origins; do
+  if ! grep -qE "cp -a etc/apt/preferences\.d/$f debian/supermox-ve/etc/apt/preferences\.d/$f" "$rules"; then
+    echo "FAIL: $rules does not install the $f apt pin file"
+    fail=1
+  fi
+  if ! grep -qE "chmod 0644 debian/supermox-ve/etc/apt/preferences\.d/.*$f" "$rules"; then
+    echo "FAIL: $rules does not install the $f apt pin file as 0644"
+    fail=1
+  fi
+  # debhelper only registers conffiles it installs itself, so each path has to be
+  # declared explicitly (upstream pve-cluster does the same in debian/conffiles).
+  if [ ! -f "$pkg_root/debian/conffiles" ] || ! grep -qx "/etc/apt/preferences.d/$f" "$pkg_root/debian/conffiles"; then
+    echo "FAIL: $pkg_root/debian/conffiles does not declare /etc/apt/preferences.d/$f"
+    fail=1
+  fi
+done
 for f in scripts/build-rootfs.sh scripts/build-iso.sh; do
   if ! grep -qF 'supermox-no-systemd' "$f"; then
     echo "FAIL: $f does not use the supermox-no-systemd pin file name"

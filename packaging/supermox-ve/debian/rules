@@ -14,16 +14,21 @@ override_dh_auto_install:
 	           debian/supermox-ve/usr/sbin/supermox-joind \
 	           debian/supermox-ve/usr/sbin/supermox-node-caps
 	chmod 0644 debian/supermox-ve/usr/lib/python3/dist-packages/supermox/*.py
-	# ZERO systemd: the apt pin that keeps systemd out of the picture ships with
-	# the package as a conffile at /etc/apt/preferences.d/supermox-no-systemd —
-	# the same name scripts/build-rootfs.sh writes during the rootfs build, so
-	# installing the package replaces that copy instead of leaving a second one
-	# behind, and a plain Devuan host that only installs supermox-ve gets the
-	# pin too. debian/conffiles declares the path: debhelper only auto-registers
-	# conffiles it installs itself (the init scripts), not files copied in here.
+	# ZERO systemd: two apt pins ship with the package as conffiles under
+	# /etc/apt/preferences.d/. supermox-no-systemd pins the systemd names and the
+	# packages that depend on them out of the picture — under the same name
+	# scripts/build-rootfs.sh writes during the rootfs build, so installing the
+	# package replaces that copy instead of leaving a second one behind. supermox-origins
+	# makes locally built SuperMox packages win over every repository and pins
+	# every binary package we rebuild from patches/ to -1 from download.proxmox.com,
+	# so apt upgrade can never replace our sysvinit builds with Proxmox's systemd
+	# ones. A plain Devuan host that only installs supermox-ve gets both pins.
+	# debian/conffiles declares both paths: debhelper only auto-registers conffiles
+	# it installs itself (the init scripts), not files copied in here.
 	mkdir -p debian/supermox-ve/etc/apt/preferences.d
 	cp -a etc/apt/preferences.d/supermox-no-systemd debian/supermox-ve/etc/apt/preferences.d/supermox-no-systemd
-	chmod 0644 debian/supermox-ve/etc/apt/preferences.d/supermox-no-systemd
+	cp -a etc/apt/preferences.d/supermox-origins debian/supermox-ve/etc/apt/preferences.d/supermox-origins
+	chmod 0644 debian/supermox-ve/etc/apt/preferences.d/supermox-no-systemd debian/supermox-ve/etc/apt/preferences.d/supermox-origins
 
 override_dh_installinit:
 	dh_installinit --name=networking --no-start
