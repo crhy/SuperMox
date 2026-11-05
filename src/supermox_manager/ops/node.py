@@ -79,21 +79,22 @@ def dns(client, node):
 
 
 def set_dns(client, node, search=None, dns1=None, dns2=None, dns3=None):
-    """PUT /nodes/{node}/dns: write DNS settings.
+    """PUT /nodes/{node}/dns: change DNS settings, keeping the fields not given.
 
-    At least one of search, dns1, dns2, dns3 must be provided.
+    The server rewrites /etc/resolv.conf from exactly the fields it receives,
+    so a PUT of only the search domain dropped every name server and the node
+    lost name resolution. A field left as None keeps its current value; an
+    empty string clears it. At least one field must be given.
     """
-    params = {}
-    if search is not None:
-        params["search"] = search
-    if dns1 is not None:
-        params["dns1"] = dns1
-    if dns2 is not None:
-        params["dns2"] = dns2
-    if dns3 is not None:
-        params["dns3"] = dns3
-    if not params:
+    wanted = {"search": search, "dns1": dns1, "dns2": dns2, "dns3": dns3}
+    if all(value is None for value in wanted.values()):
         raise ValueError("At least one DNS field must be provided.")
+    current = dns(client, node) or {}
+    params = {}
+    for key, value in wanted.items():
+        value = current.get(key) if value is None else value
+        if value is not None:
+            params[key] = value
     return client.request("PUT", "/nodes/{}/dns".format(api.segment(node)), params)
 
 

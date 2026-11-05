@@ -80,13 +80,31 @@ class NodeOps(unittest.TestCase):
 
     def test_set_dns_put(self):
         node.set_dns(self.client, "supermox", search="example.com", dns1="10.0.2.3")
-        self.assertEqual(self.client.calls,
-                         [("PUT", "/nodes/supermox/dns",
-                           {"search": "example.com", "dns1": "10.0.2.3"})])
+        self.assertEqual(self.client.calls[-1],
+                         ("PUT", "/nodes/supermox/dns",
+                          {"search": "example.com", "dns1": "10.0.2.3"}))
 
     def test_set_dns_empty_string_clears(self):
         node.set_dns(self.client, "supermox", search="")
         self.assertEqual(self.client.calls[-1][2], {"search": ""})
+
+    def test_set_dns_keeps_the_name_servers_not_given(self):
+        """Changing only the search domain must not drop the name servers.
+
+        The server writes resolv.conf from exactly the fields it receives:
+        sending only search left the node with no name server at all.
+        """
+        class Current(Recorder):
+            def request(self, method, path, params=None):
+                self.calls.append((method, path, params))
+                return {"dns1": "10.0.2.3", "dns2": "1.1.1.1"} if method == "GET" else {}
+
+        client = Current()
+        node.set_dns(client, "supermox", search="example.com")
+        self.assertEqual(client.calls[0][:2], ("GET", "/nodes/supermox/dns"))
+        self.assertEqual(client.calls[-1],
+                         ("PUT", "/nodes/supermox/dns",
+                          {"search": "example.com", "dns1": "10.0.2.3", "dns2": "1.1.1.1"}))
 
     def test_set_dns_requires_a_field(self):
         with self.assertRaises(ValueError):

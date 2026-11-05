@@ -99,8 +99,13 @@ class NodeLive(unittest.TestCase):
             self.assertEqual(node.dns(self.client, self.node).get("search"),
                              "example.com")
         finally:
-            node.set_dns(self.client, self.node, search="")
-        self.assertNotIn("search", node.dns(self.client, self.node))
+            node.set_dns(self.client, self.node, search=original.get("search", ""))
+        after = node.dns(self.client, self.node)
+        # The name servers must survive a search-domain change (they did not:
+        # the node lost name resolution), and the search domain is restored.
+        for key in ("dns1", "dns2", "dns3"):
+            self.assertEqual(after.get(key), original.get(key), key)
+        self.assertEqual(after.get("search", ""), original.get("search", ""))
 
     def test_refresh_updates(self):
         upid = node.refresh_updates(self.client, self.node)
