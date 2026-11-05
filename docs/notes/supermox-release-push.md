@@ -27,3 +27,10 @@ check-no-systemd on --collect-only. Build attempt 4 got to the install pass; blo
 **How to apply:** after f16/f17 and f10 (rebuild + clean install) pass, rebuild the ISO as root (mksquashfs -mem 1G
 -processors 4, nice), --collect-only, boot-test it in a VM only when no other VM runs; then f13 (release-check + docs).
 Related: [[delegate-coding-to-local-qwen]], [[strata-ram-budget]], [[spaced-no-systemd]], [[notes-live-on-github]].
+
+**State 2026-11-05 06:10:** fixes through f25 committed on strata-m1 (unpushed, "pending review"); final debs: pve-* +supermox1
+(pve-cluster +supermox2, pve-firewall +supermox2), supermox-ve 0.1.19, supermox-manager 10.26.4, rrdcached/isc-dhcp forks. Found+fixed
+tonight on the clean install: no cgroup2 mount (containers could not start) -> init.d/supermox-cgroups; empty storage.cfg -> pve-cluster
+seeds 'local'; wg routes not synced; Manager offered arm64 templates on amd64 (the real cause of CT start failures). 5/5 cold boots ready in
+69-76 s. Issues #10 (no update channel, blocker) and #11 (test harness) filed. Next: final clean install + release-check
+(build/final-*.txt), then ISO build (build-iso.sh --prepare-only, sudo chain with iso-pre-clean.sh), then boot-test the ISO.
