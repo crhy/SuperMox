@@ -38,6 +38,13 @@ def label(text, style=None):
     widget = Gtk.Label(label=text, xalign=0)
     if style:
         widget.get_style_context().add_class(style)
+    if style == "subtitle":
+        # A non-wrapping label's minimum width is its whole text, so long help
+        # text would force the window wider than the screen. Subtitles and page
+        # help text wrap instead.
+        widget.set_line_wrap(True)
+        widget.set_xalign(0)
+        widget.set_max_width_chars(72)
     return widget
 
 
@@ -100,17 +107,28 @@ class Manager:
         sidebar.pack_start(label("MANAGER", "subtitle"), False, False, 12)
         self.nav = {}
         self.pages = {page.TITLE: page for page in pages.load()}
+        # The nav buttons live in a scrolled column: 16 buttons would otherwise
+        # force the window ~1211 px tall, and the list never shrinks back.
+        nav_scroll = Gtk.ScrolledWindow()
+        nav_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        nav_list = box(spacing=6)
         for name in dict.fromkeys(("Overview", "Machines", "Nodes", "Storage", "Tasks",
                                    *self.pages, "Full management")):
             nav = Gtk.ToggleButton(label=name)
             nav.set_halign(Gtk.Align.FILL)
             nav.connect("clicked", self.navigate, name)
-            sidebar.pack_start(nav, False, False, 0)
+            nav_list.pack_start(nav, False, False, 0)
             self.nav[name] = nav
+        nav_scroll.add(nav_list)
+        sidebar.pack_start(nav_scroll, True, True, 0)
         sidebar.pack_end(label("Your infrastructure.\nYour control.", "subtitle"), False, False, 12)
         body.pack_start(sidebar, False, False, 0)
         self.content = box(margin=28, spacing=18)
-        body.pack_start(self.content, True, True, 0)
+        content_scroll = Gtk.ScrolledWindow()
+        content_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        content_scroll.add(self.content)
+        content_scroll.set_hexpand(True)
+        body.pack_start(content_scroll, True, True, 0)
         self.status = label("Ready", "status")
         self.status.set_ellipsize(3)
         root.pack_end(self.status, False, False, 0)

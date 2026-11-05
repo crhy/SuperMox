@@ -1,3 +1,11 @@
+supermox-manager (10.26.3) supermox; urgency=medium
+
+  * Fit every page in a small laptop screen: help text wraps, and the nav list
+    and page content scroll instead of growing the window.
+  * tests/gui-manager-size.py checks each page's minimum and allocated size.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 12:00:00 +0000
+
 supermox-manager (10.26.2) supermox; urgency=medium
 
   * Add the native cluster management page and the live CPU/memory graphs.
