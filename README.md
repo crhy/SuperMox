@@ -79,28 +79,43 @@ start with the [architecture overview](docs/architecture.md) and the
 
 ## Status (10.26)
 
-Verified on 2026-10-29:
+**Milestone 1 is DONE and proven.** Verified on 2026-11-05:
 
-- Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13, pve-container 6.1.15) built from source on Devuan Ceres.
-- Running under sysvinit with no systemd anywhere (checked by `scripts/check-no-systemd.sh` on the running system).
-- Web UI on port 8006, survives reboot.
-- Node join with a 12-word phrase or QR invite (`supermox-join`, `supermox-joind`) built and unit-tested.
-- amd64 first; all architectures planned.
+- Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13, pve-container 6.1.15) built from source on Devuan Ceres; every package we rebuild carries a `+supermox1` version.
+- A clean install on a fresh Devuan Ceres sysvinit VM boots to sysvinit PID 1 with no systemd package installed (`scripts/check-no-systemd.sh` rc 0), every installed init script matches this repo byte for byte, and the node survives 3 reboots with every enabled service reporting running.
+- Web UI on `https://127.0.0.1:8006` answers 200.
+- Node join by 12-word phrase or QR invite (`supermox-join`, `supermox-joind`) is implemented and unit-tested (`tests/test-python.sh`); the live three-node test is the failing `join-e2e.sh` below.
+- amd64 only; arm64 and other architectures are unverified.
 
-Added since (2026-10-30/31, written by the local model and committed as "pending review"):
+The release check (`scripts/release-check.sh`, run 2026-11-05) passes for the gate, the VM boot, the no-systemd check and the services check. Two steps currently FAIL and are under investigation; they are never claimed as working:
 
-- Discovery: signed gossip of node endpoints and a DHT locator so nodes find each other
-  across networks.
+- `tests/manager-live.sh` — SuperMox Manager against a live node.
+- `scripts/join-e2e.sh` — three nodes joined over WireGuard in one VM.
+
+Added since 2026-10-30 (see [CHANGELOG.md](CHANGELOG.md) for the full list):
+
+- Discovery: signed gossip of node endpoints, a DHT locator and an onion-service helper so nodes can find each other across networks. These are libraries with unit tests only: `supermox-joind` does not consult them yet, so joins still go through the rendezvous layer ([docs/node-join-architecture.md](docs/node-join-architecture.md)).
 - Daemon stderr goes to syslog under sysvinit; an offline check keeps upstream overrides honest.
-- SuperMox Manager native pages: create VMs and containers, storage, node administration,
-  network, disks, permissions and API tokens, backup jobs, pools, HA and firewall, with live
-  tests against a running VM. Node shell and guest consoles are in progress.
+- SuperMox Manager native pages: create VMs and containers, storage, node administration, network, disks, permissions and API tokens, backup jobs, pools, HA and firewall. The live test against a running node is the failing `tests/manager-live.sh` above; node shell and guest consoles are in progress.
+- `rrdcached` and `isc-dhcp-client` are our own packages (see [docs/pc-edition.md](docs/pc-edition.md)).
+
+Not ready yet (open issues):
+
+- No LICENSE file; the fork's own licence terms are unsettled ([#5](https://github.com/crhy/SuperMox/issues/5)).
+- arm64 and other architectures unverified ([#6](https://github.com/crhy/SuperMox/issues/6)).
+- The Android GUI is not running on a phone yet ([#7](https://github.com/crhy/SuperMox/issues/7)).
+- The PC-edition ISO has not been built or boot-tested yet ([#8](https://github.com/crhy/SuperMox/issues/8)).
+- Our DHCP fork tracks end-of-life upstream software ([#9](https://github.com/crhy/SuperMox/issues/9)).
+- No signed update channel for our packages ([#10](https://github.com/crhy/SuperMox/issues/10)).
+- The live test harness itself needs work ([#11](https://github.com/crhy/SuperMox/issues/11)).
 
 ## Install (PC edition)
 
 1. Boot the SuperMox ISO on bare metal or a VM.
 2. Follow the installer (Calamares-based, Spaced Linux desktop).
 3. Open `https://<host>:8006` in a browser.
+
+**The ISO is not published yet** ([#8](https://github.com/crhy/SuperMox/issues/8)): as of 2026-11-05 the ISO has not been built; its build tooling is tested without root (`bash scripts/build-iso.sh --dry-run`). What is proven is installing the packages from this repo on a Devuan Ceres sysvinit host — that is how the clean install above was done.
 
 ## Build from source
 

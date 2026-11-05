@@ -39,8 +39,11 @@ anything SuperMox ships.
   `scripts/supermox-pin-packages.sh` and kept honest by `tests/test-supermox-ve.sh`). A plain
   Devuan Ceres host that installs `supermox-ve` gets both pins; the rootfs and ISO builds write
   the same files before the package can be installed.
-- **Packages**: `supermox-ve` (meta-package), `supermox-tmpfiles`, `supermox-joind`, the
-  rebuilt PVE packages, and `supermox-manager` (the desktop client).
+- **Packages**: `supermox-ve` (meta-package; it carries the join daemon
+  `/usr/sbin/supermox-joind` and the `supermox-join` command — there is no
+  `supermox-joind` package), `supermox-tmpfiles`, `supermox-manager` (the desktop
+  client), our own `rrdcached` and `isc-dhcp-client` forks (see
+  [pc-edition.md](pc-edition.md)), and the rebuilt PVE packages.
 
 Verified on 2026-10-29: Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13,
 pve-container 6.1.15) built from source, running under sysvinit with no systemd, web UI on
