@@ -447,12 +447,13 @@ class CoreCommandTest(unittest.TestCase):
         self.assertIn("PVE::SysvService", " ".join(calls[1]))
         self.assertEqual(os.listdir(self.run_dir), [])
 
-    def test_core_refuses_while_a_join_awaits_approval(self):
-        """A cluster with a request in its queue does not hand out its key.
+    def test_core_proceeds_while_a_join_awaits_approval(self):
+        """A request in the queue does not stop this node becoming a member.
 
-        The member that answers would be giving the corosync secret to a node
-        whose membership has not been decided yet, so the whole cluster has
-        to wait for that decision first.
+        The queue holds requests from nodes that are not members yet, and
+        this command only ever asks a node already in the membership list,
+        so the pending request changes nothing about the key being handed
+        over. The guests check is the one that has to hold.
         """
         self._stub_pvesh()
         self._stub_perl()
@@ -461,9 +462,9 @@ class CoreCommandTest(unittest.TestCase):
         st.load()
         st.add_pending({"name": "node-c", "arch": "amd64"})
         rc, out = self._core("core")
-        self.assertEqual(rc, 1, out)
-        self.assertIn("awaiting approval", out)
-        self.assertFalse(os.path.exists(os.path.join(self.corosync, "authkey")))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("core member of cluster %s" % self.cluster_name, out)
+        self.assertTrue(os.path.exists(os.path.join(self.corosync, "authkey")))
 
     def test_core_refuses_a_node_that_is_not_a_member(self):
         """No entry for this node means no name to ask a core member with."""

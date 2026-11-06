@@ -1,3 +1,69 @@
+supermox-ve (0.1.24) unstable; urgency=medium
+
+  * supermox-join cluster-init: a new subcommand, and
+    src/supermox/corosync_cluster.py behind it. `supermox-join create` now
+    writes the cluster's own /etc/corosync/corosync.conf and corosync's
+    pre-shared authkey as part of creating the cluster, so pmxcfs and
+    corosync describe the cluster from the first boot instead of waiting for
+    a step that used to be nobody's job: a node created before this change
+    had a membership state file, an overlay subnet and a wg0 tunnel, and no
+    corosync nodelist naming its peers, which is what left /etc/pve
+    read-only and every join step after it failing. cluster-init is
+    idempotent and touches nothing but the nodelist, so it is also the
+    repair for a cluster whose corosync step failed halfway, and
+    init.d/supermox-wg runs it after regenerating wg0.conf. The config
+    create writes lists only this node (4049a76): peers arrive through
+    supermox-join core, so a half-joined cluster never carries a nodelist
+    entry for a node it has no key for. init.d/supermox-corosync only
+    rewrites a config carrying its own header and naming one node; a
+    multi-node config belongs to a cluster and is never touched.
+    config/shipped-scripts.txt ships the new module, and
+    tests/py/test_corosync_cluster.py, tests/py/test_join_cli.py,
+    tests/test-init-corosync.sh and tests/test-init-wg.sh cover the create
+    path, the repair, the single-node block and the boot script leaving a
+    cluster config alone.
+  * supermox-join core: makes this node a corosync core member. It asks a
+    member's daemon for this cluster's corosync.conf and authkey over the
+    new CORE_REQ -> CORE_ACK message pair (src/supermox/joinproto.py,
+    answered by src/supermox/joind.py) and hands both to upstream's
+    finish_join, which stops pve-cluster, backs up the pmxcfs database,
+    starts corosync and pve-cluster, waits for quorum and regenerates the
+    node certificate - so nothing in SuperMox duplicates that sequence, and
+    nothing is written before a member has actually agreed. The node's
+    previous single-node config is moved to corosync.conf.supermox-single
+    first, upstream's own rollback: a node that fails halfway through
+    becoming a core member must still be able to boot the cluster it had
+    before. A node carrying VMs or containers is refused, as upstream does.
+  * src/supermox/joind.py listens on the IPv6 address as well as the IPv4
+    one, and bin/supermox-join brackets overlay addresses when it builds an
+    endpoint (5bceb3a): an overlay address is IPv6, and an unbracketed
+    endpoint string lets the parser split the address itself on its last
+    colon, so every request to a member reached over the wg0 tunnel went to
+    the wrong host. init.d/supermox-joind passes both addresses.
+  * supermox-join pending --json and members --json: one JSON array each for
+    the Manager (id, name, arch, age_s; name, role, overlay_addr, arch,
+    caps, core). core is true exactly when that member appears in
+    /etc/pve/corosync.conf's nodelist, which is how the Manager tells a
+    corosync member from an overlay member, and an empty members array means
+    'this node has no cluster' rather than an error.
+  * A join request waiting for approval no longer blocks supermox-join core,
+    and joind no longer refuses a CORE_REQ while one is queued: the pending
+    request comes from a node that is not a member yet, while core only ever
+    asks a node already in the membership list, so the two never interact.
+    The guests check is the real precondition. tests/py/test_joind.py and
+    tests/py/test_join_cli.py now expect a CORE_ACK and a completed core
+    join while a join sits in the queue.
+  * Pairs with pve-firewall 6.0.6+supermox3
+    (patches/pve-firewall/0004-cluster-traffic.patch): with the host
+    firewall on, supermox-joind's TCP 8743, the wg0 tunnel's UDP 51820 and
+    corosync knet's UDP port range were all dropped by the default
+    policy_in, so a joined node stopped answering CORE_REQ and join traffic
+    and the cluster never converged. tests/test-firewall-rules.sh generates
+    the rules offline through upstream's own PVE::Firewall module and checks
+    the ports and the per-address pairing.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 02:03:46 -0800
+
 supermox-ve (0.1.23) unstable; urgency=medium
 
   * init.d/pve-cluster: manage pmxcfs by executable instead of by pidfile. pmxcfs

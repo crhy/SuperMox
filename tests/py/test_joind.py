@@ -964,15 +964,24 @@ class CoreJoinTests(JoindBase):
         self.assertEqual(ack["cluster_name"],
                          corosync_cluster.cluster_name(a))
 
-    async def test_core_refused_while_a_join_waits(self):
-        """A pending join request means edge nodes: no key may leave."""
+    async def test_core_ack_while_a_join_waits(self):
+        """A pending join request does not stop a member answering a CORE_REQ.
+
+        The queue holds requests from nodes that are not members yet; the
+        answer only ever goes to a node already in the membership list, so
+        the pending request changes nothing about the key being handed over.
+        The old refusal made a cluster unable to grow its core while any
+        request sat in the queue.
+        """
         a, bident, ep, _ = await self.pair("pending", self.run_ok)
         a.pending["req-c"] = {"name": "node-c"}
         frame = joinproto.make_core_req("node-b", bident)
-        kind, obj = await self.raw_core(ep, frame)
-        self.assertEqual(kind, joind.KIND_JSON)
-        self.assertEqual(obj["t"], "core_refused")
-        self.assertIn("edge nodes", obj["reason"])
+        kind, payload = await self.raw_core(ep, frame)
+        self.assertEqual(kind, joind.KIND_BYTES)
+        member = [m for m in a.membership if m["name"] == a.my_name()][0]
+        ack = joind.open_core_ack(bident, base64.b64decode(member["wg_pub"]), payload)
+        self.assertEqual(ack["corosync_conf"], self.CONF)
+        self.assertEqual(ack["corosync_authkey"], self.AUTHKEY)
 
     async def test_core_refused_from_the_wrong_address(self):
         """The request must arrive from the address this cluster recorded.

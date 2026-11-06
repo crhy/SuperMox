@@ -792,18 +792,14 @@ class JoinDaemon:
     async def _core_check(self, conn, entry: dict, reader, writer):
         """Whether this node may answer a CORE_REQ, and why not.
 
-        The pending check is the "no guests" rule seen from the core side:
-        a cluster that still has join requests awaiting approval contains
-        edge nodes, and a cluster with edge nodes must not hand out its
-        corosync key - the new core member's authkey would let it talk to
-        nodes that are not in its nodelist.
+        A pending join request is none of this business: the queue holds
+        requests from nodes that are not members yet and hold no key, and a
+        CORE_REQ is only ever answered for a node already in the membership
+        list. What gates the answer is membership, the address the request
+        arrives from, a live corosync cluster and the measured round trip.
         """
         if self.state.derived is None or not self.state.membership:
             return False, "this node is not a member of a cluster"
-        if self.state.pending:
-            return False, ("%d join request(s) still awaiting approval; a "
-                           "cluster with edge nodes cannot hand out its "
-                           "corosync key" % len(self.state.pending))
         # The connection arrives through the WireGuard overlay, so the peer
         # address this daemon sees is N's overlay address, recorded in the
         # membership entry it produced at join time.

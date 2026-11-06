@@ -1,0 +1,22 @@
+diff -ruN orig/debian/changelog new/debian/changelog
+--- a/debian/changelog	2026-11-06 02:11:48.628327035 -0800
++++ b/debian/changelog	2026-11-06 02:11:56.733119645 -0800
+@@ -1,3 +1,18 @@
++pve-firewall (6.0.6+supermox3) trixie; urgency=medium
++
++  * PVE/Firewall.pm: let SuperMox's own cluster traffic through the host firewall.
++    Upstream's corosync rule covers only "-p udp --dport 5404:5405", the single
++    port the legacy net-socket transport used; knet, the transport PVE::Corosync
++    writes, binds mcastport (5405 in PVE's config) and the 7 ports above it, so
++    the range is widened to 5404:5412. The management ipset, the per-pair overlay
++    rules and the localnet output rules also carry "-p tcp --dport 8743"
++    (supermox-joind) and "-p udp --dport 51820" (the wg0 tunnel's WireGuard
++    traffic). With the host firewall on and policy_in DROP, none of that traffic
++    was accepted, so a joined node stopped answering CORE_REQ and join traffic
++    and the cluster never converged.
++
++ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 02:03:46 -0800
++
+ pve-firewall (6.0.6+supermox2) trixie; urgency=medium
+ 
+   * debian: init.d/pve-firewall no longer pins the iptables family to the legacy

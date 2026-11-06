@@ -474,3 +474,78 @@ re-checked: `corosync-cfgtool -s` → `addr = 10.0.2.15`, `pvecm status` quorate
 - **pmxcfs mounts and works: YES** — `/etc/pve` mounted and readable, `pvecm
   status` quorate with the overlay address as the local member; but `pvecm` reads
   `/etc/pve/corosync.conf`, not the file corosync reads (§6.3).
+
+---
+
+## 7. Firewall
+
+A core member has to keep talking after the join: `pmxcfs` over corosync, the
+WireGuard tunnel that made it a LAN node in the first place, and `supermox-joind`
+for every later join. `pve-firewall` is a dependency of `supermox-ve` and its
+sysv service is shipped in `init.d/`, so on any node whose admin has switched
+the firewall on, that traffic is the first thing to break — and it breaks
+silently, because the daemons on both ends keep running.
+
+### 7.1 What upstream generates, and what the default policy is
+
+`enable_host_firewall` (`Firewall.pm:3021`) builds the host chains from
+`/etc/network/firewall` plus the cluster rules in `/etc/pve/firewall/<cluster>.fw`
+(both are passed in: `$rules` and `$cluster_rules`). The whole machinery runs
+only when the cluster's firewall `enable` option is on (`is_enabled_and_not_nftables`,
+`Firewall.pm:5514`); with it off, `pve-firewall` removes its chains and nothing
+is filtered.
+
+- Host input policy: `DROP` unless configured otherwise
+  (`Firewall.pm:3143`, `# allow nothing by default`).
+- Host output policy: `ACCEPT` (`Firewall.pm:3247`).
+- The management ipset accepts `tcp` to ports `8006`, `5900:5999`, `3128`,
+  `22`, `60000:60050` — nothing of ours is in that list.
+- corosync gets a rule per member pair: `-d <local> -s <peer> -p udp --dport
+  5404:5405` (`cluster_network`/`local_network`, `Firewall.pm:3113`/`3217`).
+  Upstream still assumes the old `net-socket` transport, which used one port.
+- With `transport: knet` (what `PVE::Corosync` writes) the multicast rules are
+  skipped: `$multicast_enabled` requires `transport eq 'udp'`
+  (`Firewall.pm:3050`).
+
+So with the firewall on, inbound corosync is half-covered (one port of a range
+knet uses up to eight), and inbound WireGuard and `supermox-joind` are not
+covered at all.
+
+### 7.2 What has to cross it
+
+| traffic | port | direction that matters |
+| --- | --- | --- |
+| corosync knet | UDP, from `mcastport` upward (5405 in the live VM, §1.2) | member ↔ member |
+| WireGuard tunnel | UDP 51820 | LAN node → member (in), member → LAN node (out) |
+| `supermox-joind` | TCP 8743 | LAN node → member (in), member → LAN node (out) |
+
+knet binds a small run of consecutive UDP ports starting at `mcastport`; the
+exact count is to be confirmed on the live pair (§ task 4). The rule below
+covers `5404:5412`, a superset of upstream's `5404:5405` and of any plausible
+knet range — cheap because it is still restricted to one address pair.
+
+### 7.3 Where we put it
+
+`patches/pve-firewall/0004-cluster-traffic.patch`, in `enable_host_firewall`
+next to upstream's own corosync rules, because that is the only place that
+knows the member addresses: the rules must be per pair (`-d <local> -s <peer>`),
+and a rule added through `pvesh create /cluster/firewall/rules` would be a
+static matcher with no pairing, written by hand on every node.
+
+- `supermox-management` ipset: `tcp dport 8743`, `udp dport 51820`.
+- overlay inbound: `-d <local> -s <peer> -j supermox-management` — the LAN node
+  is not a member, so its address never appears in a `cluster_network` pair;
+  the rule is keyed on the member end and the peer end of the tunnel.
+- overlay outbound: same pair, `-j ACCEPT`, so a `policy_out: DROP` node can
+  still serve its tunnel and its daemon.
+- localnet outbound: `-d <local> -s <local> -j ACCEPT` — a LAN node answering a
+  `CORE_REQ` from its own overlay address.
+
+`tests/test-firewall-rules.sh` checks the patch applies to the pinned upstream
+source and that the generated rules carry the ports and the address pairing,
+using upstream's own `PVE::Firewall` module with the cluster and node config
+pointed at files under `build/`. It does not touch iptables.
+
+Live check (task 4, rhY): a LAN pair with the firewall enabled and
+`policy_in: DROP`, `invoke-rc.d pve-firewall restart`, then `iptables -S` showing
+the `PVEFW-*` chains with our ports in them, and the join re-run end to end.

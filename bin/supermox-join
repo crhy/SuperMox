@@ -385,11 +385,10 @@ def cmd_core(args) -> int:
     if st.derived is None or not st.membership:
         print("no cluster here: run supermox-join create first", file=sys.stderr)
         return 1
-    if st.pending:
-        print("%d join request(s) still awaiting approval: a cluster with "
-              "edge nodes cannot hand out its corosync key"
-              % len(st.pending), file=sys.stderr)
-        return 1
+    # A join request still in the queue is not a reason to wait: it comes from
+    # a node that is not a member yet, and this command only ever asks a node
+    # already in the membership list. The guests check below is the real
+    # "no guests" rule.
     try:
         me = corosync_cluster.my_entry(st)
     except corosync_cluster.CorosyncError as exc:
