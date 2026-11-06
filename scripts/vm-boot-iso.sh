@@ -109,7 +109,7 @@ fi
 # The ISO to boot: the newest build/iso/supermox-*.iso when none was given.
 if [ -z "$ISO" ]; then
   ISO="$(find "$REPO/build/iso" -maxdepth 1 -type f -name 'supermox-*.iso' -printf '%T@ %p\n' 2>/dev/null |
-    sort -nr | tail -n1 | cut -d' ' -f2-)"
+    sort -nr | head -n1 | cut -d' ' -f2-)"
   if [ -z "$ISO" ]; then
     printf 'ERROR: no ISO given and none found under %s (build one with scripts/build-iso.sh)\n' "$REPO/build/iso" >&2
     exit 1
@@ -508,7 +508,10 @@ fi
 rm -f "$QMP_SOCK"
 
 # Extract the kernel and initrd unless a previous run already extracted them from
-# this same ISO (the ISO is 1.8 GB, so re-extracting is worth avoiding).
+# this same ISO (the ISO is 1.8 GB, so re-extracting is worth avoiding). "Same" is
+# the ISO's path, size and mtime recorded in a stamp next to the files: a newer
+# cached kernel used to count as current for any older ISO, and with the newest-
+# ISO pick inverted the 11.26 boot test booted the old 10.26 image (2026-11-06).
 kern_member="$(iso_list "$ISO" "live/vmlinuz" | head -n1)"
 initrd_member="$(iso_list "$ISO" "live/initrd.img" | head -n1)"
 if [ -z "$kern_member" ] || [ -z "$initrd_member" ]; then
@@ -516,16 +519,21 @@ if [ -z "$kern_member" ] || [ -z "$initrd_member" ]; then
   exit 1
 fi
 printf 'ISO kernel: %s\nISO initrd: %s\n' "$kern_member" "$initrd_member"
+iso_stamp="$WORK/extracted-from"
+want_stamp="$(stat -c '%n %s %Y' "$ISO")"
+have_stamp="$(cat "$iso_stamp" 2>/dev/null || true)"
 for pair in "$kern_member:$KERN" "$initrd_member:$INITRD"; do
   member="${pair%%:*}"
   dest="${pair#*:}"
-  if [ -f "$dest" ] && [ "$dest" -nt "$ISO" ]; then
-    printf 'Reusing %s (newer than the ISO)\n' "$dest"
+  if [ -f "$dest" ] && [ "$have_stamp" = "$want_stamp" ]; then
+    printf 'Reusing %s (extracted from this same ISO)\n' "$dest"
   else
     iso_extract "$ISO" "$member" "$dest"
     printf 'Extracted %s -> %s\n' "$member" "$dest"
   fi
 done
+printf '%s\n' "$want_stamp" > "$iso_stamp"
+printf 'ISO: %s\n' "$ISO"
 
 printf 'Starting headless ISO boot (timeout %s s, serial log %s)\n' "$timeout_s" "$SERIAL"
 print_cmd "${cmd[@]}"
@@ -701,6 +709,18 @@ else
     '' | 0 | 1 | unreadable) report 'login screen drawn on the guest console' 1 "$last_png is one colour ($colours)" ;;
     *) report 'login screen drawn on the guest console' 0 "$last_png has $colours distinct colours" ;;
   esac
+fi
+
+# 5. the node's cluster stack came up: corosync did not exit at start, and
+#    pve-cluster could write /etc/pve (read-only means pmxcfs has no quorum). This
+#    is the failure rhY hit on the live ISO (an image built with the build
+#    machine's corosync identity baked in).
+coro_bad="$(grep -a -m1 -E 'Corosync Cluster Engine exiting|failed to parse bindnet' "$SERIAL" 2>/dev/null || true)"
+pve_bad="$(grep -a -m1 -E 'cannot create /etc/pve|could not write /etc/pve' "$SERIAL" 2>/dev/null || true)"
+if [ -n "$coro_bad" ] || [ -n "$pve_bad" ]; then
+  report 'corosync and pve-cluster came up' 1 "${coro_bad:-}${coro_bad:+; }${pve_bad:-}"
+else
+  report 'corosync and pve-cluster came up' 0 "no corosync exit and no read-only /etc/pve in $SERIAL"
 fi
 
 printf 'Elapsed: %s s\nSerial log: %s\nScreendumps: %s\n' "$elapsed" "$SERIAL" "$WORK"

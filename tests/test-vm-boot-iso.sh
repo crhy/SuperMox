@@ -214,6 +214,21 @@ if [ -f "$SUPERMOX_ISO_WORK/qemu.pid" ] &&
   fail=1
 fi
 
+# The newest ISO is the one to boot: with `sort -nr | tail -n1` the 11.26 boot test
+# booted the old 10.26 image and reported its corosync failure (2026-11-06).
+if ! grep -q "sort -nr | head -n1" scripts/vm-boot-iso.sh; then
+  echo "FAIL: vm-boot-iso.sh does not pick the newest build/iso/supermox-*.iso"
+  fail=1
+fi
+if ! grep -q "extracted-from" scripts/vm-boot-iso.sh; then
+  echo "FAIL: the kernel/initrd cache is not tied to the ISO it came from"
+  fail=1
+fi
+if ! grep -q "corosync and pve-cluster came up" scripts/vm-boot-iso.sh; then
+  echo "FAIL: the boot test no longer checks that corosync and /etc/pve came up"
+  fail=1
+fi
+
 rm -rf "$T"
 if [ "$fail" -ne 0 ]; then
   exit 1

@@ -96,10 +96,22 @@ seed_storage_cfg() {
   if [ -s "$STORAGE_CFG" ]; then
     return 0
   fi
-  printf '%s\n' 'dir: local' ' path /var/lib/vz' ' content images,rootdir,vztmpl,iso,backup,snippets,import' > "$STORAGE_CFG" || {
-    log_warning_msg "$NAME: could not write $STORAGE_CFG"
-    return 0
-  }
+  # pmxcfs mounts /etc/pve read-only until corosync reports quorum, which
+  # comes a few seconds after corosync starts: on the 11.26 live ISO the
+  # first write failed with "Permission denied" every boot. Retry for a
+  # bounded time (SEED_TRIES seconds; tests set it low).
+  tries=${SEED_TRIES:-30}
+  while :; do
+    if printf '%s\n' 'dir: local' ' path /var/lib/vz' ' content images,rootdir,vztmpl,iso,backup,snippets,import' > "$STORAGE_CFG" 2>/dev/null; then
+      return 0
+    fi
+    tries=$((tries - 1))
+    if [ "$tries" -le 0 ]; then
+      log_warning_msg "$NAME: could not write $STORAGE_CFG (no quorum yet?)"
+      return 0
+    fi
+    sleep 1
+  done
 }
 
 case "$1" in

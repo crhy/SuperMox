@@ -1,0 +1,22 @@
+diff -ruN orig/debian/changelog new/debian/changelog
+--- a/debian/changelog	2026-11-06 18:40:00.000000000 -0800
++++ b/debian/changelog	2026-11-06 18:40:10.000000000 -0800
+@@ -1,3 +1,18 @@
++pve-cluster (9.1.7+supermox4) trixie; urgency=medium
++
++  * init.d/pve-cluster: stop, status and restart find pmxcfs by its executable,
++    so a missing or stale pidfile no longer makes stop do nothing and restart
++    start a second pmxcfs on the same mount (which hung every read of /etc/pve
++    and made PVE's own cluster join abort).
++  * init.d/pve-cluster: seeding /etc/pve/storage.cfg retries for up to 30
++    seconds. pmxcfs mounts /etc/pve read-only until corosync reports quorum,
++    a few seconds after corosync starts, so on the live ISO the first write
++    failed with "Permission denied" on every boot.
++  * debian: the postinst no longer writes corosync.conf inside a build chroot
++    (the build-chroot test was inverted in +supermox3).
++
++ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 18:40:00 -0800
++
+ pve-cluster (9.1.7+supermox3) trixie; urgency=medium
+ 
+   * debian: setup_single_node_cluster now does nothing when the package is being
