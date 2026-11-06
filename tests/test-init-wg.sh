@@ -305,6 +305,20 @@ if [ -s "$STUB_LOG" ]; then
   fail=1
 fi
 
+# --- the boot order the cluster depends on --------------------------------
+# corosync resolves ring0_addr when it starts, so wg0 must already carry the
+# overlay address when corosync reads /etc/corosync/corosync.conf. Measured
+# in the VM: with wg0 late, corosync exits with "No valid name found for
+# local host" and pmxcfs then runs without quorum.
+for want in '^# Required-Start:.*\$network' \
+            '^# X-Start-Before:.*corosync' \
+            '^# X-Start-Before:.*pve-cluster'; do
+  if ! grep -qE "$want" "$script"; then
+    echo "FAIL: $script LSB header is missing: $want"
+    fail=1
+  fi
+done
+
 rm -rf "$tmp"
 
 if [ "$fail" -ne 0 ]; then

@@ -26,7 +26,7 @@
 # Provides:          supermox-wg
 # Required-Start:    $network $remote_fs
 # Required-Stop:     $network $remote_fs
-# X-Start-Before:    pve-cluster supermox-joind
+# X-Start-Before:    corosync pve-cluster supermox-joind
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: Bring up the SuperMox WireGuard overlay

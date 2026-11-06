@@ -18,6 +18,7 @@ try:
     from supermox import invite as invite_mod
     from supermox import secret
     from supermox import state as node_state
+    from supermox import corosync_cluster
 except ImportError:  # repo checkout: bin/ sits next to src/
     sys.path.insert(
         0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
@@ -26,6 +27,7 @@ except ImportError:  # repo checkout: bin/ sits next to src/
     from supermox import invite as invite_mod
     from supermox import secret
     from supermox import state as node_state
+    from supermox import corosync_cluster
 
 
 def _arch() -> str:
@@ -69,10 +71,32 @@ def _identity(st: node_state.NodeState) -> dict:
     return st.identity
 
 
+def _ensure_cluster(st) -> tuple:
+    """Make corosync and pmxcfs see the cluster this node belongs to.
+
+    The overlay address is waited for first (up to 15 s): ``wg up`` returns
+    before the kernel has assigned the interface its address, and corosync
+    dials the address at start instead of waiting for it, so writing the
+    nodelist before the address exists just moves the failure into a
+    corosync that exited with status 8 behind an init script that said 0.
+    """
+    ok, note = corosync_cluster.wait_for_overlay(st)
+    if not ok:
+        return False, note
+    return corosync_cluster.init_cluster(st)
+
+
 def cmd_create(args) -> int:
     st = _state()
     if st.derived is not None:
         print("this node already belongs to a cluster", file=sys.stderr)
+        return 1
+    # Validate the name before anything is generated or written: corosync
+    # itself refuses a name with a leading or trailing dash, and a name it
+    # would refuse is not worth creating a keypair and an overlay for.
+    if not corosync_cluster.name_ok(args.name):
+        print("not a valid cluster name: %r (letters, digits and internal "
+              "dashes, at most 30 characters)" % (args.name,), file=sys.stderr)
         return 1
     phrase = secret.generate()
     endpoints = [args.endpoint] if args.endpoint else []
@@ -87,12 +111,27 @@ def cmd_create(args) -> int:
     path = joind.write_wg_conf(st)
     _apply_overlay("start")
     print("wrote %s" % path)
+    # The phrase goes out before the corosync step, not at the end of the
+    # command: it is shown once, never written anywhere, and a step that
+    # can fail must not be able to swallow it.
     print("Cluster created. The 12 words below are the whole cluster secret.")
     print("They are shown once, are not written to any file and are not")
     print("backed up anywhere. Write them down off this machine, or use")
     print("the recovery QR (supermox-join invite --recovery-qr) later.")
     print()
     print(phrase)
+    print()
+    # The node has an identity, keys and a tunnel, and is still not a
+    # cluster as far as corosync and pmxcfs are concerned until the
+    # nodelist is written; see src/supermox/corosync_cluster.py.
+    ok, msg = _ensure_cluster(st)
+    if not ok:
+        print("corosync cluster: FAILED: %s" % msg, file=sys.stderr)
+        print("state, keys and overlay are in place; re-run this step with "
+              "supermox-join cluster-init once the cause is fixed (it is "
+              "idempotent)", file=sys.stderr)
+        return 1
+    print("corosync cluster: %s" % msg)
     return 0
 
 
@@ -161,6 +200,35 @@ def cmd_conf(args) -> int:
     path = joind.write_wg_conf(st)
     print("wrote %s" % path)
     _apply_overlay("start")
+    # conf is also the recovery path for a create whose corosync step failed:
+    # init_cluster is idempotent, so re-applying local config re-writes the
+    # nodelist and re-checks quorum without touching keys or membership.
+    ok, msg = _ensure_cluster(st)
+    if not ok:
+        print("corosync cluster: FAILED: %s" % msg, file=sys.stderr)
+        return 1
+    print("corosync cluster: %s" % msg)
+    return 0
+
+
+def cmd_cluster_init(args) -> int:
+    """Bring an existing cluster's corosync config up to the state file.
+
+    For a node whose overlay cluster already exists -- created before this
+    step existed, or created with its corosync step failed -- this is the
+    whole repair: no keys, no membership, no overlay is touched, only the
+    nodelist corosync and pmxcfs need. It is idempotent, so it is also
+    what ``conf`` runs after rewriting wg0.conf.
+    """
+    st = _state()
+    if st.derived is None:
+        print("no cluster here: run supermox-join create first", file=sys.stderr)
+        return 1
+    ok, msg = _ensure_cluster(st)
+    if not ok:
+        print("corosync cluster: FAILED: %s" % msg, file=sys.stderr)
+        return 1
+    print("corosync cluster: %s" % msg)
     return 0
 
 
@@ -260,6 +328,12 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("conf", help="regenerate this node's wg0.conf from state")
     p.set_defaults(func=cmd_conf)
+
+    p = sub.add_parser("cluster-init",
+                       help="write this cluster's corosync nodelist "
+                            "(idempotent; repairs a cluster whose corosync "
+                            "step never ran)")
+    p.set_defaults(func=cmd_cluster_init)
 
     p = sub.add_parser("pending", help="list join requests waiting for approval")
     p.set_defaults(func=cmd_pending)

@@ -66,6 +66,42 @@ class CreateOverlayTest(unittest.TestCase):
         os.environ["SUPERMOX_ETC"] = self.etc
         os.environ["SUPERMOX_WG_DIR"] = self.wg_dir
         os.environ["SUPERMOX_WG_INITD"] = self.initd
+        # c06: create also drives the corosync cluster step (src/supermox/
+        # corosync_cluster.py), which needs a mounted pmxcfs and a live corosync.
+        # These tests are about the overlay, so the step is stubbed; the real
+        # module has its own tests, and test_corosync_failure below pins that a
+        # failed step makes create fail.
+        self.corosync_ok = True
+        self.corosync_calls = []
+        self._real_corosync = cli.corosync_cluster
+        self.addCleanup(self._restore_corosync)
+        cli.corosync_cluster = self._make_corosync_stub()
+
+    def _restore_corosync(self):
+        cli.corosync_cluster = self._real_corosync
+
+    def _make_corosync_stub(self):
+        """Stands in for corosync_cluster: needs a mounted pmxcfs and a live
+        corosync, which these overlay-focused tests do not have."""
+        test = self
+
+        class Stub:
+            def name_ok(self, name):
+                # Same rule as the real module: letters, digits and internal
+                # dashes, at most 30 characters.
+                import re
+                return bool(name) and len(name) <= 30 and bool(
+                    re.match(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\Z", name))
+
+            def wait_for_overlay(self, st):
+                test.corosync_calls.append("wait")
+                return True, "overlay carries fd00:1:2:3:4:5:6:7:0"
+
+            def init_cluster(self, st):
+                test.corosync_calls.append("init")
+                return test.corosync_ok, "cluster stub quorate"
+
+        return Stub()
 
     def _restore_env(self, saved):
         for var in ("SUPERMOX_ETC", "SUPERMOX_WG_DIR", "SUPERMOX_WG_INITD"):
@@ -76,9 +112,11 @@ class CreateOverlayTest(unittest.TestCase):
 
     def _create(self, *argv):
         buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
+        err = io.StringIO()
+        self.corosync_calls = []
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
             rc = cli.main(list(argv))
-        return rc, buf.getvalue()
+        return rc, buf.getvalue() + err.getvalue()
 
     def test_create_writes_conf_and_starts_overlay(self):
         rc, out = self._create("create", "--name", "firstnode")
@@ -106,6 +144,22 @@ class CreateOverlayTest(unittest.TestCase):
         self.assertIn("overlay up:", out)
         self.assertIn("Cluster created.", out)
 
+    def test_a_name_corosync_would_refuse_fails_before_anything_is_written(self):
+        # c06: `create --name` is checked up front. A trailing dash is a name
+        # corosync itself rejects; generating a keypair, an overlay and state
+        # files for a cluster that cannot exist is worse than saying no early.
+        for bad in ("bad-name-", "a" * 31, "two words"):
+            rc, out = self._create("create", "--name", bad)
+            self.assertEqual(rc, 1, bad)
+            self.assertIn("not a valid cluster name", out)
+        # A leading dash needs the `=` form, or argparse reads it as an option.
+        rc, out = self._create("create", "--name=-lead")
+        self.assertEqual(rc, 1)
+        self.assertIn("not a valid cluster name", out)
+        self.assertEqual(os.listdir(self.etc), [],
+                         "a rejected name left files behind")
+        self.assertEqual(self.corosync_calls, [])
+
     def test_create_survives_a_broken_overlay_script(self):
         # The overlay is reported, never fatal: the cluster already exists by
         # then, so a tunnel that did not come up must not make create fail.
@@ -125,6 +179,21 @@ class CreateOverlayTest(unittest.TestCase):
             lines = fh.read().splitlines()
         self.assertEqual(lines, ["start %s" % self.wg_dir])
         self.assertIn("wrote %s" % os.path.join(self.wg_dir, "wg0.conf"), out)
+
+    def test_create_fails_when_the_corosync_step_fails(self):
+        # The cluster, keys and overlay exist, but corosync and pmxcfs were
+        # never told about the node: that is not a working cluster, so create
+        # must say so instead of reporting success.
+        self.corosync_ok = False
+        rc, out = self._create("create", "--name", "firstnode")
+        self.assertEqual(rc, 1)
+        self.assertIn("corosync cluster: FAILED", out)
+        self.assertIn("cluster-init", out)
+
+    def test_create_tells_the_user_the_cluster_is_quorate(self):
+        rc, out = self._create("create", "--name", "firstnode")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("corosync cluster: cluster stub quorate", out)
 
 
 if __name__ == "__main__":

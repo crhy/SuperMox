@@ -12,6 +12,8 @@
 #   * re-running with the same host and address changes nothing (idempotent);
 #   * a moved DHCP address or a renamed node rewrites the one node block;
 #   * a real multi-node config is never touched;
+#   * a cluster config supermox-join wrote (overlay address, managed header)
+#     is never touched either, and `status` accepts its fdXX: address;
 #   * no non-loopback address: exit 0 (boot must not be blocked), file untouched;
 #   * `status` is LSB 0 when the config maps this node to a non-loopback address
 #     and LSB 3 when it is still the placeholder or only maps to loopback;
@@ -193,6 +195,47 @@ if ! run start; then
 fi
 if ! cmp -s "$conf" "$conf.before"; then
   echo "FAIL: multi-node config was rewritten"
+  fail=1
+fi
+
+# --- case 7b: a cluster config supermox-join wrote is left alone ----------
+# Its node is named after the node and addressed by its overlay, which is
+# not one of `hostname -I`; rewriting it would drop the cluster.
+printf 'myhost\n' > "$tmp/state/hostname"
+cat > "$conf" <<EOF
+# SuperMox cluster (managed by supermox-join; do not let supermox-corosync rewrite)
+totem {
+    cluster_name: smx-620d95dc
+    config_version: 2
+    ip_version: ipv6
+    secauth: on
+    version: 2
+    link_mode: passive
+}
+nodelist {
+    node {
+        name: myhost
+        nodeid: 1
+        quorum_votes: 1
+        ring0_addr: fd21:3129:3360:3507:d958:db0e:fba9:0
+    }
+}
+quorum {
+    provider: corosync_votequorum
+    two_node: 1
+}
+EOF
+cp "$conf" "$conf.before"
+if ! run start; then
+  echo "FAIL: start exited non-zero on a SuperMox cluster config"
+  fail=1
+fi
+if ! cmp -s "$conf" "$conf.before"; then
+  echo "FAIL: the SuperMox cluster config was rewritten"
+  fail=1
+fi
+if ! run status; then
+  echo "FAIL: status exited non-zero for a cluster config whose node is this host at its overlay address"
   fail=1
 fi
 

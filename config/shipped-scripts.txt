@@ -34,6 +34,7 @@ supermox-ve src/supermox/sync.py usr/lib/python3/dist-packages/supermox/sync.py
 supermox-ve src/supermox/secret.py usr/lib/python3/dist-packages/supermox/secret.py
 supermox-ve src/supermox/state.py usr/lib/python3/dist-packages/supermox/state.py
 supermox-ve src/supermox/onion.py usr/lib/python3/dist-packages/supermox/onion.py
+supermox-ve src/supermox/corosync_cluster.py usr/lib/python3/dist-packages/supermox/corosync_cluster.py
 # SuperMox Manager: the desktop app (GTK 3 + WebKitGTK) and its modules.
 supermox-manager bin/supermox-manager usr/bin/supermox-manager
 supermox-manager src/supermox_manager/__init__.py usr/lib/python3/dist-packages/supermox_manager/__init__.py
