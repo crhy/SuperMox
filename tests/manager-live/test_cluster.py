@@ -28,6 +28,56 @@ LIVE_PASS = os.environ.get("SUPERMOX_LIVE_PASS", "")
 
 DESCRIPTION = "t78 live probe"
 
+# What `supermox-join create` writes on the node it runs on, and the paths
+# ClusterCommandsLive below copies before it touches them. The list is the
+# one docs/cluster-core-join.md 6.6 measured on the test VM.
+STATE_DIR = "/etc/supermox"
+COROSYNC_CONF = "/etc/corosync/corosync.conf"
+PVE_COROSYNC_CONF = "/etc/pve/corosync.conf"
+AUTHKEY = "/etc/corosync/authkey"
+WG_CONF_DIR = "/etc/wireguard"
+_IPV4 = re.compile(r"\d{1,3}(?:\.\d{1,3}){3}")
+
+
+def shell(client, node, command, seconds=30):
+    """One command in a node shell, on a terminal wide enough that nothing wraps.
+
+    run_command() above is the page's call: 100 columns, because that is
+    what the browser sends. The setup and teardown lines below print paths
+    and status lines longer than that, and a wrapped line puts a newline
+    inside the text the caller has to match, so they ask for a wider
+    terminal instead of being matched loosely.
+    """
+    return terminal.run_command(client, node, command, timeout=seconds,
+                                cols=400, rows=20)
+
+
+def flat(text):
+    """The answer with every run of whitespace collapsed to one space.
+
+    The terminal pads and wraps, so a command's own words are only reliable
+    once its shape is thrown away. Used for the setup, teardown and quorum
+    checks; never for the 12 words, which are never looked at at all.
+    """
+    return " ".join(text.split())
+
+
+def node_address(client, node):
+    """This node's own IPv4 address, the host part of its join endpoint.
+
+    `ip -4 route get 1` names it as `src`; `hostname -I` prints it first. A
+    loopback address is no use to a member on another machine, so neither
+    command's answer is accepted when it is one, and the class skips when
+    the node reports no usable address at all.
+    """
+    route = shell(client, node, "ip -4 route get 1").split()
+    address = route[route.index("src") + 1] if "src" in route else ""
+    if not _IPV4.fullmatch(address):
+        names = shell(client, node, "hostname -I").split()
+        address = names[0] if names else ""
+    return address if _IPV4.fullmatch(address) and not address.startswith(
+        "127.") else ""
+
 
 def run_command(client, node, command, seconds=30):
     """One command in a node shell, and only its own output.
@@ -169,6 +219,10 @@ class ClusterCommandsLive(unittest.TestCase):
     supermox-join has no API of its own, so these calls are the page's only
     route to the cluster's members, its waiting join requests and its actions.
     Every assertion is about the text the page would show.
+
+    A clean install has no cluster, and every command below answers "no
+    cluster here" without one, so the class builds its own throwaway cluster
+    in setUpClass and leaves the node as it found it in tearDownClass.
     """
 
     @classmethod
@@ -178,14 +232,105 @@ class ClusterCommandsLive(unittest.TestCase):
         cls.client = api.Client(LIVE_URL, LIVE_PIN)
         cls.client.login(LIVE_USER, LIVE_PASS)
         cls.node = cls.client.request("GET", "/nodes")[0]["node"]
+        cls.stamp = time.strftime("%Y%m%d-%H%M%S")
+        cls.conf_backup = "/root/manager-live-corosync.conf.bak." + cls.stamp
+        cls.pve_backup = "/root/manager-live-pve-corosync.conf.bak." + cls.stamp
+        cls.state_backup = "/root/manager-live-supermox.bak." + cls.stamp
+        cls.state_pre = "/root/manager-live-supermox.pre." + cls.stamp
+        cls.address = node_address(cls.client, cls.node)
+        if not cls.address:
+            raise unittest.SkipTest("this node reports no usable IPv4 address")
+        # What the node had before this class touched it. A clean install
+        # still has pmxcfs' own single-node pair of nodelists, so "nothing"
+        # is not one of the answers here, and the state dir may hold files
+        # a package shipped (sync-users) rather than nothing; the copies
+        # below and the list of those files are what the teardown puts back.
+        cls.state_files = shell(cls.client, cls.node,
+                                "ls -A %s 2>/dev/null" % STATE_DIR).split()
+        shell(cls.client, cls.node,
+              "cp -a %s %s 2>/dev/null; cp -a %s %s 2>/dev/null" % (
+                  COROSYNC_CONF, cls.conf_backup,
+                  PVE_COROSYNC_CONF, cls.pve_backup), seconds=60)
+        # The throwaway cluster. `create` prints the 12-word phrase once:
+        # it lands in this test's own captured output and nowhere else, so
+        # nothing below quotes that output when the setup fails -- it names
+        # the step instead.
+        made = shell(cls.client, cls.node,
+                     cluster.create_command(
+                         cls.node, "%s:%d" % (cls.address, cluster.JOIN_PORT)),
+                     seconds=180)
+        if "already belongs to a cluster" in flat(made):
+            # Left over from an earlier run: create wrote nothing, so there
+            # is nothing for the teardown to undo, and a cluster this node
+            # really has must not be torn down. The message says what to
+            # move aside to make the class runnable again.
+            raise unittest.SkipTest(
+                "this node is already a member: move %s aside first"
+                % STATE_DIR)
+        if "corosync cluster: cluster " not in flat(made):
+            cls.restore()
+            raise unittest.SkipTest(
+                "supermox-join create left no quorate cluster here")
 
     @classmethod
     def tearDownClass(cls):
+        cls.restore()
         if getattr(cls, "client", None):
             try:
                 cls.client.logout()
             except Exception:  # noqa: BLE001 - best effort
                 pass
+
+    @classmethod
+    def restore(cls):
+        """Put the node back the way setUpClass found it, and report pvecm.
+
+        The order is the one docs/cluster-core-join.md 6.6 measured: the
+        overlay comes down first, because its address is in the nodelist
+        corosync is still running with; then the services that read that
+        nodelist; then the files; then corosync and pve-cluster start again
+        on the restored nodelist. Idempotent, so the last test of the class
+        can check the result and tearDownClass can still guarantee it when
+        the run stopped early.
+        """
+        if getattr(cls, "restored", False) or not hasattr(cls, "state_files"):
+            # Nothing was written on this node, so there is nothing to put
+            # back: either the teardown already ran, or setUpClass skipped
+            # before it touched a file.
+            return ""
+        cls.restored = True
+        lines = [
+            "invoke-rc.d supermox-joind stop",
+            "invoke-rc.d supermox-wg stop",
+            "invoke-rc.d corosync stop",
+            "invoke-rc.d pve-cluster stop",
+            "cp -a %s %s 2>/dev/null" % (cls.conf_backup, COROSYNC_CONF),
+            "cp -a %s %s 2>/dev/null" % (cls.pve_backup, PVE_COROSYNC_CONF),
+            "rm -f %s" % AUTHKEY,
+            "rm -rf %s" % WG_CONF_DIR,
+            "sed -i '/supermox-managed/d' /etc/hosts",
+            "invoke-rc.d corosync start",
+            "invoke-rc.d pve-cluster start",
+            "pvecm status",
+        ]
+        if cls.state_files:
+            # The state dir goes aside whole; the files in it that are not
+            # ours (sync-users is shipped by a package) come back, which is
+            # what 6.6 left behind. With nothing in the dir to begin with,
+            # the move is the whole step and no empty dir is left behind.
+            keep = " ".join("%s/%s" % (STATE_DIR, name)
+                             for name in cls.state_files)
+            lines[7:7] = [
+                "mkdir -p %s" % cls.state_pre,
+                "cp -a %s %s 2>/dev/null" % (keep, cls.state_pre),
+                "mv %s %s 2>/dev/null" % (STATE_DIR, cls.state_backup),
+                "mkdir -p %s" % STATE_DIR,
+                "cp -a %s/. %s 2>/dev/null" % (cls.state_pre, STATE_DIR),
+            ]
+        else:
+            lines[7:7] = ["mv %s %s 2>/dev/null" % (STATE_DIR,
+                                        cls.state_backup)]
+        return shell(cls.client, cls.node, " ; ".join(lines), seconds=180)
 
     def test_members_json_carries_the_documented_keys(self):
         text = run_command(self.client, self.node, cluster.members_command())
@@ -258,6 +403,9 @@ class ClusterCommandsLive(unittest.TestCase):
         text = run_command(self.client, self.node, cluster.managed_command())
         self.assertTrue(("yes" in text) ^ ("no" in text),
                         "the probe printed neither marker: %r" % text[:200])
+        # The cluster setUpClass built is corosync-managed, so on this node
+        # the answer is the yes marker, not merely one of the two.
+        self.assertIn("yes", text)
 
     def test_core_command_never_tracebacks(self):
         # `core` only promotes a member that joined and was approved. On a node
@@ -266,6 +414,25 @@ class ClusterCommandsLive(unittest.TestCase):
         text = run_command(self.client, self.node, cluster.core_command())
         self.assertTrue(text.strip())
         self.assertNotIn("Traceback", text)
+
+    def test_the_node_is_back_where_this_class_started(self):
+        """The teardown's own result, checked rather than trusted.
+
+        unittest sorts this name last in the class, so every command test
+        above has run by the time restore() is called; tearDownClass calls
+        it again and the second call is a no-op. A clean install ends up
+        back on pmxcfs' single-node cluster, which is quorate too, so
+        `quorate: Yes` is the answer either way -- what differs is that
+        the nodelist no longer carries supermox's marker and the state dir
+        holds only what it held before.
+        """
+        text = self.restore()
+        self.assertIn("quorate: Yes", flat(text))
+        gone = shell(self.client, self.node, "ip -br a show wg0 2>&1")
+        self.assertIn("does not exist", flat(gone))
+        left = shell(self.client, self.node,
+                     "ls -A %s 2>/dev/null" % STATE_DIR)
+        self.assertEqual(sorted(left.split()), sorted(self.state_files))
 
 
 if __name__ == "__main__":

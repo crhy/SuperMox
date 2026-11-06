@@ -84,6 +84,20 @@ def guest_path(guest):
         segment(guest["node"]), guest["type"], int(guest["vmid"]))
 
 
+# pveproxy answers plain HTTP when the first bytes on the wire are not a
+# TLS hello (see _transport_error). A ClientHello that reaches it in pieces
+# -- the shape tests/manager-live.sh measured through a forwarding tunnel --
+# is read as a plain request and answered in the clear, and the handshake
+# then fails with WRONG_VERSION_NUMBER. Nothing of ours has been written
+# at that point, so a fresh socket is safe to try again; a pin that really
+# does not match raises on the first try and is never retried.
+HANDSHAKE_TRIES = 4
+# Bound at import so the retry keeps catching the genuine exception class even
+# where a test shims the ssl namespace (tests/py/test_manager_api.py replaces
+# api.ssl with a Mock, and `except <Mock attribute>` is a TypeError).
+_SSLError = ssl.SSLError
+
+
 def pinned_socket(host, port, pin, timeout=15):
     """Return a connected TLS socket whose leaf certificate matches ``pin``.
 
@@ -92,25 +106,35 @@ def pinned_socket(host, port, pin, timeout=15):
     with the SHA256 fingerprint before the socket is handed back. No redirects
     and no proxy environment variables: credentials never leave this origin.
     api.Client and the terminal websocket share this one check.
+
+    A handshake the node answered in the clear is retried on a new socket
+    (HANDSHAKE_TRIES tries in total); every other error, including a pin
+    mismatch, is raised as it is.
     """
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
-    plain = socket.create_connection((host, port), timeout=timeout)
-    sock = None
-    try:
-        sock = context.wrap_socket(plain, server_hostname=host)
-        cert = sock.getpeercert(binary_form=True)
-        if not cert or hashlib.sha256(cert).hexdigest() != fingerprint(pin):
-            raise APIError("Certificate mismatch. No credentials were sent. "
-                           "Verify the node fingerprint.")
-    except Exception:
-        # Close the TLS wrapper, not just the plain socket: the wrapper is a
-        # separate object sharing the fd, and leaving it unclosed leaks a
-        # socket object per failed pin check in a long-running process.
-        (sock if sock is not None else plain).close()
-        raise
-    return sock
+    last = None
+    for _ in range(HANDSHAKE_TRIES):
+        plain = socket.create_connection((host, port), timeout=timeout)
+        sock = None
+        try:
+            sock = context.wrap_socket(plain, server_hostname=host)
+            cert = sock.getpeercert(binary_form=True)
+            if not cert or hashlib.sha256(cert).hexdigest() != fingerprint(pin):
+                raise APIError("Certificate mismatch. No credentials were sent. "
+                               "Verify the node fingerprint.")
+            return sock
+        except _SSLError as exc:
+            # Close the TLS wrapper, not just the plain socket: the wrapper is
+            # a separate object sharing the fd, and leaving it unclosed leaks
+            # a socket object per failed pin check in a long-running process.
+            (sock if sock is not None else plain).close()
+            last = exc
+        except Exception:
+            (sock if sock is not None else plain).close()
+            raise
+    raise last
 
 
 def _transport_error(exc):

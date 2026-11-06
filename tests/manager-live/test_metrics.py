@@ -6,6 +6,9 @@ the SSL fingerprint, only when a VM is up). These call the same ops functions
 pages/graphs.py uses, so the four rrddata endpoints, their parameters and the
 shape of the rows are proven against a real pvestatd + pmxcfs, not a fake.
 
+The archives are filed by pvestatd, not by these tests, so the tests that need
+a sample wait for one instead of accepting an archive that has none.
+
 The last test is the only write: it creates VMID 9990, asks the server to start
 it, waits for pvestatd to file the guest in its archive, then destroys it.
 """
@@ -78,13 +81,31 @@ class MetricsLive(unittest.TestCase):
         self.assertTrue(peak, "loadavg should be archived")
 
     def test_storage_archive(self):
-        rows = metrics.rrd(self.client, self.node, kind="storage",
-                           storage="local", timeframe="hour")
+        # pmxcfs creates the storage archive before pvestatd has filed its
+        # first sample, so on a node that has only just been installed every
+        # bucket in the hour window reads back as NaN and the rows carry
+        # nothing but 'time'. Wait for a row that carries 'total' rather
+        # than accepting the empty archive; pvestatd runs its cycle every
+        # 10 s, so 180 s is many cycles and costs nothing once the field
+        # is there.
+        deadline = time.time() + 180
+        rows, seen = [], set()
+        while True:
+            try:
+                rows = metrics.rrd(self.client, self.node, kind="storage",
+                                   storage="local", timeframe="hour")
+            except api.APIError:
+                # no archive file for this storage yet
+                rows = []
+            seen = set()
+            for row in rows:
+                seen.update(row)
+            if "total" in seen or time.time() > deadline:
+                break
+            time.sleep(5)
         self.assertGreater(len(rows), 10)
-        seen = set()
-        for row in rows:
-            seen.update(row)
-        self.assertIn("total", seen)
+        self.assertIn("total", seen,
+                      "pvestatd never filed a storage sample")
         self.assertIn("used", seen)
         self.assertNotIn("cpu", seen, "storage archive must not carry node fields")
         used = [value for _, value in metrics.series(rows, "used")]
