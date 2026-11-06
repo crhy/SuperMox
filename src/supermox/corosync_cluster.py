@@ -35,7 +35,7 @@ Measured facts this module is built on:
   ``pvecm status``).  The name is still the hostname, because that is
   what upstream's cluster create does and what PVE keys /etc/pve/nodes/
   by.
-* IPv4 addresses cannot work: the overlay hands out link-local fe80::
+* IPv4 addresses cannot work: the overlay hands out IPv6 ULA (fdXX::)
   addresses, which have no IPv4 form, and a config naming a non-local
   address makes corosync exit at start.  ``ip_version: ipv6`` and
   ``secauth: on`` are mandatory.
@@ -173,18 +173,19 @@ def sanitise_node_name(raw):
 
 
 def render_conf(state, name, config_version, votes=1):
-    """Render the nodelist for the members this node knows about.
+    """Render the first corosync config: this node only, nodeid 1.
 
-    Every member gets its recorded overlay address; corosync matches the
-    local host on the address, so a member whose address is not local is
-    simply a remote node corosync will dial when it is up.
+    Overlay members are NOT corosync members: an edge node never runs corosync
+    with this cluster's key, and listing it would make corosync wait for its
+    vote, so the node loses quorum and /etc/pve goes read-only. Core members are
+    added later by PVE's own addnode (`pvesh create /cluster/config/nodes/...`),
+    which assigns their nodeids and keeps them stable.
     """
     cname = cluster_name(state)
-    members = list(getattr(state, "membership", []) or [])
-    if not members:
+    me = my_entry(state)
+    if not me:
         raise CorosyncError("cluster has no members")
-    my_wg_pub = wg_pub_bytes(my_entry(state).get("wg_pub"))
-    two_node = "\n    two_node: 1" if len(members) == 2 else ""
+    members = [me]
     out = [
         "%s; do not let supermox-corosync rewrite)" % MANAGED_MARKER,
         "totem {",
@@ -193,7 +194,7 @@ def render_conf(state, name, config_version, votes=1):
         "    ip_version: ipv6",
         "    secauth: on",
         "    version: 2",
-        "    link_mode: passive%s" % two_node,
+        "    link_mode: passive",
         "}",
         "nodelist {",
     ]
@@ -202,8 +203,7 @@ def render_conf(state, name, config_version, votes=1):
         if not addr:
             raise CorosyncError("member %s has no overlay address"
                                 % member.get("name", "?"))
-        member_name = (name if wg_pub_bytes(member.get("wg_pub"))
-                       == my_wg_pub else member.get("name", ""))
+        member_name = name
         if not NODE_NAME_RE.match(member_name):
             raise CorosyncError("member name %r is not a usable corosync "
                                 "node name" % member_name)
@@ -236,6 +236,16 @@ def read_config_version(path):
         return 0
     match = re.search(r"^\s*config_version:\s*(\d+)\s*$", text, re.M)
     return int(match.group(1)) if match else 0
+
+
+def count_nodes(path):
+    """How many node { } entries a corosync.conf lists (0 if unreadable)."""
+    try:
+        with open(path) as handle:
+            text = handle.read()
+    except OSError:
+        return 0
+    return len(re.findall(r"^\s*node\s*\{", text, re.M))
 
 
 def is_managed(path):
@@ -373,6 +383,12 @@ def init_cluster(state, run=default_run, quorum_wait=QUORUM_WAIT_SECONDS):
         ensure_pmxcfs_mounted(run)
         ensure_authkey(run)
 
+        nodes = count_nodes(PVE_COROSYNC_CONF)
+        if is_managed(PVE_COROSYNC_CONF) and nodes > 1:
+            # Core members joined through addnode: rewriting the nodelist
+            # with this node alone would throw them out of the cluster.
+            return True, ("already a corosync cluster with %d nodes; "
+                          "not rewritten" % nodes)
         version = max(read_config_version(COROSYNC_CONF),
                       read_config_version(PVE_COROSYNC_CONF)) + 1
         text = render_conf(state, name=name, config_version=version)

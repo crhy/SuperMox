@@ -159,18 +159,9 @@ class RenderTests(Base):
         self.assertIn(corosync_cluster.MANAGED_MARKER,
                       text.splitlines()[0])
 
-    def test_two_node_cluster_asks_for_two_node_quorum(self):
-        state = State(members=[
-            {"name": "firstnode", "wg_pub": b"\x01" * 32, "overlay_addr": ADDR},
-            {"name": "second", "wg_pub": b"\x02" * 32, "overlay_addr": OTHER_ADDR},
-        ])
-        text = corosync_cluster.render_conf(state, name="supermox",
-                                            config_version=4)
-        self.assertIn("two_node: 1", text)
-        self.assertIn("ring0_addr: %s" % OTHER_ADDR, text)
-        self.assertIn("nodeid: 2", text)
-
-    def test_three_node_cluster_drops_two_node(self):
+    def test_only_this_node_is_rendered_even_with_other_members(self):
+        # Overlay members are not corosync members: listing them would make
+        # corosync wait for votes that never come and /etc/pve go read-only.
         state = State(members=[
             {"name": "firstnode", "wg_pub": b"\x01" * 32, "overlay_addr": ADDR},
             {"name": "second", "wg_pub": b"\x02" * 32, "overlay_addr": OTHER_ADDR},
@@ -179,6 +170,10 @@ class RenderTests(Base):
         ])
         text = corosync_cluster.render_conf(state, name="supermox",
                                             config_version=4)
+        self.assertEqual(text.count("node {"), 1)
+        self.assertIn("ring0_addr: %s" % ADDR, text)
+        self.assertNotIn(OTHER_ADDR, text)
+        self.assertIn("nodeid: 1", text)
         self.assertNotIn("two_node", text)
 
     def test_member_without_an_address_is_refused(self):
@@ -496,6 +491,27 @@ class RealStateTests(Base):
         self.assertIn("ip_version: ipv6", host)
         self.assertIn("ring0_addr: %s"
                       % self.st.membership[0]["overlay_addr"], host)
+
+    def test_init_cluster_leaves_a_multi_node_cluster_alone(self):
+        # After core members joined through addnode, a second cluster-init
+        # must not rewrite the nodelist with this node alone.
+        joined = (corosync_cluster.MANAGED_MARKER + ")\n"
+                  "totem {\n    config_version: 7\n}\n"
+                  "nodelist {\n    node {\n        nodeid: 1\n    }\n"
+                  "    node {\n        nodeid: 2\n    }\n}\n")
+        os.makedirs(os.path.dirname(self.pve_conf), exist_ok=True)
+        with open(self.pve_conf, "w") as fh:
+            fh.write(joined)
+        runner = Runner()
+        with mock.patch.object(corosync_cluster.os.path, "ismount",
+                              return_value=True), \
+             mock.patch.object(corosync_cluster.socket, "gethostname",
+                              lambda: "supermox"):
+            ok, note = corosync_cluster.init_cluster(self.st, runner)
+        self.assertTrue(ok, note)
+        self.assertIn("2 nodes", note)
+        with open(self.pve_conf) as fh:
+            self.assertEqual(fh.read(), joined)
 
     def test_the_overlay_address_create_recorded_is_an_ipv6_ula(self):
         # create records it, the nodelist must carry the same string, and
