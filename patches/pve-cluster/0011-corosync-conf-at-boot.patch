@@ -43,8 +43,8 @@ diff -ruN orig/debian/pve-cluster.postinst new/debian/pve-cluster.postinst
 +in_build_chroot() {
 +  supermox_root="$(stat -c '%d:%i' / 2>/dev/null)"
 +  supermox_init_root="$(stat -c '%d:%i' /proc/1/root/. 2>/dev/null)"
-+  test -n "$supermox_init_root" && test "$supermox_root" = "$supermox_init_root" && return 0
-+  return 1
++  test -n "$supermox_init_root" && test "$supermox_root" = "$supermox_init_root" && return 1
++  return 0
 +}
 +
  setup_single_node_cluster() {

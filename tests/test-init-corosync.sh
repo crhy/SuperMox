@@ -279,6 +279,21 @@ if ! grep -qE '^# Required-Start:.*corosync supermox-corosync' "$lsb_pve"; then
   fail=1
 fi
 
+# pve-cluster's postinst skips writing corosync.conf in a build chroot. Run its
+# in_build_chroot() from patch 0011 on this host, which is not a chroot: it must
+# say "not a chroot", or a real node's install would skip the config and an
+# image build would bake the build machine's identity in again.
+chroot_fn="$(sed -n '/^+in_build_chroot() {$/,/^+}$/s/^+//p' patches/pve-cluster/0011-corosync-conf-at-boot.patch)"
+if [ -z "$chroot_fn" ]; then
+  echo "FAIL: in_build_chroot() not found in patches/pve-cluster/0011-corosync-conf-at-boot.patch"
+  fail=1
+elif ! stat -c %d:%i /proc/1/root/. >/dev/null 2>&1; then
+  echo "NOTE: /proc/1/root is root-only here; in_build_chroot() not exercised (dpkg runs the postinst as root)"
+elif (eval "$chroot_fn"; in_build_chroot); then
+  echo "FAIL: in_build_chroot() reports a build chroot on a booted host (inverted test)"
+  fail=1
+fi
+
 rm -rf "$tmp"
 
 if [ "$fail" -ne 0 ]; then
