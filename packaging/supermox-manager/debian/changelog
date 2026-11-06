@@ -1,3 +1,13 @@
+supermox-manager (11.26.1) supermox; urgency=medium
+
+  * Cluster page: create a cluster, invite a node, approve or deny join
+    requests, list members as core or edge, make a member a core
+    (corosync) member, and upgrade an older cluster to corosync. Each
+    action runs one supermox-join command in the node shell, so its
+    output is visible; the 12 words appear there once, at creation.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 10:00:00 -0800
+
 supermox-manager (11.26.0) supermox; urgency=medium
 
   * Release line renamed to 11.26 (was 10.26); version follows the release line.
