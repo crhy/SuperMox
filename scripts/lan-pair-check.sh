@@ -58,15 +58,13 @@ fi
 # not a wiring one, so say so instead of reporting a broken LAN.
 printf '== lan ==\n'
 printf 'shared user-LAN: mcast=%s net=%s (A %s, B %s)\n' "$MCAST" "$LAN_NET" "$IP_A" "$IP_B"
-net_prefix="${LAN_NET%%/*}"
 for ip in "$IP_A" "$IP_B"; do
-  case "$ip" in
-    "$net_prefix".*) ;;
-    *)
-      printf 'ERROR: %s is outside the LAN net %s\n' "$ip" "$LAN_NET" >&2
-      exit 1
-      ;;
-  esac
+  # A real subnet test: the old "${LAN_NET%%/*}".* pattern compared against
+  # the network address itself (192.168.77.0.*) and so rejected every node.
+  if ! python3 -c 'import ipaddress, sys; sys.exit(ipaddress.ip_address(sys.argv[1]) not in ipaddress.ip_network(sys.argv[2], strict=False))' "$ip" "$LAN_NET"; then
+    printf 'ERROR: %s is outside the LAN net %s\n' "$ip" "$LAN_NET" >&2
+    exit 1
+  fi
 done
 
 printf '== interfaces ==\n'
@@ -83,11 +81,27 @@ for side in a b; do
   fi
 done
 
+# A clean SuperMox node has no ping (iputils-ping is not installed; c05 measured
+# it). Use ping when it is there, otherwise prove the same thing with python3,
+# which every node has: TCP connects to the peer's sshd (port 22) over eth1,
+# printing each round trip, and fails if any connect fails.
+reach_cmd() { # $1 peer address
+  printf 'if command -v ping >/dev/null 2>&1; then ping -n -c %s -W 2 -t %s %s; else python3 -c %q %s %s; fi' \
+    "$PING_COUNT" "$PING_TIMEOUT" "$1" \
+    'import socket, sys, time
+peer, count = sys.argv[1], int(sys.argv[2])
+for i in range(count):
+    t = time.monotonic()
+    socket.create_connection((peer, 22), timeout=2).close()
+    print("tcp/22 to %s: %.3f ms" % (peer, (time.monotonic() - t) * 1000))' \
+    "$1" "$PING_COUNT"
+}
+
 rc=0
 # Both directions: one direction working and the other not is a broken LAN
 # (asymmetric routing shows up exactly this way), so neither is optional.
 printf '\n== A -> B: ping %s from %s ==\n' "$IP_B" "$HN_A"
-if node_ssh "$SSH_A" "ping -n -c $PING_COUNT -W 2 -t $PING_TIMEOUT $IP_B"; then
+if node_ssh "$SSH_A" "$(reach_cmd "$IP_B")"; then
   printf 'A -> B: OK\n'
 else
   printf 'A -> B: FAILED\n' >&2
@@ -95,7 +109,7 @@ else
 fi
 
 printf '\n== B -> A: ping %s from %s ==\n' "$IP_A" "$HN_B"
-if node_ssh "$SSH_B" "ping -n -c $PING_COUNT -W 2 -t $PING_TIMEOUT $IP_A"; then
+if node_ssh "$SSH_B" "$(reach_cmd "$IP_A")"; then
   printf 'B -> A: OK\n'
 else
   printf 'B -> A: FAILED\n' >&2

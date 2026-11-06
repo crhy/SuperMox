@@ -139,6 +139,24 @@ class JoindBase(unittest.IsolatedAsyncioTestCase):
 
 
 class PhraseJoinTests(JoindBase):
+    async def test_accepting_member_adds_the_joiner_to_its_own_wg0(self):
+        # The member that accepts a join gets no membership broadcast back,
+        # so it must rewrite its own wg0.conf; before the fix the joiner's
+        # handshakes were dropped and nothing crossed the overlay.
+        port = free_port()
+        ep = "127.0.0.1:%d" % port
+        a = self.seeder("wga", [ep])
+        conf = self.wg_conf("WGA")
+        await self.daemon_for(a, port, wg_conf=conf)
+        b_dir, bident = self.joiner("wgb")
+        await joind.join_phrase(ep, self.derived(PHRASE), bident,
+                                "node-b", "amd64", [])
+        with open(conf) as fh:
+            text = fh.read()
+        self.assertIn("# peer node-b", text)
+        self.assertIn("PublicKey = %s" % base64.b64encode(
+            bident["wg_pub"]).decode(), text)
+
     async def test_phrase_join_end_to_end(self):
         port = free_port()
         ep = "127.0.0.1:%d" % port
@@ -1104,6 +1122,69 @@ class OverlayEndpointTests(JoindBase):
         import inspect
         self.assertIn('default="*"', inspect.getsource(joind.main))
 
+
+
+class AddnodeAuthkeyTests(unittest.TestCase):
+    """addnode's authkey is raw bytes inside JSON (each byte one char)."""
+
+    KEY = bytes(range(256))
+
+    def test_raw_bytes_as_latin1_characters(self):
+        value = json.loads(json.dumps({"k": self.KEY.decode("latin-1")}))["k"]
+        self.assertEqual(joind.authkey_from_pvesh(value), self.KEY)
+
+    def test_base64_still_accepted(self):
+        self.assertEqual(joind.authkey_from_pvesh(joind.b64(self.KEY)), self.KEY)
+
+    def test_unusable_values(self):
+        for bad in (None, "", 7, "\u20ac" * 10):
+            self.assertEqual(joind.authkey_from_pvesh(bad), b"")
+
+
+class UndoAddnodeTests(unittest.TestCase):
+    """A failed core join must not leave the requester in the nodelist."""
+
+    def daemon(self, results):
+        calls = []
+
+        def run(argv):
+            calls.append(argv)
+            return results.pop(0) if results else (0, "")
+        d = joind.JoinDaemon.__new__(joind.JoinDaemon)
+        d.run = run
+        return d, calls
+
+    def test_plain_delete(self):
+        d, calls = self.daemon([(0, "")])
+        note = d._undo_addnode("smx-b", 1)
+        self.assertEqual(calls, [["pvesh", "delete", "/cluster/config/nodes/smx-b"]])
+        self.assertIn("removed", note)
+
+    def test_restores_expected_votes_when_the_delete_is_refused(self):
+        d, calls = self.daemon([(13, "read-only"), (0, ""), (0, "")])
+        note = d._undo_addnode("smx-b", 1)
+        self.assertEqual(calls[1], ["pvecm", "expected", "1"])
+        self.assertEqual(calls[2], ["pvesh", "delete", "/cluster/config/nodes/smx-b"])
+        self.assertIn("removed", note)
+
+    def test_reports_a_failed_undo(self):
+        d, calls = self.daemon([(13, ""), (0, ""), (13, "")])
+        self.assertIn("FAILED", d._undo_addnode("smx-b", 1))
+
+class RunnerOutputTests(unittest.TestCase):
+    """pvesh JSON must not be mixed with Perl's locale warnings on stderr."""
+
+    CMD = ["sh", "-c", "echo '[]'; echo 'perl: warning: Setting locale failed.' >&2; exit %d"]
+
+    def test_success_returns_stdout_only(self):
+        rc, out = joind.default_run([self.CMD[0], self.CMD[1], self.CMD[2] % 0])
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out), [])
+
+    def test_failure_keeps_stderr(self):
+        rc, out = joind.default_run([self.CMD[0], self.CMD[1], self.CMD[2] % 3])
+        self.assertEqual(rc, 3)
+        self.assertIn("Setting locale failed", out)
 
 if __name__ == "__main__":
     unittest.main()

@@ -299,16 +299,22 @@ def _write_core_files(authkey: bytes, conf_text: str) -> None:
 
 
 def _run_argv(argv: list) -> tuple:
-    """Run one command, returning (rc, combined output)."""
+    """Run one command, returning (rc, output)."""
     import subprocess
     try:
         proc = subprocess.run(argv, stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT, text=True, timeout=600)
+                              stderr=subprocess.PIPE, text=True, timeout=600)
     except subprocess.TimeoutExpired:
         return 1, "command timed out after 600 s"
     except OSError as exc:
         return 1, "cannot run %s: %s" % (argv[0], exc)
-    return proc.returncode, proc.stdout
+    # stdout alone on success: callers parse it (pvesh --output-format json),
+    # and Perl prints locale warnings on stderr whenever ssh forwarded an LC_*
+    # the node has not generated, which used to land in front of the JSON.
+    # On failure stderr is appended so the error still reaches the caller.
+    if proc.returncode == 0:
+        return 0, proc.stdout
+    return proc.returncode, proc.stdout + proc.stderr
 
 
 def _run_dir() -> str:
@@ -450,6 +456,17 @@ def cmd_core(args) -> int:
     # 0600 files under the run directory and read from there rather than put
     # on the command line where ps would show the corosync key.
     staged = _stage_core_data(ack["corosync_authkey"], ack["corosync_conf"])
+    # Upstream's join refuses to run while corosync runs (assert_joinable),
+    # and finish_join only *starts* corosync: one still running from this
+    # node's single-node cluster ignores the new config. Measured on the LAN
+    # pair: finish_join reported success while corosync kept the old ring,
+    # and the member that added us lost quorum. Stop it first.
+    corosync_init = os.environ.get("SUPERMOX_COROSYNC_INIT",
+                                   "/etc/init.d/corosync")
+    rc, out = _run_argv([corosync_init, "stop"])
+    if rc != 0:
+        print("could not stop corosync before the join (rc=%d): %s"
+              % (rc, out.strip()[:200]), file=sys.stderr)
     try:
         rc, out = _run_argv([
             "perl", "-MPVE::Cluster::Setup", "-MPVE::Tools", "-e",

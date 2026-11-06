@@ -108,13 +108,42 @@ def default_run(argv):
     """Run a command for the daemon's PVE calls; tests inject their own."""
     try:
         proc = subprocess.run(argv, stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT, text=True,
+                              stderr=subprocess.PIPE, text=True,
                               timeout=CORE_CMD_TIMEOUT)
     except subprocess.TimeoutExpired:
         return 1, "command timed out after %d s" % CORE_CMD_TIMEOUT
     except OSError as exc:
         return 1, "cannot run %s: %s" % (argv[0], exc)
-    return proc.returncode, proc.stdout
+    # stdout alone on success: callers parse it (pvesh --output-format json),
+    # and Perl prints locale warnings on stderr whenever ssh forwarded an LC_*
+    # the node has not generated, which used to land in front of the JSON.
+    # On failure stderr is appended so the error still reaches the caller.
+    if proc.returncode == 0:
+        return 0, proc.stdout
+    return proc.returncode, proc.stdout + proc.stderr
+
+
+def authkey_from_pvesh(value) -> bytes:
+    """corosync's authkey as raw bytes, from addnode's JSON answer.
+
+    PVE's addnode returns the key file's contents unencoded, and Perl's JSON
+    writer turns every byte into the character U+0000..U+00FF, so the bytes
+    come back by encoding the string as Latin-1 (measured: a 256-byte key).
+    A base64 string is accepted too. Returns b"" when neither fits.
+    """
+    if not isinstance(value, str) or not value:
+        return b""
+    b64_chars = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+                    "0123456789+/=\n")
+    if set(value) <= b64_chars:
+        try:
+            return base64.b64decode(value, validate=False)
+        except (binascii.Error, ValueError):
+            return b""
+    try:
+        return value.encode("latin-1")
+    except UnicodeEncodeError:
+        return b""
 
 
 def canonical_json(obj: dict) -> bytes:
@@ -525,6 +554,7 @@ class JoinDaemon:
         entry = self._entry_from(msg)
         if self.state.find_member(entry["name"]) is None:
             membership = self.state.add_member(entry)
+            self._overlay_changed()
         else:
             membership = list(self.state.membership)
         ack = joinproto.make_join_ack(self.state.derived, membership,
@@ -570,6 +600,7 @@ class JoinDaemon:
         entry = self._entry_from(msg)
         if self.state.find_member(entry["name"]) is None:
             membership = self.state.add_member(entry)
+            self._overlay_changed()
         else:
             membership = list(self.state.membership)
         self.state.mark_invite_used(invite["invite_id"])
@@ -710,6 +741,18 @@ class JoinDaemon:
         log.info("join request %s (%s) %s by operator", rid, name, decision)
         return True
 
+    def _overlay_changed(self) -> None:
+        """Rewrite and reload this node's wg0 after a member was added here.
+
+        _adopt does this for membership changes broadcast by other members,
+        but the member that accepts a join changes the list itself and gets
+        no broadcast back: without this its wg0 never learned the new peer,
+        so the joiner's handshakes were dropped and nothing crossed the
+        overlay (measured on the two-VM LAN pair, 2026-11-06).
+        """
+        write_wg_conf(self.state, self.wg_conf)
+        _apply_wg_conf_logged("reload")
+
     async def _adopt(self, conn, obj, writer) -> bool:
         """Accept a signed membership change broadcast by another member."""
         try:
@@ -719,8 +762,7 @@ class JoinDaemon:
             await write_frame(writer, KIND_JSON, canonical_json({
                 "t": "refused", "reason": str(exc)}))
             return False
-        write_wg_conf(self.state, self.wg_conf)
-        _apply_wg_conf_logged("reload")
+        self._overlay_changed()
         await write_frame(writer, KIND_JSON, canonical_json(
             {"t": "membership_ok", "members": len(membership)}))
         return True
@@ -860,12 +902,44 @@ class JoinDaemon:
         """
         if not corosync_cluster.NODE_NAME_RE.match(name):
             return None, None, "member name %r is not a usable node name" % name
+        nodes_before = corosync_cluster.count_nodes(
+            corosync_cluster.PVE_COROSYNC_CONF)
         argv = ["pvesh", "create", "/cluster/config/nodes/%s" % name,
                 "--link0", link, "--output-format", "json"]
         rc, out = await asyncio.to_thread(self.run, argv)
         if rc != 0:
             return None, None, ("pvesh addnode failed (rc=%d): %s"
                                 % (rc, out.strip()[:200] or "no output"))
+        conf, authkey, reason = self._parse_addnode(out)
+        if reason is not None:
+            # addnode already put the requester into the nodelist and raised
+            # the expected votes; left there, this cluster waits for a vote
+            # that never comes and /etc/pve goes read-only (measured on the
+            # LAN pair). Take it out again before refusing.
+            note = await asyncio.to_thread(self._undo_addnode, name,
+                                           nodes_before)
+            return None, None, "%s; %s" % (reason, note)
+        return conf, authkey, None
+
+    def _undo_addnode(self, name: str, nodes_before: int) -> str:
+        """Remove a node addnode just added; restore quorum first if needed."""
+        path = "/cluster/config/nodes/%s" % name
+        rc, _ = self.run(["pvesh", "delete", path])
+        if rc != 0 and nodes_before > 0:
+            # Without quorum /etc/pve is read-only and the delete fails:
+            # expect only the votes that existed before, then retry.
+            self.run(["pvecm", "expected", str(nodes_before)])
+            rc, _ = self.run(["pvesh", "delete", path])
+        if rc != 0:
+            log.error("could not remove %s from the nodelist again; run "
+                      "`pvecm expected %d` and `pvesh delete %s` by hand",
+                      name, max(nodes_before, 1), path)
+            return "removing %s from the nodelist again FAILED" % name
+        return "%s was removed from the nodelist again" % name
+
+    @staticmethod
+    def _parse_addnode(out: str):
+        """(conf, authkey, None) from addnode's JSON, or (None, None, reason)."""
         try:
             data = json.loads(out)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -875,12 +949,9 @@ class JoinDaemon:
         conf = data.get("corosync_conf")
         if not isinstance(conf, str) or not conf.strip():
             return None, None, "pvesh returned no corosync_conf"
-        try:
-            authkey = b64d(data.get("corosync_authkey", ""))
-        except (binascii.Error, ValueError, TypeError):
-            return None, None, "pvesh returned an unusable authkey"
+        authkey = authkey_from_pvesh(data.get("corosync_authkey"))
         if not authkey:
-            return None, None, "pvesh returned an empty authkey"
+            return None, None, "pvesh returned an unusable authkey"
         return conf, authkey, None
 
     async def _broadcast(self, membership: list) -> None:

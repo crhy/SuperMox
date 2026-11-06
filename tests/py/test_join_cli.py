@@ -337,12 +337,26 @@ class CoreCommandTest(unittest.TestCase):
         """
         self._stub_pvesh()
         self._stub_perl()
+        # corosync from the single-node cluster must be stopped BEFORE
+        # finish_join: finish_join only starts it, and a running corosync
+        # keeps its old ring (measured on the LAN pair).
+        order = os.path.join(self.stub, "order.log")
+        self._stub("corosync-init", "echo \"corosync $1\" >> %s" % order)
+        self._stub("perl", "echo perl >> '%s'\n"
+                   "printf '%%s\\n' \"$@\" >> '%s'\n"
+                   "printf -- '--\\n' >> '%s'" % (order, self.perl_calls,
+                                                 self.perl_calls))
+        os.environ["SUPERMOX_COROSYNC_INIT"] = os.path.join(self.stub,
+                                                            "corosync-init")
+        self.addCleanup(os.environ.pop, "SUPERMOX_COROSYNC_INIT", None)
         old = os.path.join(self.corosync, "corosync.conf")
         with open(old, "w") as fh:
             fh.write("num_nodes = 1\n")
         self._want_ack()
         rc, out = self._core("core")
         self.assertEqual(rc, 0, out)
+        with open(order) as fh:
+            self.assertEqual(fh.read(), "corosync stop\nperl\n")
         self.assertIn("core member of cluster %s" % self.cluster_name, out)
         auth = os.path.join(self.corosync, "authkey")
         with open(auth, "rb") as fh:
@@ -635,6 +649,20 @@ class JsonOutputTest(unittest.TestCase):
         self.assertIn("node-a", out)
         self.assertNotIn("{", out)
 
+
+
+class RunArgvTest(unittest.TestCase):
+    """The guest check parses pvesh JSON; stderr noise must not reach it."""
+
+    def test_success_returns_stdout_only(self):
+        rc, out = cli._run_argv(["sh", "-c", "echo '[]'; echo 'perl: warning: x' >&2"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out), [])
+
+    def test_failure_keeps_stderr(self):
+        rc, out = cli._run_argv(["sh", "-c", "echo 'boom' >&2; exit 2"])
+        self.assertEqual(rc, 2)
+        self.assertIn("boom", out)
 
 if __name__ == "__main__":
     unittest.main()

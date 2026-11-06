@@ -287,7 +287,8 @@ pass "step 1: lan-pair-check.sh: ICMP crosses between the two VMs"
 # have pve-firewall enabled, and the join does not depend on it. The line is
 # here so a later firewall-related failure has a baseline to compare with.
 for side in a b; do
-  say "-- pve-firewall status on $HN_$side (recorded, not asserted) --"
+  case "$side" in a) hn="$HN_A" ;; *) hn="$HN_B" ;; esac
+  say "-- pve-firewall status on $hn (recorded, not asserted) --"
   run_on "$side" 'pve-firewall status' || true
 done
 
@@ -364,7 +365,7 @@ if [ "$rc" -ne 0 ]; then
   fail "step 2: pvecm status on A failed"
   exit 1
 fi
-if ! grep -qi 'Quorate: Yes' "$step_log"; then
+if ! grep -qiE 'Quorate:[[:space:]]+Yes' "$step_log"; then
   fail "step 2: A is not quorate after create"
   exit 1
 fi
@@ -413,7 +414,7 @@ run_on b 'supermox-join core'
 for side in a b; do
   run_rc "$side" 'pvecm status'
   if [ "$rc" -ne 0 ]; then
-    fail "step 4: pvecm status on $HN_$side failed"
+    fail "step 4: pvecm status on side $side failed"
     exit 1
   fi
 done
@@ -421,7 +422,7 @@ if ! grep -q "$HN_A" "$step_log" || ! grep -q "$HN_B" "$step_log"; then
   fail "step 4: pvecm status does not list both nodes"
   exit 1
 fi
-if [ "$(grep -c 'Quorate: Yes' "$step_log")" -lt 2 ]; then
+if [ "$(grep -cE 'Quorate:[[:space:]]+Yes' "$step_log")" -lt 2 ]; then
   fail "step 4: not both nodes report Quorate: Yes"
   exit 1
 fi
@@ -523,8 +524,8 @@ run_on b '/etc/init.d/supermox-wg start'
 t0=$(date +%s)
 quorate=0
 while true; do
-  qa="$(node_ssh a 'corosync-quorumtool -s' 2>/dev/null | grep -c 'Quorate: Yes' || true)"
-  qb="$(node_ssh b 'corosync-quorumtool -s' 2>/dev/null | grep -c 'Quorate: Yes' || true)"
+  qa="$(node_ssh a 'corosync-quorumtool -s' 2>/dev/null | grep -cE 'Quorate:[[:space:]]+Yes' || true)"
+  qb="$(node_ssh b 'corosync-quorumtool -s' 2>/dev/null | grep -cE 'Quorate:[[:space:]]+Yes' || true)"
   if [ "${qa:-0}" -ge 1 ] && [ "${qb:-0}" -ge 1 ]; then quorate=1; break; fi
   if [ $(( $(date +%s) - t0 )) -ge 180 ]; then break; fi
   sleep 10
