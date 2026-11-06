@@ -26,6 +26,15 @@
 # back after the reboot in phase C. node-b (smb) joins by phrase, node-c (smc)
 # joins by invite that node-a's operator approves; every member then runs its
 # own daemon through /etc/init.d/supermox-joind, as in a real deployment.
+#
+# Every supermox-join command here runs with --no-corosync. corosync and pmxcfs
+# are per-VM - one /etc/corosync, one pmxcfs mount, one nodelist for the whole
+# machine - so three namespaces cannot each be their own corosync cluster, and
+# the cluster this test builds is a join cluster, not a PVE cluster. Measured
+# in the VM: without the flag create dies in the corosync step before it prints
+# its 12 words, and conf dies the same way, so nothing past step 6 can work.
+# The corosync step has its own tests (tests/py/test_corosync_cluster.py,
+# tests/test-init-corosync.sh).
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -103,6 +112,45 @@ ls /etc/rc2.d | grep -q "supermox-joind" && ls /etc/rc2.d | grep -q "supermox-wg
   pass "service scripts installed and enabled (rc symlinks present)"
 else
   fail_msg "init.d/supermox-joind not installed/enabled"
+fi
+
+# --- Step 3b: what this test writes is the VM's real /etc/supermox and
+#     /etc/wireguard, so what was there before goes back on the way out, whatever
+#     happens. A half-built cluster left behind makes every later run of this
+#     test - and every other test that reads /etc/supermox - mean something
+#     else. The backup is taken before anything is written and restored by an
+#     EXIT trap, so a FAIL in the middle cannot strand one either.
+backed_up=0
+restore_vm_state() {
+  [ "$backed_up" -eq 1 ] || return 0
+  vm_ssh 'set -u
+  /etc/init.d/supermox-joind stop >/dev/null 2>&1
+  /etc/init.d/supermox-wg stop >/dev/null 2>&1
+  for n in sma smb smc; do
+    ip netns exec "$n" ip link del wg0 2>/dev/null
+    ip netns del "$n" 2>/dev/null
+  done
+  ip link show wg0 >/dev/null 2>&1 && ip link del wg0 2>/dev/null
+  for v in veth-a veth-b veth-c veth-d; do ip link del "$v" 2>/dev/null; done
+  rm -f /run/jd-*.pid /run/jd-*.log /run/join.log /run/invite.log /run/create.log
+  rm -rf /etc/supermox /etc/wireguard
+  for t in /var/backups/supermox-e2e/*.tgz; do
+    [ -f "$t" ] && tar -xzf "$t" -C /
+  done
+  rm -rf /var/backups/supermox-e2e
+  true' >/dev/null 2>&1 || true
+}
+if vm_ssh 'rm -rf /var/backups/supermox-e2e
+mkdir -p /var/backups/supermox-e2e
+[ -d /etc/supermox ] && tar -czf /var/backups/supermox-e2e/etc-supermox.tgz -C / etc/supermox
+[ -d /etc/wireguard ] && tar -czf /var/backups/supermox-e2e/etc-wireguard.tgz -C / etc/wireguard
+true'; then
+  backed_up=1
+  trap restore_vm_state EXIT
+  pass "VM state (/etc/supermox, /etc/wireguard) backed up; the trap will restore it"
+else
+  fail_msg "could not back up the VM state; not running the join test"
+  exit 1
 fi
 
 # --- Steps 4-8: the join itself, in one remote shell. Quoted heredoc: every
@@ -185,10 +233,10 @@ stop_daemon() {
 bring_up() {
   ns=$1
   if [ "$ns" = sma ]; then
-    "$BIN/supermox-join" conf >/dev/null || return 1
+    "$BIN/supermox-join" conf --no-corosync >/dev/null || return 1
     ip netns exec "$ns" "$WG_INITD" start >/dev/null || return 1
   else
-    SUPERMOX_ETC="/etc/supermox/e2e/$ns" SUPERMOX_WG_DIR="$(wg_dir_of "$ns")" "$BIN/supermox-join" conf >/dev/null || return 1
+    SUPERMOX_ETC="/etc/supermox/e2e/$ns" SUPERMOX_WG_DIR="$(wg_dir_of "$ns")" "$BIN/supermox-join" conf --no-corosync >/dev/null || return 1
     manual_up "$ns" || return 1
   fi
 }
@@ -218,13 +266,19 @@ else
 fi
 
 # 6. create the cluster as node-a; the 12 words live only in a shell variable.
-W=$(ip netns exec sma "$BIN/supermox-join" create --name node-a \
-  --endpoint "10.99.0.1:$JOIN_PORT" --my-wg-endpoint "10.99.0.1:$WG_PORT" | tail -n1)
+# create prints the phrase before its corosync step, and --no-corosync skips
+# that step here, so the phrase is picked out of the output by its shape - 12
+# words of lower-case letters - and not by its position in the output.
+ip netns exec sma "$BIN/supermox-join" create --name node-a \
+  --endpoint "10.99.0.1:$JOIN_PORT" --my-wg-endpoint "10.99.0.1:$WG_PORT" \
+  --no-corosync >/run/create.log 2>&1
+W=$(awk 'NF == 12 && $0 ~ /^([a-z]+ )+[a-z]+$/ { print; exit }' /run/create.log)
 nw=$(printf '%s\n' "$W" | wc -w)
 if [ "$nw" -eq 12 ]; then
   pass "create node-a (12 words captured in a variable, not a file)"
 else
   fmsg "create node-a (got $nw words)"
+  sed 's/^/    /' /run/create.log
 fi
 
 # 7. node-a's join daemon, started by the sysvinit script inside sma.
@@ -239,7 +293,8 @@ fi
 mkdir -p "$ETC_B"
 ip netns exec smb env SUPERMOX_ETC="$ETC_B" SUPERMOX_WG_DIR="$WG_B" "$BIN/supermox-join" join --words "$W" \
   --endpoint "10.99.0.1:$JOIN_PORT" --name node-b \
-  --my-endpoint "10.99.0.2:$JOIN_PORT" --my-wg-endpoint "10.99.0.2:$WG_PORT" >/run/join.log 2>&1
+  --my-endpoint "10.99.0.2:$JOIN_PORT" --my-wg-endpoint "10.99.0.2:$WG_PORT" \
+  --no-corosync >/run/join.log 2>&1
 if grep -q '^joined as node-b' /run/join.log; then
   pass "node-b phrase join"
 else
@@ -256,7 +311,8 @@ fi
 URI=$(ip netns exec sma "$BIN/supermox-join" invite --ttl 900 | head -n1)
 ip netns exec smc env SUPERMOX_ETC=/tmp/supermox-e2e-throwaway SUPERMOX_WG_DIR="$WG_C" "$BIN/supermox-join" join --uri "$URI" \
   --endpoint "10.99.0.1:$JOIN_PORT" --name node-c \
-  --my-endpoint "10.99.1.2:$JOIN_PORT" --my-wg-endpoint "10.99.1.2:$WG_PORT" >/run/join.log 2>&1 &
+  --my-endpoint "10.99.1.2:$JOIN_PORT" --my-wg-endpoint "10.99.1.2:$WG_PORT" \
+  --no-corosync >/run/join.log 2>&1 &
 sleep 2
 RID=$(ip netns exec sma "$BIN/supermox-join" pending | awk '$1 != "no" {print $1; exit}')
 if [ -n "$RID" ]; then
@@ -285,10 +341,10 @@ fi
 # The daemon only rewrites the config when membership changes, so generate it.
 for n in sma smb smc; do
   if [ "$n" = sma ]; then
-    "$BIN/supermox-join" conf >/dev/null
+    "$BIN/supermox-join" conf --no-corosync >/dev/null
     KEY_A=$(grep '^PrivateKey' /etc/wireguard/wg0.conf | cut -d' ' -f3)
   else
-    SUPERMOX_ETC="/etc/supermox/e2e/$n" SUPERMOX_WG_DIR="$(wg_dir_of "$n")" "$BIN/supermox-join" conf >/dev/null
+    SUPERMOX_ETC="/etc/supermox/e2e/$n" SUPERMOX_WG_DIR="$(wg_dir_of "$n")" "$BIN/supermox-join" conf --no-corosync >/dev/null
   fi
 done
 # A nested node keeps its config in its own directory: regenerating node-b's
@@ -448,10 +504,10 @@ net_star || fmsg "veth star after reboot"
 bring_up() {
   ns=$1
   if [ "$ns" = sma ]; then
-    "$BIN/supermox-join" conf >/dev/null || return 1
+    "$BIN/supermox-join" conf --no-corosync >/dev/null || return 1
     ip netns exec "$ns" "$WG_INITD" start >/dev/null || return 1
   else
-    SUPERMOX_ETC="/etc/supermox/e2e/$ns" SUPERMOX_WG_DIR="$(wg_dir_of "$ns")" "$BIN/supermox-join" conf >/dev/null || return 1
+    SUPERMOX_ETC="/etc/supermox/e2e/$ns" SUPERMOX_WG_DIR="$(wg_dir_of "$ns")" "$BIN/supermox-join" conf --no-corosync >/dev/null || return 1
     manual_up "$ns" || return 1
   fi
 }

@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 from supermox import corosync_cluster  # noqa: E402
 from supermox import identity as identity_mod  # noqa: E402
+from supermox import joinproto  # noqa: E402
 from supermox import state as node_state  # noqa: E402
 
 PHRASE = "abandon " * 11 + "about"
@@ -206,11 +207,207 @@ class CreateOverlayTest(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("corosync cluster: FAILED", out)
         self.assertIn("cluster-init", out)
+        # c11: the words are printed before the step, so a failed step reports
+        # a cluster whose secret the operator already has - not one nobody has.
+        self.assertIsNotNone(self._phrase_in(out),
+                             "a failed corosync step lost the 12 words")
 
     def test_create_tells_the_user_the_cluster_is_quorate(self):
         rc, out = self._create("create", "--name", "firstnode")
         self.assertEqual(rc, 0, out)
         self.assertIn("corosync cluster: cluster stub quorate", out)
+
+    def _phrase_in(self, out):
+        """The 12-word line create printed, if it printed one.
+
+        The phrase is random, so it is found by validating each line rather
+        than by matching text: secret.validate is the same check `join --words`
+        will apply to it later.
+        """
+        for line in out.splitlines():
+            try:
+                cli.secret.validate(line)
+            except Exception:
+                continue
+            return line
+        return None
+
+    def test_the_words_are_printed_before_the_corosync_step_runs(self):
+        # c11: create is the only moment this node ever shows its own phrase.
+        # Measured in the test VM: with the corosync step first, a failed step
+        # left the phrase nowhere, and the only way to get it back was to delete
+        # the cluster. So the words must already be on stdout when the step
+        # fails, and the failure must still be reported.
+        self.corosync_ok = False
+        rc, out = self._create("create", "--name", "firstnode")
+        self.assertEqual(rc, 1)
+        self.assertIn("corosync cluster: FAILED", out)
+        phrase = self._phrase_in(out)
+        self.assertIsNotNone(phrase, "create printed no 12-word phrase")
+        self.assertEqual(len(phrase.split()), 12)
+        self.assertLess(out.index(phrase), out.index("corosync cluster: FAILED"),
+                        "the phrase must come out before the corosync step")
+
+    def test_no_corosync_skips_the_corosync_step(self):
+        # scripts/join-e2e.sh drives the join protocol inside network
+        # namespaces, where corosync and pmxcfs are per-VM and cannot be
+        # per-node, so the step has to be skippable. Skipping it must not
+        # skip the cluster: state, keys, wg0.conf and the overlay are still
+        # written, and the user is told the node is not a core member yet.
+        rc, out = self._create("create", "--name", "firstnode",
+                               "--no-corosync")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.corosync_calls, [],
+                        "the corosync step must not run at all")
+        self.assertIn("corosync cluster: SKIPPED", out)
+        self.assertIn("cluster-init", out)
+        self.assertTrue(os.path.exists(os.path.join(self.wg_dir, "wg0.conf")),
+                        "--no-corosync must still write wg0.conf")
+        self.assertEqual(self._phrase_in(out) is not None, True,
+                         "--no-corosync must still print the phrase")
+
+    def test_conf_with_the_cluster_step_off_still_writes_the_config(self):
+        # conf is the recovery path for a cluster whose corosync step failed,
+        # so --no-corosync must keep what conf is for - regenerate the config -
+        # and only stop before the cluster step.
+        rc, _ = self._create("create", "--name", "firstnode", "--no-corosync")
+        self.assertEqual(rc, 0)
+        conf = os.path.join(self.wg_dir, "wg0.conf")
+        os.remove(conf)
+        rc, out = self._create("conf", "--no-corosync")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.corosync_calls, [],
+                        "conf must not touch corosync with the flag set")
+        self.assertIn("corosync cluster: SKIPPED", out)
+        self.assertTrue(os.path.exists(conf), "conf wrote no wg0.conf")
+        self.assertEqual(stat.S_IMODE(os.stat(conf).st_mode), 0o600)
+
+
+class JoinNoCorosyncTest(unittest.TestCase):
+    """`supermox-join join` with the join round trip stubbed.
+
+    The join protocol itself is test_joind's job; what is pinned here is the
+    automatic core step join runs afterwards, and that --no-corosync skips
+    exactly that step and nothing else. The core step needs a per-node corosync,
+    which the namespace test (scripts/join-e2e.sh) does not have.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = self.tmp.name
+        self.etc = os.path.join(root, "etc", "supermox")
+        self.wg_dir = os.path.join(root, "etc", "wireguard")
+        self.initd = os.path.join(root, "init.d", "supermox-wg")
+        self.stub = os.path.join(root, "stub")
+        self.calls = os.path.join(root, "overlay-calls")
+        os.makedirs(os.path.dirname(self.initd))
+        os.makedirs(self.stub)
+        stub_src = ("#!/bin/sh\n"
+                    "printf '%%s %%s\\n' \"$1\" \"${SUPERMOX_WG_DIR:-none}\" "
+                    ">> '%s'\n"
+                    "exit 0\n") % self.calls
+        with open(self.initd, "w") as fh:
+            fh.write(stub_src)
+        os.chmod(self.initd, 0o755)
+        # pvesh says nothing runs on this node, so join would go ahead and
+        # make it a core member; that is what makes the pair observable.
+        with open(os.path.join(self.stub, "pvesh"), "w") as fh:
+            fh.write("#!/bin/sh\nprintf '[]'\n")
+        os.chmod(os.path.join(self.stub, "pvesh"), 0o755)
+        saved = dict(os.environ)
+        self.addCleanup(self._restore_env, saved)
+        os.environ["SUPERMOX_ETC"] = self.etc
+        os.environ["SUPERMOX_WG_DIR"] = self.wg_dir
+        os.environ["SUPERMOX_WG_INITD"] = self.initd
+        os.environ["PATH"] = self.stub + os.pathsep + saved.get("PATH", "")
+        self.asks = []
+        self._real_join_phrase = cli.joind.join_phrase
+        self.addCleanup(self._restore_join_phrase)
+        cli.joind.join_phrase = self._fake_join_phrase
+        self._real_core_join = cli.joind.core_join
+        self.addCleanup(self._restore_core_join)
+        cli.joind.core_join = self._fake_core_join
+
+    def _restore_env(self, saved):
+        for var in ("SUPERMOX_ETC", "SUPERMOX_WG_DIR", "SUPERMOX_WG_INITD",
+                    "PATH"):
+            if var in saved:
+                os.environ[var] = saved[var]
+            else:
+                os.environ.pop(var, None)
+
+    def _restore_join_phrase(self):
+        cli.joind.join_phrase = self._real_join_phrase
+
+    def _restore_core_join(self):
+        cli.joind.core_join = self._real_core_join
+
+    async def _fake_join_phrase(self, ep, derived, ident, name, arch, caps,
+                                wg_ep):
+        """The member at the other end of the join, answering JOIN_ACK.
+
+        The list it signs contains this node under its own WireGuard key --
+        that is what makes this node a member, and what lets join go on to
+        offer the core step -- plus the member whose daemon answered.
+        """
+        self.asks.append((ep, name, wg_ep))
+        other = identity_mod.new_identity()
+        members = [
+            {"name": name,
+             "ed_pub": _b64t(ident["ed_pub"]),
+             "wg_pub": _b64t(ident["wg_pub"]),
+             "overlay_addr": "fd00:1:2:3:4:5:6:8",
+             "role": "edge",
+             "arch": arch,
+             "caps": list(caps or [])},
+            {"name": "node-a",
+             "ed_pub": _b64t(other["ed_pub"]),
+             "wg_pub": _b64t(other["wg_pub"]),
+             "overlay_addr": "fd00:1:2:3:4:5:6:7",
+             "role": "core",
+             "arch": "amd64",
+             "caps": ["kvm"]},
+        ]
+        signed = joinproto.sign_membership(members, ident)
+        return {"membership": signed["list"], "signature": signed["signature"],
+                "signer": signed["signer"]}
+
+    async def _fake_core_join(self, ep, ident, name, wg_pub):
+        """A member answering CORE_REQ: the core step ran if this is called."""
+        self.asks.append(("core", ep, name))
+        raise cli.joind.JoinError("core step not wanted in this test")
+
+    def _join(self, *argv):
+        buf = io.StringIO()
+        err = io.StringIO()
+        self.asks = []
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            rc = cli.main(list(argv))
+        return rc, buf.getvalue() + err.getvalue()
+
+    def test_no_corosync_joins_without_the_core_step(self):
+        rc, out = self._join("join", "--name", "node-b", "--endpoint",
+                             "10.0.0.1:8743", "--words", PHRASE,
+                             "--no-corosync")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("core step skipped", out)
+        self.assertEqual([a for a in self.asks if a[0] == "core"], [],
+                         "--no-corosync must not run the core step")
+        # The join itself still happened: membership adopted, wg0.conf written,
+        # overlay started.
+        self.assertTrue(os.path.exists(os.path.join(self.wg_dir, "wg0.conf")))
+        with open(self.calls) as fh:
+            self.assertIn("start", fh.read())
+        rc, out = self._join("members")
+        self.assertIn("node-b", out)
+
+    def test_join_without_the_flag_still_runs_the_core_step(self):
+        rc, out = self._join("join", "--name", "node-b", "--endpoint",
+                             "10.0.0.1:8743", "--words", PHRASE)
+        self.assertEqual(rc, 0, out)
+        self.assertTrue([a for a in self.asks if a[0] == "core"],
+                        "join must still finish the job by itself")
 
 
 class CoreCommandTest(unittest.TestCase):

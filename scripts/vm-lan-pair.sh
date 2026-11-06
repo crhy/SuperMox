@@ -273,6 +273,47 @@ stop_side() { # $1 side
 
 # --- qcow2 overlays ---------------------------------------------------------
 # -b keeps the installed test image read-only: every write lands in the overlay.
+# --- the base image must be a clean installed system --------------------------
+# Both LAN nodes are overlays of ONE base, so whatever the base holds, BOTH
+# nodes start holding it. A base that already carries /etc/supermox/membership
+# json - a join test that wrote its cluster into the base disk - makes every
+# node say "this node already belongs to a cluster" before it can join this
+# pair. Measured 2026-11-06: scripts/join-e2e.sh left node-a's cluster in the
+# test VM's /etc/supermox, vm-lan-pair.sh built both LAN VMs as overlays of
+# that same rootfs.img, and smx-a then refused. The check reads the image
+# directly (debugfs), so it needs no root, no mount and no running VM.
+base_holds_cluster() {
+  [ -f "$SRC_IMG" ] || return 1
+  # debugfs lives in /sbin, which a normal user's PATH usually leaves out.
+  local debugfs
+  debugfs="$(PATH="$PATH:/sbin:/usr/sbin" command -v debugfs 2>/dev/null)" || {
+    printf 'NOTE: debugfs is missing; the base image was not checked for a\n'
+    printf '      pre-existing cluster.\n' >&2
+    return 1
+  }
+  local out
+  # An image with an unplayed journal is one debugfs cannot open at all. Saying
+  # "no cluster" then would be a guess, and a guess in the safe direction is
+  # the point of the guard, so the reader says what it could not do.
+  out="$("$debugfs" -R 'ls /etc/supermox' "$SRC_IMG" 2>&1)"
+  case "$out" in
+  *'Filesystem not open'* | *'Bad superblock'* | *'not a valid'*)
+    printf 'NOTE: %s could not be read by debugfs; the base image was not\n' "$SRC_IMG"
+    printf '      checked for a pre-existing cluster.\n' >&2
+    return 1
+    ;;
+  esac
+  printf '%s\n' "$out" | grep -q 'membership\.json'
+}
+base_cluster_guard() {
+  base_holds_cluster || return 0
+  printf 'ERROR: the base image %s already holds /etc/supermox/membership.json.\n' "$SRC_IMG" >&2
+  printf '       Both LAN nodes are overlays of that base, so both would start\n' >&2
+  printf '       already inside a cluster and refuse to join this pair.\n' >&2
+  printf '       Rebuild the test image: bash scripts/vm-test-install.sh --rebuild\n' >&2
+  return 1
+}
+
 # An existing overlay is reused (a re-run keeps each node's installed state);
 # --fresh throws both away and re-copies.
 make_overlays() {
@@ -287,6 +328,7 @@ make_overlays() {
     printf 'Build them first: bash scripts/build-rootfs.sh (SUPERMOX_VM_DIR=%s)\n' "$TEST_DIR" >&2
     return 1
   }
+  base_cluster_guard || return 1
   mkdir -p "$PAIR_DIR"
   for side in "${sides[@]}"; do
     ovl="$(side_img "$side")"
@@ -486,6 +528,10 @@ do_start() {
 
 do_configure() {
   local side
+  # Refuse before anything is applied: configuring a pair whose base already
+  # holds a cluster cannot work, and the reason is in the base image, not in
+  # the running VMs (see base_cluster_guard).
+  base_cluster_guard || return 1
   for side in "${sides[@]}"; do
     if [ -z "$(running_pid "$side")" ]; then
       printf 'ERROR: %s VM is not running (scripts/vm-lan-pair.sh start)\n' "$(side_label "$side")" >&2

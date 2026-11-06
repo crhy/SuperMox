@@ -125,6 +125,18 @@ def cmd_create(args) -> int:
     # The node has an identity, keys and a tunnel, and is still not a
     # cluster as far as corosync and pmxcfs are concerned until the
     # nodelist is written; see src/supermox/corosync_cluster.py.
+    # The node has an identity, keys and a tunnel, and is still not a
+    # cluster as far as corosync and pmxcfs are concerned until the
+    # nodelist is written. --no-corosync skips that step on purpose: it
+    # exists for the namespace test (scripts/join-e2e.sh), where corosync
+    # and pmxcfs are per-VM, not per-namespace, so the step cannot possibly
+    # succeed there. A cluster made with it is not a PVE cluster until
+    # supermox-join cluster-init is run for real.
+    if args.no_corosync:
+        print("corosync cluster: SKIPPED (--no-corosync); this node is not a "
+              "corosync core member until supermox-join cluster-init runs for "
+              "real")
+        return 0
     ok, msg = _ensure_cluster(st)
     if not ok:
         print("corosync cluster: FAILED: %s" % msg, file=sys.stderr)
@@ -193,18 +205,23 @@ def cmd_join(args) -> int:
     # A node with nothing running on it should not have to be told twice that
     # it may join the core, so join finishes the job by asking a member to
     # make it a core member. A node that has guests, or whose guests cannot
-    # be counted, stays an edge node and is told why.
-    count, err = _guests()
-    if err is None and count == 0:
-        if cmd_core(_core_args()) != 0:
-            print("joined, but not a core member yet: run supermox-join core",
-                  file=sys.stderr)
-    elif err:
-        print("staying an edge node: %s; run supermox-join core once that "
-              "changes" % err, file=sys.stderr)
+    # be counted, stays an edge node and is told why. --no-corosync skips
+    # that automatic step: the join protocol is the thing being tested, and
+    # the core step cannot work where corosync is not per-node.
+    if args.no_corosync:
+        print("core step skipped (--no-corosync)")
     else:
-        print("staying an edge node: %d guest(s) on this node; run supermox-join "
-              "core once they are moved off" % count, file=sys.stderr)
+        count, err = _guests()
+        if err is None and count == 0:
+            if cmd_core(_core_args()) != 0:
+                print("joined, but not a core member yet: run supermox-join core",
+                      file=sys.stderr)
+        elif err:
+            print("staying an edge node: %s; run supermox-join core once that "
+                  "changes" % err, file=sys.stderr)
+        else:
+            print("staying an edge node: %d guest(s) on this node; run supermox-join "
+                  "core once they are moved off" % count, file=sys.stderr)
     return 0
 
 
@@ -224,6 +241,10 @@ def cmd_conf(args) -> int:
     # conf is also the recovery path for a create whose corosync step failed:
     # init_cluster is idempotent, so re-applying local config re-writes the
     # nodelist and re-checks quorum without touching keys or membership.
+    # --no-corosync stops before that step, as it does in create and join.
+    if args.no_corosync:
+        print("corosync cluster: SKIPPED (--no-corosync)")
+        return 0
     ok, msg = _ensure_cluster(st)
     if not ok:
         print("corosync cluster: FAILED: %s" % msg, file=sys.stderr)
@@ -603,6 +624,10 @@ def main(argv=None) -> int:
                    help="this node's WireGuard endpoint (default: the host "
                         "of --endpoint at port %d)"
                         % joind.WG_LISTEN_PORT)
+    p.add_argument("--no-corosync", action="store_true",
+                   help="skip the corosync step (for tests where corosync is "
+                        "not per-node; the cluster is not a PVE cluster until "
+                        "supermox-join cluster-init runs for real)")
     p.set_defaults(func=cmd_create)
 
     p = sub.add_parser("invite", help="create a single-use join invite")
@@ -623,9 +648,14 @@ def main(argv=None) -> int:
                    help="this node's WireGuard endpoint (default: the host "
                         "of --my-endpoint/--endpoint at port %d)"
                         % joind.WG_LISTEN_PORT)
+    p.add_argument("--no-corosync", action="store_true",
+                   help="skip the automatic core step after the join")
     p.set_defaults(func=cmd_join)
 
     p = sub.add_parser("conf", help="regenerate this node's wg0.conf from state")
+    p.add_argument("--no-corosync", action="store_true",
+                   help="skip the corosync step (for tests where corosync is "
+                        "not per-node)")
     p.set_defaults(func=cmd_conf)
 
     p = sub.add_parser("cluster-init",

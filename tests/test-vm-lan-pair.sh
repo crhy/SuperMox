@@ -228,6 +228,83 @@ grep -qE -- 'ping.*\$IP_B' "$check" || bad 'lan-pair-check.sh does not ping B fr
 grep -qE -- 'ping.*\$IP_A' "$check" || bad 'lan-pair-check.sh does not ping A from B'
 ok 'lan-pair-check.sh pings both directions and agrees with the harness defaults'
 
+# --- a base image that already holds a cluster must be refused (c11) --------
+# Both LAN nodes are overlays of ONE base, so whatever the base holds, both
+# nodes start holding it. Measured 2026-11-06: scripts/join-e2e.sh left node-a
+# cluster state in the test VM's /etc/supermox, this harness built both LAN
+# VMs as overlays of that same rootfs.img, and smx-a then refused to join with
+# "this node already belongs to a cluster". The guard reads the image with
+# debugfs - no root, no mount, no running VM - which is what makes it testable
+# in the gate.
+guard_dir="$PWD/build/test-lan-pair-guard"
+rm -rf "$guard_dir"
+mkdir -p "$guard_dir/tree/etc/supermox"
+printf '{}\n' > "$guard_dir/tree/etc/supermox/membership.json"
+# mkfs.ext4 and debugfs live in /sbin, which a normal user's PATH leaves out.
+PATH="$PATH:/sbin:/usr/sbin"
+if command -v mkfs.ext4 >/dev/null 2>&1 && command -v debugfs >/dev/null 2>&1 \
+   && mkfs.ext4 -q -d "$guard_dir/tree" "$guard_dir/rootfs.img" 16M 2>/dev/null; then
+  guard_out="$(SUPERMOX_TEST_DIR="$guard_dir" bash "$pair" configure 2>&1 || true)"
+  rc=0
+  SUPERMOX_TEST_DIR="$guard_dir" bash "$pair" configure >/dev/null 2>&1 || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    bad 'configure accepted a base that already holds a cluster'
+  fi
+  if ! printf '%s\n' "$guard_out" | grep -qF 'membership.json'; then
+    bad 'the refusal does not name /etc/supermox/membership.json'
+  fi
+  if ! printf '%s\n' "$guard_out" | grep -qF 'vm-test-install.sh --rebuild'; then
+    bad 'the refusal does not say how to fix it (vm-test-install.sh --rebuild)'
+  fi
+  # The base is checked before the VMs: with a poisoned base the running-VM
+  # complaint would send the operator to the wrong place.
+  if printf '%s\n' "$guard_out" | grep -qF 'not running'; then
+    bad 'configure looked at the running VMs before the base image'
+  fi
+  ok 'configure refuses a base image that already holds a cluster, and says to rebuild it'
+
+  # The other side of the guard: a clean base must pass it, or every pair run
+  # would be blocked by a file that is not there.
+  rm -f "$guard_dir/tree/etc/supermox/membership.json"
+  if mkfs.ext4 -q -d "$guard_dir/tree" "$guard_dir/rootfs.img" 16M 2>/dev/null; then
+    clean_out="$(SUPERMOX_TEST_DIR="$guard_dir" bash "$pair" configure 2>&1 || true)"
+    if printf '%s\n' "$clean_out" | grep -qF 'membership.json'; then
+      bad 'a clean base image was refused as holding a cluster'
+    fi
+    if ! printf '%s\n' "$clean_out" | grep -qF 'not running'; then
+      bad 'a clean base image never reached the running-VM check'
+    fi
+    ok 'a clean base image passes the guard'
+  else
+    printf 'NOTE: could not rebuild the scratch base; clean-base case not exercised\n' >&2
+  fi
+  rm -rf "$guard_dir"
+else
+  printf 'NOTE: mkfs.ext4 or debugfs missing; the base-cluster guard was not exercised\n' >&2
+fi
+# `start` must be guarded too: it is start that creates the overlays.
+if [ "$(grep -c 'base_cluster_guard' "$pair")" -lt 2 ]; then
+  bad 'only configure, not start, refuses a base that already holds a cluster'
+fi
+ok 'both start and configure refuse a base that already holds a cluster'
+
+# An image debugfs cannot open (an unplayed journal is enough) must not be
+# reported as clean: the guard says it could not check, and the run continues.
+# Silently calling such a base clean is the failure mode that bit on 2026-11-06.
+unread_dir="$PWD/build/test-lan-pair-unread"
+rm -rf "$unread_dir"
+mkdir -p "$unread_dir"
+printf 'not an image\n' > "$unread_dir/rootfs.img"
+unread_out="$(SUPERMOX_TEST_DIR="$unread_dir" bash "$pair" configure 2>&1 || true)"
+if ! printf '%s\n' "$unread_out" | grep -qF 'could not be read by debugfs'; then
+  bad 'an unreadable base image was reported as clean'
+fi
+if printf '%s\n' "$unread_out" | grep -qF 'already holds'; then
+  bad 'an unreadable base image was refused as holding a cluster'
+fi
+rm -rf "$unread_dir"
+ok 'an unreadable base image is reported as unchecked, not as clean'
+
 if [ "$fail" -ne 0 ]; then
   exit 1
 fi
