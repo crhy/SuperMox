@@ -1,0 +1,69 @@
+diff -ruN orig/debian/changelog new/debian/changelog
+--- a/debian/changelog	2026-11-05 17:48:02.701373575 -0800
++++ b/debian/changelog	2026-11-05 17:51:00.776338358 -0800
+@@ -1,3 +1,21 @@
++pve-cluster (9.1.7+supermox3) trixie; urgency=medium
++
++  * debian: setup_single_node_cluster now does nothing when the package is being
++    built. It used to write /etc/corosync/corosync.conf from `hostname` and
++    `hostname -I`, which inside a build chroot are the *build machine's* name
++    and address: the PC ISO booted with a config naming localhost.localdomain
++    and corosync died parsing that bindnet address, so /etc/pve stayed read-only
++    and pve-cluster could not seed storage.cfg. The script now compares the
++    dev:inode of / with that of /proc/1/root/. and returns when they differ, so
++    an image never carries an identity that no node will ever have. supermox-ve
++    ships init.d/supermox-corosync, which writes the single-node config from the
++    booting node's own hostname and non-loopback address before corosync starts,
++    and rewrites it when the address or the hostname changed; a real multi-node
++    cluster config is never touched. Installing on a booted node still works as
++    before.
++
++ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 17:50:40 -0800
++
+ pve-cluster (9.1.7+supermox2) trixie; urgency=medium
+ 
+   * debian: init.d/pve-cluster seeds /etc/pve/storage.cfg. pmxcfs creates that
+diff -ruN orig/debian/pve-cluster.postinst new/debian/pve-cluster.postinst
+--- a/debian/pve-cluster.postinst	2026-11-05 17:48:02.699455876 -0800
++++ b/debian/pve-cluster.postinst	2026-11-05 17:50:51.936352752 -0800
+@@ -28,6 +28,23 @@
+   fi
+ }
+ 
++# True when this script runs inside a package build chroot rather than on a
++# booted node. The root a chroot sees is not the root of the running system,
++# so compare the dev:inode of / with that of /proc/1/root/.: on a booted
++# node pid 1 is init and the two are the same directory; in a chroot they
++# differ, and they also differ when the builder does not mount /proc at all
++# (stat then prints nothing), which is the safe answer. debianutils' ischroot
++# is not used: it reports an *interactive* chroot, and dpkg runs our scripts
++# non-interactively on a real node too.
++# A build chroot has never booted, so `hostname` and `hostname -I` answer for
++# the machine compiling the package, not for any node the image runs on.
++in_build_chroot() {
++  supermox_root="$(stat -c '%d:%i' / 2>/dev/null)"
++  supermox_init_root="$(stat -c '%d:%i' /proc/1/root/. 2>/dev/null)"
++  test -n "$supermox_init_root" && test "$supermox_root" = "$supermox_init_root" && return 0
++  return 1
++}
++
+ setup_single_node_cluster() {
+   # pmxcfs runs in normal (corosync) mode. It resolves the local node name
+   # to a non-loopback IP and needs a matching nodelist entry in
+@@ -40,6 +57,16 @@
+   if test -f "$CONF" && ! grep -q "name: node1" "$CONF"; then
+     return 0
+   fi
++  # Never bake the build machine's identity into an image: in a build chroot
++  # the hostname and the addresses belong to the machine compiling the package,
++  # and no node will ever boot as that machine (corosync then dies parsing
++  # bindnetaddr and /etc/pve stays read-only). init.d/supermox-corosync, shipped
++  # by supermox-ve, writes the real single-node config at every boot instead,
++  # so leaving the corosync package's placeholder here is safe.
++  if in_build_chroot; then
++    echo "pve-cluster: build chroot: leaving the corosync.conf placeholder to init.d/supermox-corosync" >&2
++    return 0
++  fi
+   HOSTN="$(hostname)"
+   IP="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -vE '^(127\.|::1|fe80:|fec0:|fd[0-9]|0:)' | head -n1)"
+   if test -z "$IP"; then

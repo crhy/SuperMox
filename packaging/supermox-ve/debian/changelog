@@ -1,3 +1,29 @@
+supermox-ve (0.1.22) unstable; urgency=medium
+
+  * init.d/supermox-corosync: a new boot script that writes the single node's
+    own /etc/corosync/corosync.conf before corosync starts, and rewrites it when
+    the hostname or the DHCP address moved. pve-cluster's postinst can no longer
+    own this: inside the ISO build chroot `hostname` and `hostname -I` are the
+    build machine's, and the PC ISO booted with
+      corosync: failed to parse bindnet address 'localhost.localdomain'
+    which left /etc/pve read-only and broke every PVE service after it. The
+    file is deliberately NOT a conffile of supermox-ve: the corosync package
+    already ships /etc/corosync/corosync.conf as its own conffile, and two
+    packages claiming one path is a hard install-time file conflict, so
+    rewriting it every boot needs no dpkg involvement at all. A config this
+    script did not write and that does not carry our own header line is a real
+    multi-node cluster config and is never touched.
+  * init.d/supermox-hosts now orders supermox-corosync before corosync, and
+    init.d/pve-cluster requires supermox-corosync, so pmxcfs only starts once
+    that file describes the node that is booting.
+  * tests/test-init-corosync.sh: the placeholder is replaced, re-running changes
+    nothing, a moved address or a renamed node rewrites the one node block,
+    a multi-node config is left alone, no non-loopback address exits 0 without
+    blocking the boot, status returns LSB 0/3 as appropriate, stop never deletes
+    the file, and the LSB headers keep the order the boot depends on.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 18:04:30 -0800
+
 supermox-ve (0.1.21) unstable; urgency=medium
 
   * etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units: a new conffile with three dpkg

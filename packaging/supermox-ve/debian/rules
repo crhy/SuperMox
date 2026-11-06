@@ -61,3 +61,8 @@ override_dh_installinit:
 	# rc2.d, so this one is enabled too (its LSB header puts it in rcS.d, right
 	# after mountkernfs).
 	dh_installinit --name=supermox-cgroups
+	# /etc/corosync/corosync.conf has to name this node before corosync and
+	# pmxcfs start; the postinst that used to write it can no longer do so inside
+	# an image build (it would bake the build machine's identity into the ISO),
+	# so this script writes it at boot instead. Enabled, not --no-start.
+	dh_installinit --name=supermox-corosync

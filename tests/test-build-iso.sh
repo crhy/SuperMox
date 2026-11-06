@@ -261,9 +261,293 @@ if [ -n "$first_listed" ]; then
 fi
 rm -rf "$fake_dir" "$fake_src"
 
+# --- GRUB branding: the ISO must say SuperMox, never Spaced Linux ----------
+# The edit logic runs against a scratch live-build tree built from the lines
+# measured in the real tree (build/spaced-iso/build/live-build), so a Spaced
+# change to any of these four files fails the build instead of shipping the
+# old name.
+brand_script="scripts/iso-grub-branding.sh"
+if [ ! -f "$brand_script" ]; then
+  echo "FAIL: $brand_script does not exist"
+  missing=1
+fi
+
+grub_test="$PWD/build/test-grub-branding"
+rm -rf "$grub_test"
+
+write_fixture() {
+  local root="$1" d
+  for d in config/bootloaders/grub-pc/live-theme config/includes.chroot/etc/default config/includes.chroot/etc/calamares/branding/spaced config/includes.chroot/boot/grub/themes/spaced; do
+    mkdir -p "$root/$d"
+  done
+  cat > "$root/config/bootloaders/grub-pc/grub.cfg" <<'GRUBCFG'
+set default=0
+set timeout=8
+
+source /boot/grub/config.cfg
+
+menuentry "Start Spaced Linux 10.26.8" --hotkey=s {
+    linux @KERNEL_LIVE@ @APPEND_LIVE@
+    initrd @INITRD_LIVE@
+}
+
+menuentry "Spaced Linux 10.26.8 — Safe Graphics Because Nvidia Sucks" {
+    linux @KERNEL_LIVE@ boot=live components nosplash nomodeset module_blacklist=nouveau modprobe.blacklist=nouveau nouveau.modeset=0 nvidia-drm.modeset=0 username=user hostname=spaced
+    initrd @INITRD_LIVE@
+}
+
+menuentry "Start Spaced Linux 10.26.8 (verbose boot)" {
+    linux @KERNEL_LIVE@ boot=live components noplymouth console=tty0 noquiet loglevel=7 username=user hostname=spaced
+    initrd @INITRD_LIVE@
+}
+
+submenu "Spaced Linux utilities" --hotkey=u {
+    source /boot/grub/theme.cfg
+
+    if [ "${grub_platform}" = "efi" ]; then
+        menuentry "UEFI Firmware Settings" --hotkey=f {
+            fwsetup
+        }
+    fi
+
+    if @ENABLE_VERIFY_CHECKSUMS@; then
+        menuentry "Verify the Spaced Linux boot medium" --hotkey=v {
+            linux @KERNEL_LIVE@ @APPEND_VERIFY_CHECKSUMS@
+            initrd @INITRD_LIVE@
+        }
+    fi
+}
+GRUBCFG
+  cat > "$root/config/bootloaders/grub-pc/live-theme/theme.txt" <<'THEMTXT'
+desktop-image: "splash.png"
+desktop-color: "#14151a"
+title-color: "#d8d8d8"
+title-font: "Unifont Regular 16"
+title-text: "Spaced Linux 10.26.8"
+message-font: "Unifont Regular 16"
+terminal-font: "Unifont Regular 16"
+THEMTXT
+  cat > "$root/config/includes.chroot/etc/default/grub" <<'DEFGROU'
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=5
+GRUB_DISTRIBUTOR="Spaced Linux"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet"
+GRUB_CMDLINE_LINUX=""
+GRUB_DISABLE_OS_PROBER=false
+GRUB_GFXMODE=1920x1080
+GRUB_THEME="/boot/grub/themes/spaced/theme.txt"
+DEFGROU
+  cat > "$root/config/includes.chroot/boot/grub/themes/spaced/theme.txt" <<'BOOTTHEME'
+desktop-image: "SimpleBackb.png"
+desktop-image-scale-method: "stretch"
+desktop-color: "#14151a"
+title-color: "#cfd3d8"
+title-font: "Unifont Regular 18"
+title-text: "Spaced Linux"
+message-font: "Unifont Regular 16"
+terminal-font: "Unifont Regular 16"
+
++ image {
+    id = "spaced-logo"
+    file = "spaced-icon-fancy.png"
+}
+BOOTTHEME
+  cat > "$root/config/includes.chroot/etc/calamares/branding/spaced/branding.desc" <<'BRANDDESC'
+---
+componentName: spaced
+
+strings:
+    productName:         Spaced Linux
+    shortProductName:    Spaced Linux
+    version:             10.26.8
+    versionedName:       Spaced Linux 10.26.8
+    bootloaderEntryName: Spaced Linux
+    productUrl:          https://github.com/crhy/spaced
+BRANDDESC
+  printf 'splash.png placeholder for the fixture\n' > "$root/config/bootloaders/grub-pc/live-theme/splash.png"
+  printf 'bootloader splash.png placeholder\n' > "$root/config/bootloaders/grub-pc/splash.png"
+  printf 'SimpleBackb.png placeholder\n' > "$root/config/includes.chroot/boot/grub/themes/spaced/SimpleBackb.png"
+  printf 'spaced-icon-fancy.png placeholder\n' > "$root/config/includes.chroot/boot/grub/themes/spaced/spaced-icon-fancy.png"
+}
+
+# The SuperMox splash art build-iso.sh renders with scripts/branding-assets.sh;
+# the test supplies a stand-in file so the copy is checked without rsvg/magick.
+bg_png="$grub_test/build/branding/grub-background-1920x1080.png"
+logo_png="$grub_test/build/branding/logo-512.png"
+mkdir -p "$grub_test/build/branding"
+printf 'SuperMox GRUB background stand-in\n' > "$bg_png"
+printf 'SuperMox GRUB logo stand-in\n' > "$logo_png"
+
+wt_lb="$grub_test/worktree"
+write_fixture "$wt_lb"
+if ! out_lb="$(bash "$brand_script" "$wt_lb" 10.26 10.26.8 "$bg_png" "$logo_png" 2>&1)"; then
+  echo "FAIL: $brand_script failed on the scratch live-build tree:"
+  printf '%s\n' "$out_lb"
+  missing=1
+fi
+# Menu titles must read SuperMox <release> PC, and nothing may say Spaced Linux.
+for pat in 'menuentry "Start SuperMox 10.26 PC" --hotkey=s {' \
+  'menuentry "SuperMox 10.26 PC — Safe Graphics Because Nvidia Sucks" {' \
+  'menuentry "Start SuperMox 10.26 PC (verbose boot)" {' \
+  'submenu "SuperMox utilities" --hotkey=u {' \
+  'menuentry "Verify the SuperMox boot medium" --hotkey=v {'; do
+  if ! grep -qF -- "$pat" "$wt_lb/config/bootloaders/grub-pc/grub.cfg"; then
+    echo "FAIL: the live GRUB menu is missing: $pat"
+    missing=1
+  fi
+done
+for f in config/bootloaders/grub-pc/grub.cfg \
+  config/bootloaders/grub-pc/live-theme/theme.txt \
+  config/includes.chroot/boot/grub/themes/spaced/theme.txt \
+  config/includes.chroot/etc/default/grub \
+  config/includes.chroot/etc/calamares/branding/spaced/branding.desc; do
+  if grep -q "Spaced Linux" "$wt_lb/$f"; then
+    echo "FAIL: $wt_lb/$f still says Spaced Linux"
+    missing=1
+  fi
+done
+
+# Kernel command lines must be untouched: the linux/initrd lines of the edited
+# file must equal those of an untouched copy of the same fixture.
+write_fixture "$grub_test/pristine"
+for f in config/bootloaders/grub-pc/grub.cfg config/includes.chroot/etc/default/grub; do
+  if ! diff -q <(grep -E '^[[:space:]]*(linux|initrd|GRUB_CMDLINE_LINUX)' "$grub_test/pristine/$f") \
+    <(grep -E '^[[:space:]]*(linux|initrd|GRUB_CMDLINE_LINUX)' "$wt_lb/$f") > /dev/null; then
+    echo "FAIL: $brand_script changed a kernel command line in $f"
+    missing=1
+  fi
+done
+if ! grep -qF -- 'hostname=spaced' "$wt_lb/config/bootloaders/grub-pc/grub.cfg"; then
+  echo "FAIL: the kernel command line hostname=spaced was altered"
+  missing=1
+fi
+
+# Theme: SuperMox title, the SuperMox art installed as splash.png, and a title
+# colour that still reads on the #092b32 background.
+theme="$wt_lb/config/bootloaders/grub-pc/live-theme"
+for pat in 'title-text: "SuperMox 10.26 PC"' 'desktop-image: "splash.png"' \
+  'title-color: "#d8d8d8"' 'desktop-color: "#092b32"'; do
+  if ! grep -qF -- "$pat" "$theme/theme.txt"; then
+    echo "FAIL: the live GRUB theme is missing: $pat"
+    missing=1
+  fi
+done
+if ! cmp -s "$bg_png" "$theme/splash.png"; then
+  echo "FAIL: live-theme/splash.png is not the SuperMox GRUB background"
+  missing=1
+fi
+if ! cmp -s "$bg_png" "$wt_lb/config/bootloaders/grub-pc/splash.png"; then
+  echo "FAIL: the grub-pc bootloader splash.png is not the SuperMox GRUB background"
+  missing=1
+fi
+
+# The installed system's GRUB menu theme (/boot/grub/themes/spaced/theme.txt,
+# which GRUB_THEME points at): SuperMox title, SuperMox background and logo.
+boot_theme="$wt_lb/config/includes.chroot/boot/grub/themes/spaced"
+for pat in 'title-text: "SuperMox"' 'desktop-image: "SimpleBackb.png"' \
+  'title-color: "#cfd3d8"' 'desktop-color: "#092b32"'; do
+  if ! grep -qF -- "$pat" "$boot_theme/theme.txt"; then
+    echo "FAIL: the installed GRUB menu theme is missing: $pat"
+    missing=1
+  fi
+done
+if ! cmp -s "$bg_png" "$boot_theme/SimpleBackb.png"; then
+  echo "FAIL: the installed GRUB theme background is not the SuperMox GRUB background"
+  missing=1
+fi
+if ! cmp -s "$logo_png" "$boot_theme/spaced-icon-fancy.png"; then
+  echo "FAIL: the installed GRUB theme logo is not the SuperMox logo"
+  missing=1
+fi
+
+# Installed system: the GRUB menu name and the EFI boot entry name.
+if ! grep -qF -- 'GRUB_DISTRIBUTOR="SuperMox"' "$wt_lb/config/includes.chroot/etc/default/grub"; then
+  echo "FAIL: etc/default/grub does not set GRUB_DISTRIBUTOR=SuperMox"
+  missing=1
+fi
+if ! grep -qF -- 'GRUB_THEME="/boot/grub/themes/spaced/theme.txt"' "$wt_lb/config/includes.chroot/etc/default/grub"; then
+  echo "FAIL: etc/default/grub no longer points at the theme live-build installs"
+  missing=1
+fi
+bd="$wt_lb/config/includes.chroot/etc/calamares/branding/spaced/branding.desc"
+for pat in 'bootloaderEntryName: SuperMox' 'versionedName:       SuperMox 10.26 PC' 'productName:         SuperMox'; do
+  if ! grep -qF -- "$pat" "$bd"; then
+    echo "FAIL: the calamares branding is missing: $pat"
+    missing=1
+  fi
+done
+
+# A Spaced change must FAIL the script, not silently leave the old name: a
+# version that is not in the files, and a missing file, both have to exit non-zero
+# with a message.
+bad_v="$grub_test/bad-version"
+write_fixture "$bad_v"
+if out_bad="$(bash "$brand_script" "$bad_v" 10.26 9.9.9 "$bg_png" "$logo_png" 2>&1)"; then
+  echo "FAIL: $brand_script accepted a live-build tree with no 'Spaced Linux 9.9.9'"
+  missing=1
+else
+  if ! printf '%s\n' "$out_bad" | grep -qF -- 'Spaced Linux 9.9.9'; then
+    echo "FAIL: the missing-string failure does not name the string it wanted"
+    missing=1
+  fi
+fi
+bad_f="$grub_test/missing-file"
+write_fixture "$bad_f"
+rm -f "$bad_f/config/bootloaders/grub-pc/grub.cfg"
+if bash "$brand_script" "$bad_f" 10.26 10.26.8 "$bg_png" "$logo_png" > /dev/null 2>&1; then
+  echo "FAIL: $brand_script accepted a live-build tree with no grub.cfg"
+  missing=1
+fi
+bad_bg="$grub_test/missing-bg"
+write_fixture "$bad_bg"
+if bash "$brand_script" "$bad_bg" 10.26 10.26.8 "$grub_test/nope.png" > /dev/null 2>&1; then
+  echo "FAIL: $brand_script accepted a missing GRUB background"
+  missing=1
+fi
+bad_logo="$grub_test/missing-logo"
+write_fixture "$bad_logo"
+if bash "$brand_script" "$bad_logo" 10.26 10.26.8 "$bg_png" "$grub_test/nope.png" > /dev/null 2>&1; then
+  echo "FAIL: $brand_script accepted a missing GRUB logo"
+  missing=1
+fi
+# A title colour too dark to read on the #092b32 art must FAIL the script.
+dark="$grub_test/dark-title"
+write_fixture "$dark"
+sed -i 's/title-color: "#d8d8d8"/title-color: "#0b0b0b"/' "$dark/config/bootloaders/grub-pc/live-theme/theme.txt"
+if out_dark="$(bash "$brand_script" "$dark" 10.26 10.26.8 "$bg_png" "$logo_png" 2>&1)"; then
+  echo "FAIL: $brand_script accepted a theme whose title colour is unreadable on #092b32"
+  missing=1
+else
+  if ! printf '%s\n' "$out_dark" | grep -qF -- 'not readable on the #092b32 background'; then
+    echo "FAIL: the readability failure does not say why"
+    missing=1
+  fi
+fi
+
+# build-iso.sh must run the branding edit after make prepare, and make sure the
+# art exists (scripts/branding-assets.sh renders it).
+if ! grep -qF -- 'bash "$repo_root/scripts/iso-grub-branding.sh" "$lb_dir" "$release" "$spaced_version" "$grub_bg" "$grub_logo"' "$target"; then
+  echo "FAIL: $target does not run scripts/iso-grub-branding.sh in the post-prepare config"
+  missing=1
+fi
+if ! grep -qF -- 'run bash "$repo_root/scripts/branding-assets.sh"' "$target"; then
+  echo "FAIL: $target does not render the GRUB background with scripts/branding-assets.sh when it is missing"
+  missing=1
+fi
+if ! grep -qF -- 'grub_bg="$repo_root/build/branding/grub-background-1920x1080.png"' "$target"; then
+  echo "FAIL: $target does not name build/branding/grub-background-1920x1080.png as the GRUB background"
+  missing=1
+fi
+if ! grep -qF -- 'grub_logo="$repo_root/build/branding/logo-512.png"' "$target"; then
+  echo "FAIL: $target does not name build/branding/logo-512.png as the GRUB logo"
+  missing=1
+fi
+rm -rf "$grub_test"
+
 if [ "$missing" -ne 0 ]; then
   exit 1
 fi
 
 echo "OK: build-iso.sh --dry-run prints the worktree, packages.chroot staging, the archive and pin files, the ISO name and the 2 GiB limit"
 echo "OK: build-iso.sh skips every config/iso-exclude-debs.txt package by exact name (prefix lookalikes still staged) and prints the reason"
+echo "OK: iso-grub-branding.sh renames the live GRUB menu, the live theme, the installed GRUB menu theme, etc/default/grub and the calamares boot entry to SuperMox (SuperMox art in every GRUB theme), leaves kernel command lines alone, and fails when a Spaced string, an asset or a readable title colour is missing"

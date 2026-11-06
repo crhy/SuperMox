@@ -282,6 +282,21 @@ stage_manager
 step "stage the live-build tree: make -C $WORKTREE prepare (needs sudo: builds marco in a chroot)"
 step "deferring 'make prepare' to the sudo command (it needs root for chroot builds)"
 
+# --- GRUB branding art: the backgrounds/logo the ISO will ship -------------
+# scripts/branding-assets.sh renders them from website/assets/supermox-symbol.svg;
+# iso-grub-branding.sh copies them over the live menu splash and the installed
+# GRUB menu theme's art after make prepare.
+grub_bg="$repo_root/build/branding/grub-background-1920x1080.png"
+grub_logo="$repo_root/build/branding/logo-512.png"
+if [ ! -s "$grub_bg" ] || [ ! -s "$grub_logo" ]; then
+  step "GRUB art missing: scripts/branding-assets.sh renders $grub_bg and $grub_logo"
+  run bash "$repo_root/scripts/branding-assets.sh"
+  if [ "$dry_run" -eq 0 ]; then
+    [ -s "$grub_bg" ] || fail "scripts/branding-assets.sh did not produce $grub_bg"
+    [ -s "$grub_logo" ] || fail "scripts/branding-assets.sh did not produce $grub_logo"
+  fi
+fi
+
 # --- post-prepare config (written to a script the human runs after make prepare) ---
 post_prepare="$repo_root/build/iso-post-prepare.sh"
 step "writing post-prepare config script: $post_prepare"
@@ -384,6 +399,11 @@ for tree in /lib/systemd /usr/lib/systemd /etc/systemd; do
 done
 HOOK
 chmod 0755 "$lb_dir/config/hooks/normal/9990-supermox-no-systemd-units.hook.chroot"
+# GRUB must say SuperMox, not Spaced Linux: the live ISO boot menu, the live
+# menu theme (title and splash art), the installed system's GRUB menu name and
+# the installed EFI boot entry name. The edits fail if a Spaced string moved,
+# so an ISO can never ship the old name; kernel command lines are untouched.
+bash "$repo_root/scripts/iso-grub-branding.sh" "$lb_dir" "$release" "$spaced_version" "$grub_bg" "$grub_logo"
 cat > "$lb_dir/config/includes.chroot/etc/supermox/release" <<EOF
 SUPERMOX_VERSION=$release
 SUPERMOX_EDITION=pc
@@ -441,6 +461,7 @@ step "Proxmox key: $lb_dir/config/archives/proxmox.key.chroot (live-build instal
 step "pins: $lb_dir/config/archives/supermox.pref.chroot (local 999 > Proxmox 100, swtpm+pve1 600)"
 step "pins: $lb_dir/config/archives/supermox-no-systemd.pref.chroot (a copy of the supermox-ve conffile: systemd -1, chroot-only, the shipped ISO keeps the conffile) and supermox-iso-extra.pref.chroot (extra systemd names -1)"
 step "branding: $lb_dir/config/includes.chroot/etc/supermox/release (Spaced's /etc/os-release is left as is)"
+step "GRUB branding: $repo_root/scripts/iso-grub-branding.sh renames the live menu, the live menu theme, the installed system's GRUB menu theme, etc/default/grub and the calamares bootloaderEntryName to SuperMox (art from build/branding/), and fails if any 'Spaced Linux' is left"
 step "ZERO systemd units: $lb_dir/config/includes.chroot_before_packages/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units (a copy of the supermox-ve conffile: dpkg path-exclude for lib/systemd, usr/lib/systemd, etc/systemd, staged before any package installs)"
 step "ZERO systemd units: $lb_dir/config/hooks/normal/9990-supermox-no-systemd-units.hook.chroot (removes the unit files the debootstrap stage left under those three trees, prints them, touches nothing else)"
 collect_iso

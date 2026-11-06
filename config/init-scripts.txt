@@ -34,6 +34,11 @@ supermox-ve supermox-ve supermox-hosts
 # cgroup2 at /sys/fs/cgroup: lxc-pve 7.x is built for cgroup v2 only and nothing
 # in the base image mounts it, so containers cannot start without this script.
 supermox-ve supermox-ve supermox-cgroups
+# /etc/corosync/corosync.conf names this node: the corosync package's own
+# placeholder cannot work for a single node, and an image can never carry the
+# identity of the node it will boot on, so the file is written at boot (before
+# corosync and pve-cluster) instead of at package install time.
+supermox-ve supermox-ve supermox-corosync
 supermox-tmpfiles supermox-tmpfiles supermox-tmpfiles
 supermox-ve supermox-ve supermox-joind
 supermox-ve supermox-ve supermox-wg
