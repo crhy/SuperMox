@@ -16,13 +16,16 @@ import contextlib
 import importlib.machinery
 import importlib.util
 import io
+import json
 import os
 import shutil
 import stat
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -504,6 +507,132 @@ class CoreCommandTest(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("smx-other0", out)
         self.assertFalse(os.path.exists(os.path.join(self.corosync, "authkey")))
+
+
+class JsonOutputTest(unittest.TestCase):
+    """c08: `members --json` and `pending --json` for the Manager's cluster page.
+
+    The Manager runs these in the node's shell and parses what it gets back, so
+    the shape of the JSON, and the empty-array answers, are pinned here.
+    """
+
+    def setUp(self):
+        self.root = os.path.join(str(ROOT), "build",
+                                 "test-json-cli-%d" % os.getpid())
+        shutil.rmtree(self.root, ignore_errors=True)
+        self.etc = os.path.join(self.root, "etc", "supermox")
+        self.conf = os.path.join(self.root, "etc", "pve", "corosync.conf")
+        os.makedirs(os.path.dirname(self.conf))
+        saved = dict(os.environ)
+        self.addCleanup(self._restore_env, saved)
+        os.environ["SUPERMOX_ETC"] = self.etc
+        self._patcher = mock.patch.object(corosync_cluster,
+                                          "PVE_COROSYNC_CONF", self.conf)
+        self._patcher.start()
+        self.addCleanup(self._patcher.stop)
+
+    def _restore_env(self, saved):
+        for var in ("SUPERMOX_ETC",):
+            if var in saved:
+                os.environ[var] = saved[var]
+            else:
+                os.environ.pop(var, None)
+
+    def _run(self, *argv):
+        buf = io.StringIO()
+        err = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            rc = cli.main(list(argv))
+        return rc, buf.getvalue(), err.getvalue()
+
+    def _state(self):
+        st = node_state.NodeState(self.etc)
+        st.create_cluster(PHRASE, "node-a", ["10.0.0.1:8743"], "amd64",
+                          ["kvm", "amd64"])
+        return st
+
+    def _write_conf(self, *names):
+        body = ["# SuperMox cluster (managed by supermox-join; do not rewrite)",
+                "nodelist {"]
+        for index, name in enumerate(names, start=1):
+            body += ["    node {", "        name: %s" % name,
+                     "        nodeid: %d" % index, "    }"]
+        body += ["}", ""]
+        with open(self.conf, "w") as fh:
+            fh.write("\n".join(body))
+
+    def test_members_json_lists_the_documented_keys(self):
+        self._state()
+        rc, out, err = self._run("members", "--json")
+        self.assertEqual(rc, 0, out + err)
+        members = json.loads(out)
+        self.assertEqual(len(members), 1)
+        self.assertEqual(
+            set(members[0]),
+            {"name", "role", "overlay_addr", "arch", "caps", "core"})
+        self.assertEqual(members[0]["name"], "node-a")
+        self.assertEqual(members[0]["role"], "core")
+        self.assertEqual(members[0]["arch"], "amd64")
+        self.assertEqual(members[0]["caps"], ["kvm", "amd64"])
+        self.assertIn(":", members[0]["overlay_addr"])
+
+    def test_members_json_core_tracks_the_corosync_nodelist(self):
+        """core is true only for a member /etc/pve/corosync.conf lists."""
+        self._state()
+        rc, out, _ = self._run("members", "--json")
+        self.assertEqual(rc, 0)
+        self.assertFalse(json.loads(out)[0]["core"],
+                         "no nodelist yet: not a corosync member")
+        self._write_conf("node-a")
+        _rc, out, _ = self._run("members", "--json")
+        self.assertTrue(json.loads(out)[0]["core"],
+                        "listed in the nodelist: a corosync member")
+
+    def test_members_json_without_a_cluster_is_an_empty_array(self):
+        """Machine-readable "no cluster": exit 0 and [], not prose and exit 1.
+
+        The Manager offers "Create cluster" exactly when this answer is empty,
+        so it has to be able to parse it.
+        """
+        rc, out, err = self._run("members", "--json")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(json.loads(out), [])
+
+    def test_pending_json_reports_age_in_seconds(self):
+        st = self._state()
+        st.add_pending({"name": "node-b", "arch": "arm64",
+                        "caps": [], "invite_id": "i",
+                        "time": int(time.time()) - 90})
+        rc, out, err = self._run("pending", "--json")
+        self.assertEqual(rc, 0, out + err)
+        pending = json.loads(out)
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(set(pending[0]), {"id", "name", "arch", "age_s"})
+        self.assertEqual(pending[0]["name"], "node-b")
+        self.assertEqual(pending[0]["arch"], "arm64")
+        self.assertIn(pending[0]["id"], st.pending)
+        self.assertLessEqual(85, pending[0]["age_s"])
+        self.assertLessEqual(pending[0]["age_s"], 95)
+
+    def test_pending_json_with_nothing_waiting_is_an_empty_array(self):
+        self._state()
+        rc, out, err = self._run("pending", "--json")
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(json.loads(out), [])
+
+    def test_plain_output_is_unchanged(self):
+        """Without --json the human output, and its exit codes, stay as they were.
+
+        The Manager is a consumer added on top; people reading this on a phone
+        still get the prose.
+        """
+        self._state()
+        rc, out, _ = self._run("pending")
+        self.assertEqual(rc, 0)
+        self.assertEqual(out, "no join requests waiting\n")
+        rc, out, _ = self._run("members")
+        self.assertIn("node-a", out)
+        self.assertNotIn("{", out)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,9 @@ after, so the node ends with the options it started with.
 import inspect
 import json
 import os
+import re
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
@@ -17,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
 
 from supermox_manager import api
 from supermox_manager.ops import cluster
+from supermox_manager.ops import terminal
 
 LIVE_URL = os.environ.get("SUPERMOX_LIVE_URL")
 LIVE_PIN = os.environ.get("SUPERMOX_LIVE_PIN")
@@ -24,6 +27,15 @@ LIVE_USER = os.environ.get("SUPERMOX_LIVE_USER", "root@pam")
 LIVE_PASS = os.environ.get("SUPERMOX_LIVE_PASS", "")
 
 DESCRIPTION = "t78 live probe"
+
+
+def run_command(client, node, command, seconds=30):
+    """One command in a node shell, and only its own output.
+
+    Used by the Members, Join requests and Add a node tabs: supermox-join has
+    no API, so the page runs the command and quotes what it printed.
+    """
+    return terminal.run_command(client, node, command, timeout=seconds)
 
 
 class ClusterLive(unittest.TestCase):
@@ -148,6 +160,112 @@ class ClusterLive(unittest.TestCase):
                     ("orbit", "10.0.0.5", "abandon ability")):
             with self.assertRaises(ValueError):
                 cluster.join_command(*bad)
+
+
+@unittest.skipUnless(LIVE_URL, "SUPERMOX_LIVE_URL is not set (no VM running)")
+class ClusterCommandsLive(unittest.TestCase):
+    """The supermox-join commands the cluster page runs in a node shell.
+
+    supermox-join has no API of its own, so these calls are the page's only
+    route to the cluster's members, its waiting join requests and its actions.
+    Every assertion is about the text the page would show.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not LIVE_URL:
+            raise unittest.SkipTest("SUPERMOX_LIVE_URL not set")
+        cls.client = api.Client(LIVE_URL, LIVE_PIN)
+        cls.client.login(LIVE_USER, LIVE_PASS)
+        cls.node = cls.client.request("GET", "/nodes")[0]["node"]
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "client", None):
+            try:
+                cls.client.logout()
+            except Exception:  # noqa: BLE001 - best effort
+                pass
+
+    def test_members_json_carries_the_documented_keys(self):
+        text = run_command(self.client, self.node, cluster.members_command())
+        rows = cluster.parse_members(text)
+        self.assertIsNotNone(rows, "members --json did not parse: %r" % text[:200])
+        self.assertTrue(rows, "this node reports no members of its own cluster")
+        for row in rows:
+            for key in ("name", "role", "overlay_addr", "arch", "caps", "core"):
+                self.assertIn(key, row)
+            self.assertIsInstance(row["core"], bool)
+            self.assertIsInstance(row["caps"], list)
+        # The node running the command is a member, and its name is the one
+        # /cluster/status calls local.
+        names = [row["name"] for row in rows]
+        local = next((row.get("name") for row in cluster.node_rows(
+            cluster.status(self.client)) if row.get("local")), None)
+        self.assertIn(local, names)
+
+    def test_pending_json_is_a_list_even_with_nothing_waiting(self):
+        text = run_command(self.client, self.node, cluster.pending_command())
+        rows = cluster.parse_pending(text)
+        self.assertIsNotNone(rows, "pending --json did not parse: %r" % text[:200])
+        self.assertIsInstance(rows, list)
+        for row in rows:
+            for key in ("id", "name", "arch", "age_s"):
+                self.assertIn(key, row)
+            self.assertGreaterEqual(row["age_s"], 0)
+
+    def test_run_command_keeps_the_command_and_prompt_out(self):
+        # The page shows this text as the whole answer, so neither the shell's
+        # echo of the command nor its prompt may be in it.
+        text = run_command(self.client, self.node,
+                           "printf 'one\\n'; printf 'two\\n'")
+        self.assertEqual(text.strip(), "one\ntwo")
+
+    def test_a_failing_command_shows_its_own_error(self):
+        # Approve and Deny show this: the command's error, not a Manager message.
+        text = run_command(self.client, self.node,
+                           cluster.decide_command("approve", "AAAAAAAAAAAA="))
+        self.assertTrue(text.strip(), "the failure printed nothing")
+        self.assertIsNone(cluster.parse_pending(text),
+                          "a failing approve returned JSON")
+
+    def test_invite_prints_a_single_use_invite(self):
+        text = run_command(self.client, self.node, cluster.invite_command())
+        self.assertIn("supermox://join?", text)
+        # The invite never carries the phrase, so neither does this output.
+        self.assertNotIn("--words", text)
+
+    def test_cluster_init_is_idempotent(self):
+        # corosync bumps config_version on every write, so idempotence is
+        # "the same cluster, the same node, still quorate", not byte equality.
+        # Just after a boot pmxcfs can still be local-only for a moment and
+        # the first write then lands on a read-only /etc/pve; give it that.
+        first = ""
+        for _ in range(5):
+            first = run_command(self.client, self.node,
+                                cluster.cluster_init_command())
+            if "corosync cluster:" in first:
+                break
+            time.sleep(2)
+        second = run_command(self.client, self.node,
+                             cluster.cluster_init_command())
+        self.assertIn("corosync cluster:", first)
+        self.assertIn("corosync cluster:", second)
+        without_version = lambda text: re.sub(r"config_version \d+", "", text)
+        self.assertEqual(without_version(first), without_version(second))
+
+    def test_the_managed_probe_answers_yes_or_no(self):
+        text = run_command(self.client, self.node, cluster.managed_command())
+        self.assertTrue(("yes" in text) ^ ("no" in text),
+                        "the probe printed neither marker: %r" % text[:200])
+
+    def test_core_command_never_tracebacks(self):
+        # `core` only promotes a member that joined and was approved. On a node
+        # whose cluster is already corosync-managed it says so and changes
+        # nothing, which is the answer the page would show.
+        text = run_command(self.client, self.node, cluster.core_command())
+        self.assertTrue(text.strip())
+        self.assertNotIn("Traceback", text)
 
 
 if __name__ == "__main__":

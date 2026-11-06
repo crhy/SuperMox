@@ -248,6 +248,33 @@ def count_nodes(path):
     return len(re.findall(r"^\s*node\s*\{", text, re.M))
 
 
+def nodelist_names(path):
+    """The names of the node { } entries a corosync.conf lists ([] if unreadable).
+
+    A member is a CORE member of this cluster exactly when its name is in this
+    list: an overlay member never runs corosync with this cluster's key, so it
+    is never listed (see render_conf).
+    """
+    try:
+        with open(path) as handle:
+            text = handle.read()
+    except OSError:
+        return []
+    start = re.search(r"^\s*nodelist\s*\{", text, re.M)
+    if not start:
+        return []
+    depth, end = 0, len(text)
+    for index in range(start.end() - 1, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                end = index
+                break
+    return re.findall(r"^\s*name:\s*(\S+)\s*$", text[start.end():end], re.M)
+
+
 def is_managed(path):
     """True when the nodelist at path is ours, not someone else's."""
     try:

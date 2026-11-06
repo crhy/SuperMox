@@ -27,6 +27,7 @@ import queue
 import re
 import socket
 import threading
+import time
 
 from .. import api
 from . import websocket
@@ -35,6 +36,22 @@ from . import websocket
 # per xterm.js data event, so a bounded chunk size keeps both sides happy.
 CHUNK = 4096
 KEEPALIVE_SECONDS = 30
+
+# One command typed into a shell comes back mixed with the prompt, the echo
+# of the line that was typed and the next prompt. Two markers around it are
+# what the output between can be found by; they are the ones the cluster page
+# uses (see .strata/c08-manager-cluster-actions.md).
+BEGIN_MARK = "SMXJSON-BEGIN"
+END_MARK = "SMXJSON-END"
+MARK_PREFIX = "SMXJSON-"
+
+# Reading a node's JSON is quick; `supermox-join core` asks pvesh and then
+# upstream's finish_join, so the caller that runs it passes its own timeout.
+COMMAND_TIMEOUT = 30
+
+# A fresh ssh session prints its banner before it opens a prompt; the wait for
+# that prompt is bounded so a session that never prompts cannot hang a page.
+PROMPT_WAIT = 10
 
 
 class Session:
@@ -192,6 +209,109 @@ def _base_path(node, vmid, kind):
         raise ValueError("A guest console needs a vmid.")
     return "/nodes/{}/{}/{}".format(api.segment(node), api.segment(kind),
                                      api.segment(str(vmid)))
+
+def hidden(mark):
+    """A marker spelled so the shell's echo of the typed line is not a marker.
+
+    ``SMXJSON-""BEGIN``: the terminal echoes those characters back as typed,
+    which is not ``SMXJSON-BEGIN``; the shell joins the empty word to its
+    neighbours and prints the real marker. This is what keeps the echoed
+    command line from looking like a complete pair of markers.
+    """
+    return '{}""{}'.format(MARK_PREFIX, mark[len(MARK_PREFIX):])
+
+
+def wrap_command(command):
+    """One shell line whose output can be found between two markers.
+
+    ``echo SMXJSON-""BEGIN; <command>; echo SMXJSON-""END``: the shell echoes
+    the whole line back, and that echo would otherwise put both markers on one
+    line, a pair command_region() would mistake for the answer. hidden() breaks
+    the echo while still printing the real markers, so the only pair in the
+    stream is the real one, and the output that matters is between them. A
+    command that fails still prints its end marker, because the shell runs the
+    next statement after a semicolon.
+    """
+    return "echo {}; {}; echo {}".format(hidden(BEGIN_MARK), command,
+                                         hidden(END_MARK))
+
+
+def command_region(data):
+    """The text between the markers, or None while the end marker is missing.
+
+    ``data`` is the whole byte stream of the session so far, so a marker split
+    across two messages is still found. Returns None when the command has not
+    finished (or the markers were never printed), which is how run_command()
+    knows to keep waiting.
+    """
+    text = readable(data)
+    start = text.rfind(BEGIN_MARK)
+    if start < 0:
+        return None
+    end = text.find(END_MARK, start + len(BEGIN_MARK))
+    if end < 0:
+        return None
+    return text[start + len(BEGIN_MARK):end].strip()
+
+
+def await_prompt(session, limit=PROMPT_WAIT):
+    """Wait until the shell has printed its prompt, and return what it said.
+
+    A fresh ssh terminal prints its banner first and only then opens a prompt. A
+    command typed before that prompt is eaten by the shell's own start-up, so the
+    markers never appear and the caller sees the echoed command line instead of
+    the answer. The prompt is the end of the line: it finishes with ``#`` or
+    ``$`` (the trailing space is stripped before the test). Returns whatever
+    came back when the prompt appeared or the wait ran out, so a session that
+    never prompts still reaches the caller.
+    """
+    collected = bytearray()
+    deadline = time.monotonic() + max(1, int(limit))
+    while time.monotonic() < deadline:
+        data = session.recv(timeout=0.2)
+        if data is None:
+            break
+        if data:
+            collected.extend(data)
+            if readable(bytes(collected)).rstrip().endswith(("#", "$")):
+                return bytes(collected)
+    return bytes(collected)
+
+
+def run_command(client, node, command, timeout=COMMAND_TIMEOUT, cols=100, rows=30):
+    """Open a node shell, type ONE command, and return its output as text.
+
+    The session is opened and closed by this call: the page never leaves a
+    shell behind. The command is typed as one line and Enter is sent with it,
+    so there is no half-typed line for the user to finish. The answer is the
+    text between the markers, which is the command's own output: its stdout
+    and its stderr, since a terminal sends both to the same place. When the
+    markers never appear (the session died, or the command is still running
+    at the timeout) everything that did come back is returned instead, so the
+    caller can show the raw text rather than nothing.
+    """
+    session = open_session(client, node)
+    try:
+        session.resize(cols, rows)
+        await_prompt(session)
+        session.send(wrap_command(command) + "\n")
+        collected = bytearray()
+        deadline = time.monotonic() + max(1, int(timeout))
+        while True:
+            data = session.recv(timeout=1)
+            if data is None:
+                break
+            if data:
+                collected.extend(data)
+                if command_region(bytes(collected)) is not None:
+                    return command_region(bytes(collected))
+            if time.monotonic() >= deadline:
+                break
+        region = command_region(bytes(collected))
+        return region if region is not None else readable(bytes(collected))
+    finally:
+        session.close()
+
 
 def paste_lines(text):
     """Number of lines a clipboard paste would type into the terminal.

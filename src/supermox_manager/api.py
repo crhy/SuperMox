@@ -113,6 +113,21 @@ def pinned_socket(host, port, pin, timeout=15):
     return sock
 
 
+def _transport_error(exc):
+    """How the API reports a connection that never got a response.
+
+    The exception's own words are our client's (a TLS alert name, an errno),
+    not text the node sent, so they are safe to show. Without them a handshake
+    the node answered over plain HTTP -- pveproxy accepts both on 8006 and
+    answers a redirect when the first bytes are not a TLS hello -- reads
+    exactly like a dead socket, and a flaky test transport cannot be told
+    apart from a broken pin.
+    """
+    reason = " ".join(str(exc).split())[:120]
+    detail = "{} ({})".format(type(exc).__name__, reason) if reason else type(exc).__name__
+    return "Cannot reach the node over HTTPS: {}".format(detail)
+
+
 class Client:
     def __init__(self, url, pin, timeout=15):
         self.url, self.host, self.port = endpoint(url)
@@ -212,7 +227,7 @@ class Client:
             finally:
                 connection.close()
         except (OSError, http.client.HTTPException) as exc:
-            raise APIError("Cannot reach the node over HTTPS: {}".format(type(exc).__name__)) from None
+            raise APIError(_transport_error(exc)) from None
 
     UPLOAD_CHUNK = 1024 * 1024
 
@@ -260,7 +275,7 @@ class Client:
             finally:
                 connection.close()
         except (OSError, http.client.HTTPException) as exc:
-            raise APIError("Cannot reach the node over HTTPS: {}".format(type(exc).__name__)) from None
+            raise APIError(_transport_error(exc)) from None
 
     @staticmethod
     def _multipart_prefix(boundary, fields, filename):

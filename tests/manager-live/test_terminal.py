@@ -66,6 +66,9 @@ class TerminalLive(unittest.TestCase):
         try:
             self.assertTrue(session.alive, "the node refused the terminal session")
             session.resize(80, 24)
+            # The node's shell prints its banner first; a command typed before
+            # the prompt is eaten by the shell's own start-up.
+            terminal.await_prompt(session)
             session.send("echo SMOKETEST_$((6*7))\n")
             text = collect(session, "SMOKETEST_42")
         finally:
@@ -84,6 +87,7 @@ class TerminalLive(unittest.TestCase):
         session = terminal.open_session(self.client, self.node)
         try:
             session.resize(80, 24)
+            terminal.await_prompt(session)
             session.send("printf '%s' PASTE_HEAD" + body + "_TAIL\n")
             text = collect(session, "_TAIL", seconds=30)
         finally:

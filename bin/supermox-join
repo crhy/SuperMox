@@ -11,6 +11,7 @@ import json
 import os
 import platform
 import sys
+import time
 
 try:
     from supermox import joind
@@ -487,6 +488,18 @@ def cmd_core(args) -> int:
 
 def cmd_pending(args) -> int:
     st = _state()
+    if args.json:
+        # One JSON array for the Manager: id, name, arch and how long the
+        # request has been waiting. An empty array means "nothing pending", so
+        # the Manager never has to parse prose.
+        now = int(time.time())
+        print(json.dumps([
+            {"id": rid,
+             "name": rec.get("name", "?"),
+             "arch": rec.get("arch", "?"),
+             "age_s": now - int(rec.get("time") or now)}
+            for rid, rec in sorted(st.pending.items())], indent=2))
+        return 0
     if not st.pending:
         print("no join requests waiting")
         return 0
@@ -514,6 +527,23 @@ def cmd_decide(args) -> int:
 
 def cmd_members(args) -> int:
     st = _state()
+    if args.json:
+        # One JSON array for the Manager. "core" is true exactly when this
+        # member is in /etc/pve/corosync.conf's nodelist: a member listed there
+        # runs corosync with this cluster's key, an overlay member does not.
+        # An empty array means "this node has no cluster" (exit 0): the Manager
+        # reads that as "offer Create cluster", not as an error.
+        core_names = set(corosync_cluster.nodelist_names(
+            corosync_cluster.PVE_COROSYNC_CONF))
+        print(json.dumps([
+            {"name": m["name"],
+             "role": m.get("role", "edge"),
+             "overlay_addr": m.get("overlay_addr", ""),
+             "arch": m.get("arch", "?"),
+             "caps": list(m.get("caps") or []),
+             "core": m["name"] in core_names}
+            for m in st.membership], indent=2))
+        return 0
     if not st.membership:
         print("no members: this node has no cluster")
         return 1
@@ -595,6 +625,8 @@ def main(argv=None) -> int:
     p.set_defaults(func=cmd_core)
 
     p = sub.add_parser("pending", help="list join requests waiting for approval")
+    p.add_argument("--json", action="store_true",
+                   help="one JSON array (id, name, arch, age_s) for the Manager")
     p.set_defaults(func=cmd_pending)
 
     for name in ("approve", "deny"):
@@ -604,6 +636,9 @@ def main(argv=None) -> int:
         p.set_defaults(func=cmd_decide, command=name)
 
     p = sub.add_parser("members", help="list this cluster's members")
+    p.add_argument("--json", action="store_true",
+                   help="one JSON array (name, role, overlay_addr, arch, "
+                        "caps, core) for the Manager")
     p.set_defaults(func=cmd_members)
 
     args = ap.parse_args(argv)
