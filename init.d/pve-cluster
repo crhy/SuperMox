@@ -102,7 +102,9 @@ seed_storage_cfg() {
   # bounded time (SEED_TRIES seconds; tests set it low).
   tries=${SEED_TRIES:-30}
   while :; do
-    if printf '%s\n' 'dir: local' ' path /var/lib/vz' ' content images,rootdir,vztmpl,iso,backup,snippets,import' > "$STORAGE_CFG" 2>/dev/null; then
+    # The subshell keeps the shell's own "cannot create" message (from the
+    # redirection, not from printf) off the console while quorum is pending.
+    if (printf '%s\n' 'dir: local' ' path /var/lib/vz' ' content images,rootdir,vztmpl,iso,backup,snippets,import' > "$STORAGE_CFG") 2>/dev/null; then
       return 0
     fi
     tries=$((tries - 1))

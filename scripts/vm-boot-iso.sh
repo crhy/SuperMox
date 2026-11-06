@@ -716,7 +716,9 @@ fi
 #    is the failure rhY hit on the live ISO (an image built with the build
 #    machine's corosync identity baked in).
 coro_bad="$(grep -a -m1 -E 'Corosync Cluster Engine exiting|failed to parse bindnet' "$SERIAL" 2>/dev/null || true)"
-pve_bad="$(grep -a -m1 -E 'cannot create /etc/pve|could not write /etc/pve' "$SERIAL" 2>/dev/null || true)"
+# pve-cluster retries while pmxcfs waits for quorum; only its final warning
+# ("could not write ... no quorum yet?") means /etc/pve never became writable.
+pve_bad="$(grep -a -m1 -E 'could not write /etc/pve' "$SERIAL" 2>/dev/null || true)"
 if [ -n "$coro_bad" ] || [ -n "$pve_bad" ]; then
   report 'corosync and pve-cluster came up' 1 "${coro_bad:-}${coro_bad:+; }${pve_bad:-}"
 else
