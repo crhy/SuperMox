@@ -67,6 +67,17 @@ for pat in 'qemu-system-aarch64' '-M virt' 'console=ttyAMA0' '-cpu max'; do
     missing=1
   fi
 done
+# QEMU takes -M and virt as two argv entries; a mapfile of supermox_machine_opts
+# hands over the single entry "-M virt" and qemu exits "invalid option". The dry
+# run prints one entry per argv, so a quoted "-M virt" means the VM cannot start.
+if printf '%s\n' "$out" | grep -qF -- '"-M virt"'; then
+  echo "FAIL: vm-start.sh arm64 --dry-run passes -M virt as one argv entry"
+  missing=1
+fi
+if ! printf '%s\n' "$out" | grep -qE -- 'qemu-system-aarch64 -M virt ' ; then
+  echo "FAIL: vm-start.sh arm64 --dry-run does not pass -M and virt as separate entries"
+  missing=1
+fi
 if [ "$missing" -ne 0 ]; then
   fail=1
 fi

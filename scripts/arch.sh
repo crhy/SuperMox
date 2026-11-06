@@ -87,3 +87,11 @@ supermox_machine_opts() {
     *) supermox_arch_known ;;
   esac
 }
+
+# The same options, one WORD per line, for callers that mapfile straight into an
+# argv array. QEMU takes -M and virt as two separate argv entries: passing "-M virt"
+# as one entry fails with "invalid option", so a line-based mapfile of supermox_machine_opts
+# cannot start a non-amd64 VM.
+supermox_machine_opts_words() {
+  supermox_machine_opts | tr ' ' '\n' | grep -v '^$'
+}

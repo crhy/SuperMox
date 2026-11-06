@@ -434,7 +434,7 @@ if ! command -v "$qemu_bin" >/dev/null 2>&1; then
   exit 1
 fi
 
-mapfile -t mach_opts < <(supermox_machine_opts)
+mapfile -t mach_opts < <(supermox_machine_opts_words)
 append="$(live_append "$ISO")"
 
 # KVM only when the guest architecture is the host's and /dev/kvm is usable;

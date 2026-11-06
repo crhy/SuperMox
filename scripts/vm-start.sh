@@ -36,7 +36,7 @@ done
 qemu_bin="$(supermox_qemu_bin)"
 expected_comm="$(supermox_qemu_comm)"
 console="$(supermox_console)"
-mapfile -t mach_opts < <(supermox_machine_opts)
+mapfile -t mach_opts < <(supermox_machine_opts_words)
 
 cmd=(
   "$qemu_bin"

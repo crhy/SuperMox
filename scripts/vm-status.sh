@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Which SuperMox VMs are running (build, test, arm64, and the ISO boot from
-# scripts/vm-boot-iso.sh), and does ssh answer? Lets agents check without touching
-# the VM data paths. The ISO boot has no ssh port: its handles are its -pidfile,
-# its QMP socket and its serial log, all under build/iso-boot/.
+# Which SuperMox VMs are running (build, test, arm64, the ISO boot from
+# scripts/vm-boot-iso.sh, and the two-node LAN pair from scripts/vm-lan-pair.sh),
+# and does ssh answer? Lets agents check without touching the VM data paths. The
+# ISO boot has no ssh port: its handles are its -pidfile, its QMP socket and its
+# serial log, all under build/iso-boot/. The pair's two VMs are reported as
+# "lan-pair A" / "lan-pair B" with their own ssh ports (SUPERMOX_LAN_SSH_A/B),
+# because a join test needs BOTH nodes visible: a pair reported as one test VM
+# looks like a single node and the test then reads a dead cluster.
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 found=0
@@ -24,8 +28,13 @@ for pid in $(pgrep -x 'qemu-system-x86' || true) $(pgrep -x 'qemu-system-aar' ||
         printf 'iso VM running (pid %s): QMP socket %s missing\n' "$pid" "$dir/qmp.sock"
       fi
       continue ;;
-    # arm64 first: its data dir is .../supermox-vm-arm64, which would otherwise match the
-    # build VM pattern below and be reported with the wrong ssh port.
+    # Matched before arm64 and before the test VM: the pair's images and pidfiles
+    # live under $SUPERMOX_TEST_DIR/lan-pair, so its command line contains the test
+    # dir's name too and would otherwise be reported as the single test VM.
+    *lan-pair/qemu-a.pid*) name="lan-pair A"; port=${SUPERMOX_LAN_SSH_A:-2231} ;;
+    *lan-pair/qemu-b.pid*) name="lan-pair B"; port=${SUPERMOX_LAN_SSH_B:-2232} ;;
+    # arm64 next: its data dir is .../supermox-vm-arm64, which would otherwise match
+    # the build VM pattern below and be reported with the wrong ssh port.
     *arm64*) name="arm64"; port=${SUPERMOX_ARM64_SSH_PORT:-2225} ;;
     *supermox-test*|*test-data*) name="test"; port=${SUPERMOX_TEST_SSH_PORT:-2224} ;;
     *supermox-vm*|*vm-data*) name="build"; port=2223 ;;
