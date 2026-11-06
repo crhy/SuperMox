@@ -65,6 +65,25 @@ else
   printf 'Stopping qemu pid %s (found by command line: -pidfile %s)\n' "$pid" "$pidfile"
 fi
 
+# TERM ends QEMU without a guest shutdown, so whatever the guest still held in
+# its page cache never reached the disk image. Measured 2026-11-06: join-e2e's
+# EXIT trap restored /etc/supermox inside the VM, release-check then stopped the
+# VM here, and the image still held the test cluster (and the backup the restore
+# deletes), so the next LAN-pair run refused that base. Ask THIS guest to sync
+# first: its ssh port is read from this qemu's own hostfwd, never from the
+# environment, so the sync can only reach the VM being stopped.
+ssh_port="$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null \
+  | sed -n 's/.*hostfwd=tcp:127\.0\.0\.1:\([0-9][0-9]*\)-:22.*/\1/p' | head -n1)"
+if [ -n "$ssh_port" ] && command -v sshpass >/dev/null 2>&1; then
+  if timeout 30 sshpass -p supermox ssh -p "$ssh_port" -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 \
+      root@127.0.0.1 sync 2>/dev/null; then
+    printf 'Guest filesystems synced (ssh port %s)\n' "$ssh_port"
+  else
+    printf 'WARN: could not sync the guest over ssh port %s; stopping anyway\n' "$ssh_port" >&2
+  fi
+fi
+
 kill -TERM "$pid" 2>/dev/null || true
 
 for _ in $(seq 1 30); do

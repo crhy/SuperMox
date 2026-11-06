@@ -94,3 +94,20 @@ fi
 cleanup_fakes
 rm -rf "$fake_root"
 echo "OK: vm-stop.sh stops a pidfile-less VM by its command line (only that one); vm-start.sh refuses a second instance"
+
+# vm-stop.sh must sync the guest before TERM, or the guest's page cache never
+# reaches the image (join-e2e's restore was lost that way on 2026-11-06), and
+# it must take the ssh port from this qemu's own hostfwd, so the sync can only
+# reach the VM being stopped.
+stop_src="scripts/vm-stop.sh"
+sync_line="$(grep -n 'root@127.0.0.1 sync' "$stop_src" | head -n1 | cut -d: -f1)"
+term_line="$(grep -n 'kill -TERM "\$pid"' "$stop_src" | head -n1 | cut -d: -f1)"
+if [ -z "$sync_line" ] || [ -z "$term_line" ] || [ "$sync_line" -ge "$term_line" ]; then
+  echo "FAIL: vm-stop.sh does not sync the guest before sending TERM"
+  exit 1
+fi
+if ! grep -q '/proc/\$pid/cmdline' "$stop_src" || grep -q 'SUPERMOX_VM_SSH_PORT' "$stop_src"; then
+  echo "FAIL: vm-stop.sh must read the ssh port from the qemu command line, not the environment"
+  exit 1
+fi
+echo "OK: vm-stop.sh syncs the guest (its own hostfwd port) before TERM"
