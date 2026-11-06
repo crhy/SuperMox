@@ -79,37 +79,41 @@ start with the [architecture overview](docs/architecture.md) and the
 
 ## Status (11.26)
 
-11.26 is held until LAN nodes form a real Proxmox cluster (corosync) and a two-machine LAN test passes.
+11.26 was held until LAN nodes form a real Proxmox cluster; as of 2026-11-06 they do. Everything below was run
+on amd64 and passes:
 
-**Milestone 1 is DONE and proven.** Verified on 2026-11-05:
+- **Release check** (`scripts/release-check.sh`, 2026-11-06): all 8 steps PASS on a clean install of today's
+  packages: the gate, VM boot, first history, SuperMox Manager against a live node (`tests/manager-live.sh`),
+  the namespace join test (`scripts/join-e2e.sh`), no systemd on the installed system, and every enabled service
+  running.
+- **Two-machine LAN cluster** (`scripts/lan-cluster-e2e.sh`, 2026-11-06): two separate VMs on one LAN. Node A runs
+  `supermox-join create`, node B joins with the 12 words and becomes a corosync **core member**; both report
+  `Nodes: 2, Quorate: Yes` over the encrypted WireGuard overlay (corosync `secauth: on`), `/etc/pve` is shared both
+  ways, PVE lists both nodes online, and both are quorate again after B reboots. The phrase never appears in `ps`
+  on B (about 30,000 samples) or in any log.
+- **PC-edition ISO** (`scripts/build-iso.sh`, `scripts/vm-boot-iso.sh`, 2026-11-06): `supermox-11.26-pc-amd64.iso`
+  (1.8 GB) builds, contains no systemd units, and boots to the live desktop under sysvinit with corosync and
+  pve-cluster up and `/etc/pve` writable. The GRUB menu says SuperMox.
+- Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13, pve-container 6.1.15) built from source on Devuan Ceres;
+  every package we rebuild carries a `+supermoxN` version. Web UI on port 8006.
 
-- Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13, pve-container 6.1.15) built from source on Devuan Ceres; every package we rebuild carries a `+supermox1` version.
-- A clean install on a fresh Devuan Ceres sysvinit VM boots to sysvinit PID 1 with no systemd package installed (`scripts/check-no-systemd.sh` rc 0), every installed init script matches this repo byte for byte, and the node survives 3 reboots with every enabled service reporting running.
-- Web UI on `https://127.0.0.1:8006` answers 200.
-- Node join by 12-word phrase or QR invite (`supermox-join`, `supermox-joind`) is implemented and unit-tested (`tests/test-python.sh`); the live three-node test is the failing `join-e2e.sh` below.
-- amd64 only; arm64 and other architectures are unverified.
-
-The release check (`scripts/release-check.sh`, run 2026-11-05) passes for the gate, the VM boot, the no-systemd check and the services check. Two steps currently FAIL and are under investigation; they are never claimed as working:
-
-- `tests/manager-live.sh` — SuperMox Manager against a live node.
-- `scripts/join-e2e.sh` — three nodes joined over WireGuard in one VM.
-
-Added since 2026-10-30 (see [CHANGELOG.md](CHANGELOG.md) for the full list):
-
-- Discovery: signed gossip of node endpoints, a DHT locator and an onion-service helper so nodes can find each other across networks. These are libraries with unit tests only: `supermox-joind` does not consult them yet, so joins still go through the rendezvous layer ([docs/node-join-architecture.md](docs/node-join-architecture.md)).
-- Daemon stderr goes to syslog under sysvinit; an offline check keeps upstream overrides honest.
-- SuperMox Manager native pages: create VMs and containers, storage, node administration, network, disks, permissions and API tokens, backup jobs, pools, HA and firewall. The live test against a running node is the failing `tests/manager-live.sh` above; node shell and guest consoles are in progress.
-- `rrdcached` and `isc-dhcp-client` are our own packages (see [docs/pc-edition.md](docs/pc-edition.md)).
+Nodes closer than 5 ms over the overlay (normally the same LAN) become corosync core members and share `/etc/pve`;
+others stay edge nodes on the overlay ([docs/cluster-core-join.md](docs/cluster-core-join.md)). The Manager's
+Cluster page creates a cluster, invites nodes, approves joins and makes a member core.
 
 Not ready yet (open issues):
 
 - No LICENSE file; the fork's own licence terms are unsettled ([#5](https://github.com/crhy/SuperMox/issues/5)).
 - arm64 and other architectures unverified ([#6](https://github.com/crhy/SuperMox/issues/6)).
 - The Android GUI is not running on a phone yet ([#7](https://github.com/crhy/SuperMox/issues/7)).
-- The PC-edition ISO has not been built or boot-tested yet ([#8](https://github.com/crhy/SuperMox/issues/8)).
+- The ISO is built and boot-tested in a VM but not yet installed to disk with its installer, nor published
+  ([#8](https://github.com/crhy/SuperMox/issues/8)).
 - Our DHCP fork tracks end-of-life upstream software ([#9](https://github.com/crhy/SuperMox/issues/9)).
 - No signed update channel for our packages ([#10](https://github.com/crhy/SuperMox/issues/10)).
-- The live test harness itself needs work ([#11](https://github.com/crhy/SuperMox/issues/11)).
+- If a node fails after it was admitted to the corosync cluster but before it joined, the member does not yet
+  remove it again on its own (`pvecm expected 1` and `pvesh delete /cluster/config/nodes/<name>` repair it).
+- The discovery libraries (gossip, DHT locator, onion helper) have unit tests only: `supermox-joind` does not
+  consult them yet ([docs/node-join-architecture.md](docs/node-join-architecture.md)).
 
 ## Install (PC edition)
 
@@ -117,7 +121,11 @@ Not ready yet (open issues):
 2. Follow the installer (Calamares-based, Spaced Linux desktop).
 3. Open `https://<host>:8006` in a browser.
 
-**The ISO is not published yet** ([#8](https://github.com/crhy/SuperMox/issues/8)): as of 2026-11-05 the ISO has not been built; its build tooling is tested without root (`bash scripts/build-iso.sh --dry-run`). What is proven is installing the packages from this repo on a Devuan Ceres sysvinit host — that is how the clean install above was done.
+**The ISO is not published yet** ([#8](https://github.com/crhy/SuperMox/issues/8)): as of 2026-11-06 it is built
+from this repo (`bash scripts/build-iso.sh`, needs root for the live-build step) and boot-tested in a VM
+(`bash scripts/vm-boot-iso.sh`), but installing it to disk with its installer has not been tested yet. What is
+proven end to end is installing the packages from this repo on a Devuan Ceres sysvinit host, which is how the
+release check's clean install is done.
 
 ## Build from source
 

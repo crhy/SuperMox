@@ -9,6 +9,16 @@
 - Web UI on port 8006, survives reboot.
 - Node join with a 12-word BIP39 phrase or QR invite (`supermox-join`,
   `supermox-joind`), built and unit-tested.
+- Real Proxmox clusters on a LAN: `supermox-join create` makes a corosync cluster on
+  the node's WireGuard overlay address (`secauth: on`); a node that joins over a link
+  under 5 ms with no guests becomes a corosync core member through PVE's own
+  addnode/finish_join and shares `/etc/pve`. Proven on two VMs on one LAN
+  (`scripts/lan-cluster-e2e.sh`), including a reboot. Other nodes stay edge nodes.
+- SuperMox Manager Cluster page: create a cluster, invite a node, approve or deny join
+  requests, list members as core or edge, make a member core.
+- `scripts/vm-lan-pair.sh` (two test VMs on one virtual LAN) and
+  `scripts/lan-cluster-e2e.sh`; `scripts/vm-boot-iso.sh` boot-tests the ISO.
+- The GRUB menu, installed-system GRUB name and installer boot entry say SuperMox.
 - PC edition: Spaced Linux desktop (MATE, Windows-XP panel, Flatpak, Calamares)
   with the SuperMox packages and branding. Built by `scripts/build-iso.sh`.
 - `supermox-ve` meta-package (it carries the `supermox-joind` join daemon) and `supermox-tmpfiles`.
@@ -44,6 +54,22 @@
 
 ### Fixed
 
+- The PC ISO no longer bakes the build machine's corosync identity into the image:
+  corosync failed at boot and `/etc/pve` stayed read-only. The single-node config is
+  written at every boot from the node's own name and address (`supermox-corosync`).
+- `pvestatd` filed no node history: with pve-qemu-kvm 11.1 the CPU-flag probe kept its
+  stderr open, timed out every two minutes and stalled the status loop (#12).
+- `init.d/pve-cluster` can stop, report and restart pmxcfs without its pidfile; a
+  restart no longer starts a second pmxcfs that hangs `/etc/pve`.
+- The ISO install no longer fails on a libpve-network-perl version skew, and its image
+  holds no systemd unit files. pve-manager ships the paid enterprise repository
+  disabled, so `apt update` no longer fails with 401.
+- Joining: the member that accepts a join adds the joiner to its own WireGuard tunnel;
+  the join daemon listens on IPv6 (the overlay); the corosync key from PVE is decoded
+  correctly; a failed join takes the half-added node out again; corosync is stopped
+  before PVE's join; `supermox-join create` shows the 12 words before anything can fail.
+- Stopping a test VM syncs its disk first, so test cleanups are not lost.
+
 - A fresh install maps the hostname to the node's own IP at every boot (`supermox-hosts`),
   so pve-cluster starts on first boot and after a DHCP address change.
 - A joined node brings its WireGuard overlay up by itself at boot and when membership
@@ -71,11 +97,13 @@
 
 ### Known limitations
 
-- The PC-edition ISO has not been built or boot-tested yet (issue #8).
+- The PC-edition ISO is built and boot-tested in a VM, but installing it to disk with
+  its installer is not tested yet (issue #8).
 - Installed systems have no update channel yet (issue #10).
 - ZFS is opt-in (requires `zfs-dkms` built against the installed kernel).
-- WireGuard join verified end to end between network namespaces in the test VM
-  (`scripts/join-e2e.sh`, M3); not yet between two physical machines.
+- Clustering is verified between two VMs on one virtual LAN, not yet between two
+  physical machines. If a node fails after being admitted to the corosync cluster but
+  before joining it, the member does not yet remove it again by itself.
 - amd64 only so far; arm64 and other architectures planned but untested.
 - Ceph storage built but untested.
 - Manager node shell window (copy/paste) and guest consoles are not finished yet
