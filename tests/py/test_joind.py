@@ -1171,6 +1171,17 @@ class UndoAddnodeTests(unittest.TestCase):
         d, calls = self.daemon([(13, ""), (0, ""), (13, "")])
         self.assertIn("FAILED", d._undo_addnode("smx-b", 1))
 
+class DeadOverlayTests(JoindBase):
+    """A member that does not answer gives one plain line, not a traceback."""
+
+    async def test_closed_port_is_a_join_error(self):
+        port = free_port()
+        ep = joind.endpoint_for_addr("::1", port)
+        with self.assertRaises(joind.JoinError) as ctx:
+            await joind.core_join(ep, self.joiner("dead")[1], "node-b",
+                                  joind.b64(b"\x01" * 32))
+        self.assertIn("did not answer over the overlay", str(ctx.exception))
+
 class RunnerOutputTests(unittest.TestCase):
     """pvesh JSON must not be mixed with Perl's locale warnings on stderr."""
 

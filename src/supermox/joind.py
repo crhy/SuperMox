@@ -84,8 +84,6 @@ CORE_RTT_SAMPLES = 5              # echo frames M sends to measure the link
 CORE_RTT_MAX_MS = 5.0             # median RTT under this makes a core member
 CORE_CMD_TIMEOUT = 120            # seconds a PVE call may take on M's side
 CORE_HANDSHAKE_TIMEOUT = 30       # seconds a CORE_ACK may take to arrive
-CORE_DONE_TIMEOUT = 180           # seconds M waits for CORE_DONE after the ACK
-CORE_DONE_POLL = 0.05             # seconds between checks of that wait
 
 log = logging.getLogger("supermox-joind")
 
