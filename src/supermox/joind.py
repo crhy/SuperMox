@@ -84,6 +84,8 @@ CORE_RTT_SAMPLES = 5              # echo frames M sends to measure the link
 CORE_RTT_MAX_MS = 5.0             # median RTT under this makes a core member
 CORE_CMD_TIMEOUT = 120            # seconds a PVE call may take on M's side
 CORE_HANDSHAKE_TIMEOUT = 30       # seconds a CORE_ACK may take to arrive
+CORE_DONE_TIMEOUT = 180           # seconds M waits for CORE_DONE after the ACK
+CORE_DONE_POLL = 0.05             # seconds between checks of that wait
 
 log = logging.getLogger("supermox-joind")
 
@@ -995,7 +997,12 @@ class JoinDaemon:
 
 
 class _Client:
-    """One client connection: frames in, frames out."""
+    """One client connection: frames in, frames out.
+
+    Every connect, write and read goes through _OverlayError, so a member
+    whose address does not answer produces one plain line instead of an
+    asyncio traceback (measured on the LAN pair, commit 8fa669b).
+    """
 
     def __init__(self, endpoint: str):
         self.endpoint = endpoint
@@ -1003,7 +1010,8 @@ class _Client:
         self.writer = None
 
     async def __aenter__(self):
-        self.reader, self.writer = await connect(self.endpoint)
+        with _OverlayError(self.endpoint):
+            self.reader, self.writer = await connect(self.endpoint)
         return self
 
     async def __aexit__(self, *exc):
@@ -1013,11 +1021,56 @@ class _Client:
             pass
         return False
 
+    async def write(self, kind: int, payload: bytes) -> None:
+        with _OverlayError(self.endpoint):
+            await write_frame(self.writer, kind, payload)
+
+    async def read(self, timeout: float = None) -> tuple:
+        """One frame; *timeout* seconds before "no reply from ..."."""
+        with _OverlayError(self.endpoint):
+            if timeout is None:
+                return await read_frame(self.reader)
+            try:
+                return await asyncio.wait_for(read_frame(self.reader),
+                                              timeout=timeout)
+            except asyncio.TimeoutError:
+                raise JoinError("no reply from %s within %d s"
+                                % (self.endpoint, int(timeout)))
+
 
 async def connect(endpoint: str):
     """Open a connection to a join daemon at host or host:port."""
     host, port = parse_endpoint(endpoint)
     return await asyncio.open_connection(host, port)
+
+
+class _OverlayError:
+    """Context manager turning a dead overlay into one plain line.
+
+    Measured on the LAN pair (commit 8fa669b): when the member's address did
+    not answer, `supermox-join core` died with a raw asyncio traceback. Every
+    connect and read a client does goes through this, so the user gets
+    "(fd..:8743) did not answer over the overlay: is wg0 up on both nodes?"
+    and the CLI adds the member's name in front of it.
+    """
+
+    def __init__(self, endpoint: str):
+        self.endpoint = endpoint
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if exc_value is None:
+            return False
+        if isinstance(exc_value, JoinError):
+            return False
+        if isinstance(exc_value, (OSError, asyncio.IncompleteReadError,
+                                  asyncio.TimeoutError)):
+            raise JoinError(
+                "(%s) did not answer over the overlay: is wg0 up on both "
+                "nodes?" % self.endpoint)
+        return False
 
 
 async def join_phrase(endpoint: str, derived: dict, identity: dict,
