@@ -1,3 +1,11 @@
+supermox-manager (11.26.2) supermox; urgency=medium
+
+  * Connecting to a node retries a TLS handshake that the node answered in
+    plain text (seen through forwarding tunnels). Nothing is sent before the
+    certificate pin check, and a pin mismatch is never retried.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 11:00:00 -0800
+
 supermox-manager (11.26.1) supermox; urgency=medium
 
   * Cluster page: create a cluster, invite a node, approve or deny join
