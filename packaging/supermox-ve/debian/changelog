@@ -1,3 +1,29 @@
+supermox-ve (0.1.23) unstable; urgency=medium
+
+  * init.d/pve-cluster: manage pmxcfs by executable instead of by pidfile. pmxcfs
+    daemonises itself, and the old stop ran
+      start-stop-daemon --stop --pidfile /run/pve-cluster.pid --retry TERM/10/KILL/5
+    with no --exec, so whenever that file was missing or stale stop killed nothing
+    and returned rc=1 while pmxcfs kept running. PVE::SysvService::stop dies on a
+    nonzero rc, so every join step that restarts pve-cluster aborted, and status
+    reported "not running" on a node whose /etc/pve was mounted and readable. stop
+    now matches --exec /usr/sbin/pmxcfs, and start refuses to launch a second
+    instance (pidof check first, and start-stop-daemon's own --start returns 1
+    when the executable is already running).
+  * start now waits for the pmxcfs FUSE mount of /etc/pve before seeding
+    /etc/pve/storage.cfg and writing the pidfile, and unmounts a /etc/pve left
+    mounted by a pmxcfs that died - the boot path used to write storage.cfg into
+    the empty mountpoint and then mount over it, so the seed was invisible and
+    `pct list` reported "cannot access '/etc/pve/.version': Read-Only Filesystem".
+  * status returns LSB 0 only when pmxcfs runs AND /etc/pve is mounted, and stop
+    unmounts /etc/pve only once no pmxcfs is alive, so a stopped node reports 3
+    instead of 0 and a wedged mount is cleared rather than shadowed.
+  * tests/test-init-pve-cluster.sh: stubbed pmxcfs, findmnt and start-stop-daemon
+    cover stop with a missing and a stale pidfile, stop clearing a dead pmxcfs's
+    mount, start not double-starting, start waiting for the mount, status 0/3,
+    restart, and that storage.cfg is seeded only inside the mount.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 11:10:42 -0800
 supermox-ve (0.1.22) unstable; urgency=medium
 
   * init.d/supermox-corosync: a new boot script that writes the single node's

@@ -37,7 +37,7 @@ dpkg -l corosync pve-cluster   -> corosync 3.1.10-5
 dpkg -l supermox-ve            -> supermox-ve 0.1.19
 ```
 
-The tree is at `supermox-ve 0.1.22` (`packaging/supermox-ve/debian/changelog`),
+The tree is at `supermox-ve 0.1.23` (`packaging/supermox-ve/debian/changelog`),
 so **the test VM image predates f34**: `supermox-corosync` is not installed there.
 
 ```
@@ -117,20 +117,35 @@ start) ... start-stop-daemon --start --quiet --pidfile "$PIDFILE" --exec "$DAEMO
 stop)  start-stop-daemon --stop --quiet --pidfile "$PIDFILE" --retry TERM/10/KILL/5
 ```
 
-`pmxcfs` daemonises itself and never writes `/run/pve-cluster.pid`, and the
-`--stop` line has no `--exec` fallback. Measured in the VM:
+`pmxcfs` daemonises itself, and the `--stop` line has no `--exec` fallback, so
+`stop` can only name a process through a pidfile:
 
 ```
 start-stop-daemon --stop --quiet --pidfile /run/pve-cluster.pid --retry TERM/10/KILL/5
   -> rc=1, and pgrep -c pmxcfs is still 2
 ```
 
-So `stop` never kills anything and reports failure; `restart` is "failed stop +
-start a second pmxcfs"; `status` reports "not running" while it *is* running.
-Two pmxcfs instances plus a shadowed/dead FUSE mount is exactly what the
-measurements above show. Causation of the wedged mount is inferred, not proven —
-but the pidfile/`--stop` defect is proven and is a hard blocker for anything that
-restarts `pve-cluster` (see §3).
+Re-measured in the `build/test-data` VM (image 0.1.19, start-stop-daemon 1.23.11)
+after the fix was written, two claims above had to be corrected and one new one
+turned up:
+
+- `pmxcfs` *does* write a pidfile. `CFS_PID_FN` is `/var/run/pve-cluster.pid`
+  (`upstream/pxvirt/packages/pve-cluster/pve-cluster/src/cfs-utils.h`), and
+  `/var/run` is a symlink to `/run`, so after `invoke-rc.d pve-cluster start`,
+  `/run/pve-cluster.pid` exists and holds the live pid. The `No such file` line
+  above was read at a moment when no pmxcfs was alive.
+- `restart` does not start a second pmxcfs here: with one already running the
+  old `--start` line prints `(warning)` and exits 1, and `pgrep -c pmxcfs` stays
+  1. The two-instance state above was real but has not been reproduced since.
+- New: `start-stop-daemon --stop` given a `--pidfile` that does not exist stops
+  nothing *even when `--exec` is also given*. A fix that passes both flags does
+  not work; it must match by executable alone.
+
+What does reproduce, with the pidfile missing or stale while pmxcfs runs: `stop`
+prints `failed!` (rc=1) and leaves pmxcfs running, and `status` returns 3 while
+pmxcfs runs. That is the proven defect, and it is enough on its own: `PVE::SysvService::stop`
+dies on a nonzero rc, so the join path aborts (see §3). Causation of the wedged
+mount is inferred, not proven.
 
 ---
 
@@ -223,7 +238,8 @@ The nodelist edit is done under a config-change lock and applied through
   `<script> status` rc == 0; `reload_or_restart` greps the script for a
   `reload)` arm.
 - **Consequence, measured:** `PVE::SysvService::stop('pve-cluster')` runs
-  `init.d/pve-cluster stop`, which is a no-op returning rc=1 (§1.4). Our
+  `init.d/pve-cluster stop`, which is a no-op returning rc=1 whenever the pidfile
+  is missing or stale (§1.4). Our
   patched `finish_join` wraps that call in
   `eval { ... }; if ($@) { die "can't stop pve-cluster service" }`, and
   `PVE::Tools::run_command` dies on nonzero rc. **Upstream's join path therefore
@@ -268,11 +284,10 @@ Facts that constrain any core-join step:
    already a single-node cluster (own `corosync.conf`, corosync running,
    guests possibly defined) fails four of its checks. Upstream's answer is
    "the new node must be empty"; that does not describe a SuperMox joiner.
-3. **Restart correctness is a prerequisite.** §1.4 + §3: `pve-cluster` cannot
-   currently be stopped or reported on. Any core join must first fix
-   `init.d/pve-cluster`'s pidfile handling (or replace the stop/start pair with
-   a pmxcfs-aware equivalent), otherwise `finish_join` dies or double-starts
-   pmxcfs and wedges `/etc/pve`.
+3. **Restart correctness is a prerequisite.** §1.4 + §3: `pve-cluster` could
+   not be stopped or reported on. Fixed in `init.d/pve-cluster` (§5 item 1);
+   any core join still has to keep that property, because `finish_join` dies
+   on a failed stop and a second pmxcfs wedges `/etc/pve`.
 4. **Address family and interface.** corosync resolves `ringN_addr` itself,
    with family order set by `totem.ip_version` (`Corosync.pm:475`), and
    `assert_joinable` requires the address to be present on a local interface
@@ -298,8 +313,25 @@ Facts that constrain any core-join step:
 
 ## 5. Open questions to settle next
 
-1. Fix and re-measure `init.d/pve-cluster` (pidfile, `--stop --exec`,
-   `status` rc) — blocks everything above.
+1. ~~Fix and re-measure `init.d/pve-cluster`~~ **done.** `init.d/pve-cluster`
+   now matches pmxcfs by executable (`--stop --exec`, no `--pidfile`), refuses
+   a second start, waits for the `/etc/pve` mount, clears a mount left by a
+   dead pmxcfs, and returns LSB 0 only when pmxcfs runs *and* `/etc/pve` is
+   mounted. Covered by `tests/test-init-pve-cluster.sh` (offline, stubbed
+   `pmxcfs`/`findmnt`/`start-stop-daemon`) and by the live runs recorded in
+   `build/live-*.log`. Changelog entry 0.1.23; the script ships through
+   `config/init-scripts.txt`, which makes `apply-patches.sh` copy it to
+   `debian/pve-cluster.pve-cluster.init` in the pve-cluster package (verified
+   byte-identical in `build/patched/`). Re-measured in the VM: three `restart`s
+   in a row leave exactly one pmxcfs, `ls /etc/pve` returns, `status` is 0
+   running and 3 stopped, and a fresh boot of the same disk comes up with one
+   pmxcfs, a pidfile matching it, `status` 0 and `storage.cfg` visible inside
+   the mount. Note for the harness: `reboot` inside the VM ends qemu
+   (`scripts/vm-start.sh` passes no `-action reboot`), and `vm-start.sh` execs
+   qemu in the foreground, so start it in the background and poll SSH. The
+   join-path primitive that died before now works in the VM: `PVE::SysvService::stop('pve-cluster')`
+   followed by `start` returns cleanly, leaves one pmxcfs and a readable
+   `/etc/pve`, and `PVE::SysvService::is_running('pve-cluster')` reports 1.
 2. Does `PVE::Network::get_local_ip_from_cidr` see the overlay address, and
    does corosync 3.1.10 accept an IPv6 `ring0_addr` pointing at the overlay
    (`totem.ip_version: ipv6` / `ipv4-6`)? Measure, don't assume.

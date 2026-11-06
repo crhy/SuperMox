@@ -19,13 +19,63 @@
 # quorum API. So corosync must be started first, and its state directory
 # /var/lib/corosync (plus the /run/corosync socket dir) must exist. The single-node
 # /etc/corosync/corosync.conf is written by the pve-cluster postinst.
+#
+# pmxcfs daemonises itself (fork, chroot("/"), setsid) and the pidfile it would
+# write is CFS_PID_FN = /var/run/pve-cluster.pid, which measured in the test VM
+# does not exist after a start (docs/cluster-core-join.md 1.4). A pidfile-only
+# stop therefore killed nothing (rc=1), `status` said "not running" while pmxcfs
+# ran, and `restart` was "failed stop + start": two pmxcfs on one FUSE mount,
+# every read of /etc/pve blocks. PVE's own finish_join calls
+# PVE::SysvService::stop('pve-cluster'), so no node can join a cluster until
+# stop/start/status are correct. Therefore: the running daemon is identified by
+# its executable, this script writes the pidfile itself once /etc/pve is mounted,
+# and `start` refuses to start a second pmxcfs.
 
 . /lib/lsb/init-functions
 
-DAEMON=/usr/bin/pmxcfs
-PIDFILE=/run/pve-cluster.pid
+# Overridable so the offline test can run the script against stubs in build/.
+DAEMON="${DAEMON:-/usr/bin/pmxcfs}"
+PIDFILE="${PIDFILE:-/run/pve-cluster.pid}"
 NAME=pve-cluster
-STORAGE_CFG=/etc/pve/storage.cfg
+PVE_DIR="${PVE_DIR:-/etc/pve}"
+STORAGE_CFG="$PVE_DIR/storage.cfg"
+COROSYNC_STATE_DIR="${COROSYNC_STATE_DIR:-/var/lib/corosync}"
+COROSYNC_RUN_DIR="${COROSYNC_RUN_DIR:-/run/corosync}"
+COROSYNC_SCRIPT="${COROSYNC_SCRIPT:-/etc/init.d/corosync}"
+LOGPIPE="${LOGPIPE:-/usr/lib/supermox/supermox-logpipe}"
+
+# The running pmxcfs, found by executable instead of by pidfile (see above).
+# -x also matches the stub scripts the offline test puts on PATH.
+pmxcfs_pids() {
+  pidof -x "$DAEMON" 2>/dev/null || true
+}
+
+pve_mounted() {
+  findmnt -n "$PVE_DIR" >/dev/null 2>&1
+}
+
+# pmxcfs's foreground parent exits only once the child has set the FUSE mount
+# up, so a mounted /etc/pve is the proof the daemon is really up.
+wait_for_pve_mount() {
+  i=0
+  while [ "$i" -lt 10 ]; do
+    pve_mounted && return 0
+    i=$((i + 1))
+    sleep 1
+  done
+  return 1
+}
+
+# Record the daemon's pid for the LSB contract (and for anything that reads
+# /run/pve-cluster.pid); pidof gives pmxcfs's own pid once it has daemonised.
+write_pidfile() {
+  pids="$(pmxcfs_pids)"
+  if [ -z "$pids" ]; then
+    return 0
+  fi
+  printf '%s\n' "$pids" > "$PIDFILE" ||
+    log_warning_msg "$NAME: could not write $PIDFILE"
+}
 
 # pmxcfs creates /etc/pve/storage.cfg empty and no package in the tree ever
 # fills it (checked: pve-storage's postinst only migrates an existing file), so
@@ -39,13 +89,7 @@ STORAGE_CFG=/etc/pve/storage.cfg
 # filesystem to be mounted before writing: a write to /etc/pve before pmxcfs
 # is up lands in the plain directory and is lost when the mount covers it.
 seed_storage_cfg() {
-  i=0
-  while [ "$i" -lt 10 ]; do
-    mountpoint -q /etc/pve && break
-    i=$((i + 1))
-    sleep 1
-  done
-  if [ "$i" -ge 10 ]; then
+  if ! wait_for_pve_mount; then
     log_warning_msg "$NAME: /etc/pve is not mounted, storage.cfg not seeded"
     return 0
   fi
@@ -61,36 +105,76 @@ seed_storage_cfg() {
 case "$1" in
   start)
     log_begin_msg "Starting $NAME"
-    mkdir -p /etc/pve /var/lib/corosync /run/corosync
-    if [ -x /etc/init.d/corosync ]; then
-      /etc/init.d/corosync start >/dev/null 2>&1
+    mkdir -p "$PVE_DIR" "$COROSYNC_STATE_DIR" "$COROSYNC_RUN_DIR"
+    if [ -x "$COROSYNC_SCRIPT" ]; then
+      "$COROSYNC_SCRIPT" start >/dev/null 2>&1
     fi
-    /usr/lib/supermox/supermox-logpipe "$NAME" start-stop-daemon --start --quiet --pidfile "$PIDFILE" --exec "$DAEMON"
+    if [ -n "$(pmxcfs_pids)" ]; then
+      # LSB start: an already running service is not an error. Starting a
+      # second pmxcfs on the same mount point is what wedged /etc/pve, so
+      # this is the one case where start must not run the daemon again.
+      write_pidfile
+      seed_storage_cfg
+      log_end_msg 0
+      exit 0
+    fi
+    "$LOGPIPE" "$NAME" start-stop-daemon --start --quiet --exec "$DAEMON"
     rc=$?
+    if [ "$rc" -eq 0 ]; then
+      wait_for_pve_mount
+      write_pidfile
+    fi
     seed_storage_cfg
     log_end_msg "$rc"
+    exit "$rc"
     ;;
   stop)
     log_begin_msg "Stopping $NAME"
-    start-stop-daemon --stop --quiet --pidfile "$PIDFILE" --retry TERM/10/KILL/5
-    log_end_msg $?
+    # Match by executable, NOT by pidfile: measured in the test VM, start-stop-daemon
+    # given --pidfile for a pidfile that does not exist stops nothing and exits 1 even
+    # with pmxcfs running, which is exactly the state left by a crashed pmxcfs.
+    start-stop-daemon --stop --quiet --retry TERM/10/KILL/5 --exec "$DAEMON"
+    # pmxcfs unmounts /etc/pve itself on exit; if a stale fuse mount survives
+    # it shadows the plain directory and every later read of /etc/pve blocks,
+    # so clear it -- but only when no pmxcfs is running any more, never from
+    # under a live daemon. Lazy unmount: the mount can still be busy from a
+    # daemon that has only just been signalled.
+    if [ -z "$(pmxcfs_pids)" ] && pve_mounted; then
+      umount -l "$PVE_DIR" 2>/dev/null
+    fi
+    rm -f "$PIDFILE"
+    if [ -n "$(pmxcfs_pids)" ]; then
+      log_end_msg 1
+      exit 1
+    fi
+    # LSB stop: nothing running means success, whether or not we had to kill
+    # something (a missing pidfile must not make stop fail).
+    log_end_msg 0
+    exit 0
     ;;
   restart)
-    "$0" stop
+    "$0" stop || exit 1
     "$0" start
+    exit $?
     ;;
   reload|force-reload)
     "$0" restart
+    exit $?
     ;;
   status)
-    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
-    rc=$?
-    if [ "$rc" -eq 0 ]; then
-      log_success_msg "$NAME is running"
+    # LSB 0 only when the daemon runs AND its filesystem is actually mounted:
+    # a pmxcfs that lost its mount is broken, and callers such as
+    # PVE::SysvService::is_running must not treat it as healthy.
+    if [ -n "$(pmxcfs_pids)" ] && pve_mounted; then
+      log_success_msg "$NAME (pmxcfs $(pmxcfs_pids)) is running"
+      exit 0
+    fi
+    if [ -n "$(pmxcfs_pids)" ]; then
+      log_failure_msg "$NAME: pmxcfs is running but $PVE_DIR is not mounted"
     else
       log_failure_msg "$NAME is not running"
     fi
-    exit "$rc"
+    exit 3
     ;;
   *)
     echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
