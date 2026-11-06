@@ -577,6 +577,19 @@ class CoreCommandTest(unittest.TestCase):
         self.assertEqual(self.asks, [("[fd00:5:6:7:8:9:a:0]:8743", "node-a",
                                       self._member_wg_pub())])
 
+    def test_core_on_a_node_that_already_is_one_asks_nobody(self):
+        # join runs the core step itself; a second `core` used to ask the
+        # member again and print that no member made it one.
+        conf = os.path.join(self.stub, "pve-corosync.conf")
+        with open(conf, "w") as fh:
+            fh.write("nodelist {\n    node {\n        name: other\n    }\n"
+                     "    node {\n        name: node-a\n    }\n}\n")
+        with mock.patch.object(cli.corosync_cluster, "PVE_COROSYNC_CONF", conf):
+            rc, out = self._core("core")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("already a corosync core member", out)
+        self.assertEqual(self.asks, [])
+
     def _member_wg_pub(self):
         st = node_state.NodeState(self.etc)
         st.load()

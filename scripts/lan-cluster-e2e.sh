@@ -412,7 +412,8 @@ pass "step 3: phrase not visible in any of the $(wc -l < "$ps_samples") ps sampl
 step "both nodes are core members of one corosync cluster"
 run_on b 'supermox-join core'
 for side in a b; do
-  run_rc "$side" 'pvecm status'
+  # pvecm status lists addresses; pvecm nodes lists the names checked below.
+  run_rc "$side" 'pvecm status; pvecm nodes'
   if [ "$rc" -ne 0 ]; then
     fail "step 4: pvecm status on side $side failed"
     exit 1

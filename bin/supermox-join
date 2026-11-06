@@ -421,6 +421,15 @@ def cmd_core(args) -> int:
     except corosync_cluster.CorosyncError as exc:
         print("%s" % exc, file=sys.stderr)
         return 1
+    # Already a core member (join runs this step itself): asking again made
+    # the member's addnode refuse a node it already has, and the command
+    # printed "no member made this node a core member" for a node that is one.
+    pve_conf = corosync_cluster.PVE_COROSYNC_CONF
+    if (me["name"] in corosync_cluster.nodelist_names(pve_conf)
+            and corosync_cluster.count_nodes(pve_conf) > 1):
+        print("this node is already a corosync core member of cluster %s"
+              % corosync_cluster.cluster_name(st))
+        return 0
     count, err = _guests()
     if err:
         print("cannot tell whether this node has guests: %s; refusing to make a "
