@@ -36,7 +36,7 @@ Operate the amd64 KVM VM built by the scripts in `scripts/`. All paths default t
   own packages under `packaging/<name>/` (built directly, no patching, into `/root/build/pkg-<name>/<name>/`); a
   name that is both is an error. Debs land in `/root/localrepo` and are copied back to `$SUPERMOX_VM_DIR/debs/`.
 
-## M2 — PC edition 10.26
+## M2 — PC edition 11.26
 
 SuperMox PC edition: Spaced Linux desktop (MATE, Windows-XP style panel, Flatpak apps,
 Calamares installer) plus the SuperMox packages (supermox-ve and our rebuilt PVE stack,

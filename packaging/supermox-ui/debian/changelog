@@ -1,3 +1,9 @@
+supermox-ui (11.26.0) supermox; urgency=medium
+
+  * Release line renamed to 11.26 (was 10.26); version follows the release line.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 09:00:00 -0800
+
 supermox-ui (10.26.1) supermox; urgency=medium
 
   * themes/theme-supermox-dark.css: drop the two rules that inverted Proxmox's

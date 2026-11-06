@@ -675,7 +675,7 @@ class Manager:
 
     def about(self):
         dialog = Gtk.AboutDialog(transient_for=self.window, modal=True,
-                                program_name="SuperMox Manager", version="10.26.1",
+                                program_name="SuperMox Manager", version="11.26.0",
                                 logo_icon_name="supermox-manager",
                                 comments="Native desktop management for SuperMox.\nBased on the Proxmox VE / PXVIRT ecosystem (AGPL-3.0).",
                                 website="https://supermox.me", license_type=Gtk.License.AGPL_3_0)

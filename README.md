@@ -77,7 +77,9 @@ Everything about how SuperMox works and how to build it is in **[docs/](docs/REA
 start with the [architecture overview](docs/architecture.md) and the
 [development guide](docs/development.md).
 
-## Status (10.26)
+## Status (11.26)
+
+11.26 is held until LAN nodes form a real Proxmox cluster (corosync) and a two-machine LAN test passes.
 
 **Milestone 1 is DONE and proven.** Verified on 2026-11-05:
 

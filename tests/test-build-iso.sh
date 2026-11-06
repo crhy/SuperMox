@@ -32,7 +32,7 @@ for pat in \
   'config/archives/supermox-no-systemd.pref.chroot' \
   'config/includes.chroot_before_packages/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units' \
   'config/hooks/normal/9990-supermox-no-systemd-units.hook.chroot' \
-  'supermox-10.26-pc-amd64.iso' \
+  'supermox-11.26-pc-amd64.iso' \
   'supermox-ve' \
   'config/includes.chroot/etc/supermox/release' \
   '2 GiB'; do
@@ -51,6 +51,23 @@ fi
 # Debug packages and mk-build-deps helpers must never reach the ISO.
 if printf '%s\n' "$out" | grep -qE -- '-(dbgsym|build-deps)_[^/]*\.deb$'; then
   echo "FAIL: --dry-run stages a -dbgsym or -build-deps package"
+  missing=1
+fi
+
+# The SuperMox release line comes from config/release, not from the Spaced base.
+# When the Spaced base line differs from config/release, build-iso.sh prints a
+# NOTE (and never fails the build); when they match, no NOTE is printed.
+smx_release="$(head -n1 config/release | tr -d '[:space:]')"
+[ -n "$smx_release" ] || { echo "FAIL: config/release is empty"; missing=1; }
+spaced_line="$(git -C "$SUPERMOX_SPACED_REPO" show "${SUPERMOX_SPACED_REF:-main}:VERSION" 2>/dev/null | head -n1)"
+spaced_line="${spaced_line%.*}"
+if [ "$spaced_line" != "$smx_release" ]; then
+  if ! printf '%s\n' "$out" | grep -qF -- "NOTE: Spaced base line $spaced_line differs from SuperMox release $smx_release"; then
+    echo "FAIL: base line $spaced_line != release $smx_release but no NOTE printed"
+    missing=1
+  fi
+elif printf '%s\n' "$out" | grep -qF -- 'NOTE: Spaced base line'; then
+  echo "FAIL: base line matches release $smx_release but a NOTE was printed"
   missing=1
 fi
 
@@ -380,15 +397,15 @@ printf 'SuperMox GRUB logo stand-in\n' > "$logo_png"
 
 wt_lb="$grub_test/worktree"
 write_fixture "$wt_lb"
-if ! out_lb="$(bash "$brand_script" "$wt_lb" 10.26 10.26.8 "$bg_png" "$logo_png" 2>&1)"; then
+if ! out_lb="$(bash "$brand_script" "$wt_lb" 11.26 10.26.8 "$bg_png" "$logo_png" 2>&1)"; then
   echo "FAIL: $brand_script failed on the scratch live-build tree:"
   printf '%s\n' "$out_lb"
   missing=1
 fi
 # Menu titles must read SuperMox <release> PC, and nothing may say Spaced Linux.
-for pat in 'menuentry "Start SuperMox 10.26 PC" --hotkey=s {' \
-  'menuentry "SuperMox 10.26 PC — Safe Graphics Because Nvidia Sucks" {' \
-  'menuentry "Start SuperMox 10.26 PC (verbose boot)" {' \
+for pat in 'menuentry "Start SuperMox 11.26 PC" --hotkey=s {' \
+  'menuentry "SuperMox 11.26 PC — Safe Graphics Because Nvidia Sucks" {' \
+  'menuentry "Start SuperMox 11.26 PC (verbose boot)" {' \
   'submenu "SuperMox utilities" --hotkey=u {' \
   'menuentry "Verify the SuperMox boot medium" --hotkey=v {'; do
   if ! grep -qF -- "$pat" "$wt_lb/config/bootloaders/grub-pc/grub.cfg"; then
@@ -425,7 +442,7 @@ fi
 # Theme: SuperMox title, the SuperMox art installed as splash.png, and a title
 # colour that still reads on the #092b32 background.
 theme="$wt_lb/config/bootloaders/grub-pc/live-theme"
-for pat in 'title-text: "SuperMox 10.26 PC"' 'desktop-image: "splash.png"' \
+for pat in 'title-text: "SuperMox 11.26 PC"' 'desktop-image: "splash.png"' \
   'title-color: "#d8d8d8"' 'desktop-color: "#092b32"'; do
   if ! grep -qF -- "$pat" "$theme/theme.txt"; then
     echo "FAIL: the live GRUB theme is missing: $pat"
@@ -470,7 +487,7 @@ if ! grep -qF -- 'GRUB_THEME="/boot/grub/themes/spaced/theme.txt"' "$wt_lb/confi
   missing=1
 fi
 bd="$wt_lb/config/includes.chroot/etc/calamares/branding/spaced/branding.desc"
-for pat in 'bootloaderEntryName: SuperMox' 'versionedName:       SuperMox 10.26 PC' 'productName:         SuperMox'; do
+for pat in 'bootloaderEntryName: SuperMox' 'versionedName:       SuperMox 11.26 PC' 'productName:         SuperMox'; do
   if ! grep -qF -- "$pat" "$bd"; then
     echo "FAIL: the calamares branding is missing: $pat"
     missing=1
@@ -482,7 +499,7 @@ done
 # with a message.
 bad_v="$grub_test/bad-version"
 write_fixture "$bad_v"
-if out_bad="$(bash "$brand_script" "$bad_v" 10.26 9.9.9 "$bg_png" "$logo_png" 2>&1)"; then
+if out_bad="$(bash "$brand_script" "$bad_v" 11.26 9.9.9 "$bg_png" "$logo_png" 2>&1)"; then
   echo "FAIL: $brand_script accepted a live-build tree with no 'Spaced Linux 9.9.9'"
   missing=1
 else
@@ -494,19 +511,19 @@ fi
 bad_f="$grub_test/missing-file"
 write_fixture "$bad_f"
 rm -f "$bad_f/config/bootloaders/grub-pc/grub.cfg"
-if bash "$brand_script" "$bad_f" 10.26 10.26.8 "$bg_png" "$logo_png" > /dev/null 2>&1; then
+if bash "$brand_script" "$bad_f" 11.26 10.26.8 "$bg_png" "$logo_png" > /dev/null 2>&1; then
   echo "FAIL: $brand_script accepted a live-build tree with no grub.cfg"
   missing=1
 fi
 bad_bg="$grub_test/missing-bg"
 write_fixture "$bad_bg"
-if bash "$brand_script" "$bad_bg" 10.26 10.26.8 "$grub_test/nope.png" > /dev/null 2>&1; then
+if bash "$brand_script" "$bad_bg" 11.26 10.26.8 "$grub_test/nope.png" > /dev/null 2>&1; then
   echo "FAIL: $brand_script accepted a missing GRUB background"
   missing=1
 fi
 bad_logo="$grub_test/missing-logo"
 write_fixture "$bad_logo"
-if bash "$brand_script" "$bad_logo" 10.26 10.26.8 "$bg_png" "$grub_test/nope.png" > /dev/null 2>&1; then
+if bash "$brand_script" "$bad_logo" 11.26 10.26.8 "$bg_png" "$grub_test/nope.png" > /dev/null 2>&1; then
   echo "FAIL: $brand_script accepted a missing GRUB logo"
   missing=1
 fi
@@ -514,7 +531,7 @@ fi
 dark="$grub_test/dark-title"
 write_fixture "$dark"
 sed -i 's/title-color: "#d8d8d8"/title-color: "#0b0b0b"/' "$dark/config/bootloaders/grub-pc/live-theme/theme.txt"
-if out_dark="$(bash "$brand_script" "$dark" 10.26 10.26.8 "$bg_png" "$logo_png" 2>&1)"; then
+if out_dark="$(bash "$brand_script" "$dark" 11.26 10.26.8 "$bg_png" "$logo_png" 2>&1)"; then
   echo "FAIL: $brand_script accepted a theme whose title colour is unreadable on #092b32"
   missing=1
 else

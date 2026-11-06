@@ -234,11 +234,25 @@ target_commit="$(git -C "$SPACED_REPO" rev-parse --verify "${spaced_ref}^{commit
 [ -n "$target_commit" ] || fail "ref '$spaced_ref' not found in $SPACED_REPO"
 spaced_version="$(git -C "$SPACED_REPO" show "${target_commit}:VERSION" 2>/dev/null | head -n1)"
 [ -n "$spaced_version" ] || fail "no VERSION file at $spaced_ref in $SPACED_REPO"
-release="${spaced_version%.*}"
+# The SuperMox release line is its own setting, not derived from the Spaced base:
+# config/release holds it (11.26). spaced_version stays the Spaced base version
+# and keeps naming the base (/etc/supermox/release SUPERMOX_BASE, the GRUB "Spaced
+# Linux <ver>" strings the branding script matches).
+release_file="$repo_root/config/release"
+[ -f "$release_file" ] || fail "no config/release: the SuperMox release line must be set there (e.g. 11.26)"
+release="$(trim "$(head -n1 "$release_file")")"
+[ -n "$release" ] || fail "config/release is empty: set it to the SuperMox release line (e.g. 11.26)"
 lb_dir="$WORKTREE/build/live-build"
 iso_name="supermox-${release}-pc-${SUPERMOX_ARCH}.iso"
 iso_out="$repo_root/build/iso/$iso_name"
 step "Spaced base $spaced_version ($target_commit); release line $release; ISO $iso_out"
+# The next Spaced line will also be 11.26; while the Spaced checkout is still on
+# the old line its base differs from config/release. That is expected, so print a
+# NOTE and never fail the build over it.
+spaced_line="${spaced_version%.*}"
+if [ "$spaced_line" != "$release" ]; then
+  step "NOTE: Spaced base line $spaced_line differs from SuperMox release $release (config/release); expected until Spaced moves to the $release line"
+fi
 
 if [ "$collect_only" -eq 1 ]; then
   collect_iso

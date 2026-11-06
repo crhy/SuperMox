@@ -1,4 +1,4 @@
-# SuperMox PC Edition (10.26)
+# SuperMox PC Edition (11.26)
 
 The PC edition is a full SuperMox node with a desktop.
 

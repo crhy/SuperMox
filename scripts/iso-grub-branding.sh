@@ -20,7 +20,7 @@
 # (linux/initrd lines, hostname=spaced, ...) are never touched.
 #
 # usage: iso-grub-branding.sh <live-build-dir> <release> <spaced-version> [background-png]
-#   release         e.g. 10.26  (the SuperMox release line, from build-iso.sh)
+#   release         e.g. 11.26  (the SuperMox release line, from config/release via build-iso.sh)
 #   spaced-version  e.g. 10.26.8 (the Spaced VERSION file, from build-iso.sh)
 #   background-png  GRUB splash art; default build/branding/grub-background-1920x1080.png
 set -euo pipefail
