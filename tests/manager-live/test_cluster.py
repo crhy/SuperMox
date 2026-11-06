@@ -229,6 +229,17 @@ class ClusterCommandsLive(unittest.TestCase):
     def setUpClass(cls):
         if not LIVE_URL:
             raise unittest.SkipTest("SUPERMOX_LIVE_URL not set")
+        # Opt-in: creating and dismantling a real cluster restarts pmxcfs
+        # under the running PVE daemons, which left pvescheduler and
+        # pve-ha-lrm stopped and the node's RRD history empty for every test
+        # class after this one (release-check, 2026-11-06). The same
+        # supermox-join commands are proven on two real nodes by
+        # scripts/lan-cluster-e2e.sh, and the Manager's command building is
+        # unit-tested (tests/py/test_manager_cluster.py).
+        if os.environ.get("SUPERMOX_LIVE_CLUSTER_CREATE") != "1":
+            raise unittest.SkipTest("set SUPERMOX_LIVE_CLUSTER_CREATE=1 to "
+                                    "create and dismantle a cluster on this "
+                                    "node")
         cls.client = api.Client(LIVE_URL, LIVE_PIN)
         cls.client.login(LIVE_USER, LIVE_PASS)
         cls.node = cls.client.request("GET", "/nodes")[0]["node"]
@@ -299,18 +310,39 @@ class ClusterCommandsLive(unittest.TestCase):
             # before it touched a file.
             return ""
         cls.restored = True
+        # /etc/pve is pmxcfs' database, not a directory: writing it while
+        # pve-cluster is stopped puts the file into the empty mountpoint,
+        # and pmxcfs then refuses to mount over it ("/etc/pve is not
+        # mounted", measured 2026-11-06). So the PVE copy goes in through
+        # pmxcfs in local mode, the way upstream separates a node.
         lines = [
             "invoke-rc.d supermox-joind stop",
             "invoke-rc.d supermox-wg stop",
             "invoke-rc.d corosync stop",
             "invoke-rc.d pve-cluster stop",
+            "pmxcfs -l",
+            "sleep 2",
+            "cp %s %s 2>/dev/null" % (cls.pve_backup, PVE_COROSYNC_CONF),
+            # killall is not installed on a node (psmisc); the init script's
+            # stop matches pmxcfs by executable, local mode included.
+            "invoke-rc.d pve-cluster stop",
             "cp -a %s %s 2>/dev/null" % (cls.conf_backup, COROSYNC_CONF),
-            "cp -a %s %s 2>/dev/null" % (cls.pve_backup, PVE_COROSYNC_CONF),
             "rm -f %s" % AUTHKEY,
             "rm -rf %s" % WG_CONF_DIR,
             "sed -i '/supermox-managed/d' /etc/hosts",
             "invoke-rc.d corosync start",
             "invoke-rc.d pve-cluster start",
+            "invoke-rc.d supermox-wg start",
+            "invoke-rc.d supermox-joind start",
+            # Some PVE daemons exit while pmxcfs is down (measured: spiceproxy,
+            # pvescheduler, pve-ha-lrm). `start` brings those back and leaves
+            # running ones alone: a `restart` of pveproxy here left the API
+            # down for the tests that follow (SSL EOF on every call).
+            "for s in pvedaemon pveproxy spiceproxy pvestatd pvescheduler "
+            "pve-ha-crm pve-ha-lrm; do invoke-rc.d $s start; done",
+            # Wait until the API answers again before the next test class.
+            "for i in $(seq 1 30); do pvesh get /version >/dev/null 2>&1 "
+            "&& break; sleep 2; done",
             "pvecm status",
         ]
         if cls.state_files:
@@ -320,7 +352,7 @@ class ClusterCommandsLive(unittest.TestCase):
             # the move is the whole step and no empty dir is left behind.
             keep = " ".join("%s/%s" % (STATE_DIR, name)
                              for name in cls.state_files)
-            lines[7:7] = [
+            lines[11:11] = [
                 "mkdir -p %s" % cls.state_pre,
                 "cp -a %s %s 2>/dev/null" % (keep, cls.state_pre),
                 "mv %s %s 2>/dev/null" % (STATE_DIR, cls.state_backup),
@@ -328,7 +360,7 @@ class ClusterCommandsLive(unittest.TestCase):
                 "cp -a %s/. %s 2>/dev/null" % (cls.state_pre, STATE_DIR),
             ]
         else:
-            lines[7:7] = ["mv %s %s 2>/dev/null" % (STATE_DIR,
+            lines[11:11] = ["mv %s %s 2>/dev/null" % (STATE_DIR,
                                         cls.state_backup)]
         return shell(cls.client, cls.node, " ; ".join(lines), seconds=180)
 
@@ -427,7 +459,7 @@ class ClusterCommandsLive(unittest.TestCase):
         holds only what it held before.
         """
         text = self.restore()
-        self.assertIn("quorate: Yes", flat(text))
+        self.assertIn("Quorate: Yes", flat(text))
         gone = shell(self.client, self.node, "ip -br a show wg0 2>&1")
         self.assertIn("does not exist", flat(gone))
         left = shell(self.client, self.node,

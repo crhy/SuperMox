@@ -125,8 +125,12 @@ class MetricsLive(unittest.TestCase):
                 api.guest_path({"node": self.node, "type": "qemu", "vmid": VMID})
                 + "/status/start", {})
             self.assertTrue(start, "start request should be accepted")
-            # pvestatd files every guest once per cycle (10 s); allow 90 s.
-            deadline = time.time() + 90
+            # pvestatd files every guest once per cycle (10 s), but the hour
+            # view averages 60 s steps, so the first point needs a whole step
+            # boundary plus a cycle, and a cycle can wait up to 30 s on the
+            # QEMU CPU-flag probe (qemu-server 0004). 90 s missed it once
+            # (release-check 2026-11-06); allow 240 s. Data is still required.
+            deadline = time.time() + 240
             points, rows = [], []
             while True:
                 try:

@@ -107,8 +107,10 @@ join_cmd="${RELEASE_CHECK_JOIN:-bash scripts/join-e2e.sh}"
 no_systemd_cmd="${RELEASE_CHECK_NO_SYSTEMD:-}"
 services_cmd="${RELEASE_CHECK_SERVICES:-}"
 # supermox-wg exits 3 until a join has put its overlay interface up, which a
-# single-node test VM never does; every other enabled service must run.
-services_allow="${RELEASE_CHECK_SERVICES_ALLOW:-supermox-wg networking rsync smartmontools}"
+# single-node test VM never does, and supermox-joind has nothing to serve and
+# does not start until the node creates or joins a cluster (join-e2e leaves the
+# VM without one now); every other enabled service must run.
+services_allow="${RELEASE_CHECK_SERVICES_ALLOW:-supermox-wg supermox-joind networking rsync smartmontools}"
 
 names=()
 results=()
@@ -224,6 +226,22 @@ vm_status_step() {
 
 # Boot the VM, wait for ssh, then for the API. A VM that answers ssh but has
 # no PVE on it fails here rather than in every live test that follows.
+# Wait (api_timeout seconds at most) until every PVE service reports running
+# and the node's own history answers. Returns 0 when settled, 1 on timeout.
+wait_settled() {
+    local deadline=$((SECONDS + api_timeout))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        if vm_ssh 'for s in pve-cluster pvedaemon pveproxy pvestatd pvescheduler pve-ha-crm pve-ha-lrm; do
+                       /etc/init.d/$s status >/dev/null 2>&1 || exit 1
+                   done
+                   pvesh get "/nodes/$(hostname)/rrddata" --timeframe hour >/dev/null 2>&1' >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 10
+    done
+    return 1
+}
+
 boot_step() {
     local waited=0
     vm_up=0
@@ -291,17 +309,8 @@ boot_step() {
     # are still starting, and on a brand-new node pvestatd has not filed its
     # first archive yet. Wait (same budget) until every PVE service reports
     # running and the node's own history answers, as a user would a minute after boot.
-    deadline=$((SECONDS + api_timeout)) ok=0
-    while [ "$SECONDS" -lt "$deadline" ]; do
-        if vm_ssh 'for s in pve-cluster pvedaemon pveproxy pvestatd pvescheduler pve-ha-crm pve-ha-lrm; do
-                       /etc/init.d/$s status >/dev/null 2>&1 || exit 1
-                   done
-                   pvesh get "/nodes/$(hostname)/rrddata" --timeframe hour >/dev/null 2>&1' >/dev/null 2>&1; then
-            ok=1
-            break
-        fi
-        sleep 10
-    done
+    ok=0
+    wait_settled && ok=1
     vm_up=1
     record "vm-boot" "PASS" 1
     # Recorded on its own line so the live steps still run and report: on the
@@ -372,6 +381,11 @@ services_step() {
         "$repo_root/scripts/check-services.sh" \
         "$repo_root/config/init-scripts.txt" \
         root@127.0.0.1:/root/ >/dev/null
+    # join-e2e ends with a reboot of this VM, and PVE's daemons start late in
+    # boot: checking them seconds after ssh answers failed pveproxy,
+    # spiceproxy, pvescheduler and pve-ha-lrm that were simply not up yet.
+    # Same settle wait as the first boot; the check below still decides.
+    wait_settled || printf 'NOTE: the node did not settle within %ss; checking anyway\n' "$api_timeout"
     if vm_ssh "SERVICES_ALLOW='$services_allow' SERVICES_EXPECT_FILE=/root/init-scripts.txt bash /root/check-services.sh"; then
         record "services" "PASS" 1
     else
