@@ -18,6 +18,7 @@ _VERSION = 1
 _MAX_SKEW = 300       # seconds; reject |now - time| > 300
 _NONCE_WINDOW = 600   # seconds; reject a nonce seen in the last 600 s
 NONCE_WINDOW = _NONCE_WINDOW  # public name: state.py persists nonces this long
+VERSION = _VERSION            # public name: joind seals CORE_ACK with it
 
 
 def _canonical(obj) -> bytes:
@@ -178,6 +179,106 @@ def verify_membership(signed: dict, trusted_ed_pubs: list) -> list:
         raise ValueError("bad signature")
 
     return signed["list"]
+
+
+# --- Core join: CORE_REQ -------------------------------------------------
+#
+# A LAN-joined node asks its cluster to become a corosync core member.  The
+# request itself promises nothing but a name, so the core decides the config;
+# the answer (corosync.conf + authkey) is sealed for the requester in joind.py
+# with the same CurveBox construction as a membership ACK.
+
+CORE_REQ_T = "core_req"
+CORE_ACK_T = "core_ack"
+
+
+def make_core_req(name: str, identity: dict, now: int = None,
+                  nonce: bytes = None) -> dict:
+    """Build a CORE_REQ frame: this node asking a member to go core.
+
+    The signed body is exactly {v, t, name, nonce, time}. Nothing else is
+    covered by the signature, so a frame cannot promise a config, an address
+    or a key that the core would then use. `ed_pub` travels next to the
+    signature as unsigned metadata (the shape a signed membership change
+    uses) and the core compares it with the entry in its own membership list:
+    a member whose keypair rotated between the join and the core step is
+    refused with a reason instead of a bare bad-signature error.
+    """
+    if now is None:
+        now = int(time.time())
+    body = {
+        "v": _VERSION,
+        "t": CORE_REQ_T,
+        "name": name,
+        "nonce": _b64s(nonce or os.urandom(16)),
+        "time": now,
+    }
+    sig = SigningKey(identity["ed_priv"]).sign(_canonical(body)).signature
+    frame = dict(body)
+    frame["sig"] = _b64s(sig)
+    frame["ed_pub"] = _b64s(identity["ed_pub"])
+    return frame
+
+
+def open_core_req(frame: dict, membership: list, now: int = None,
+                  seen_nonces: dict = None) -> dict:
+    """Verify a CORE_REQ against this cluster's membership list.
+
+    Returns the membership entry of the requester, so the core can compare
+    the address the request arrived from with the address recorded for that
+    member. Raises ValueError when: the version or type is unknown, no member
+    carries that name, the member's recorded ed_pub is not the key the frame
+    was signed with, the signature does not verify, the clock skew exceeds
+    300 s, or the nonce was seen in the last 600 s.
+
+    Membership is an argument rather than something derived from the frame:
+    only a node already in the membership list may ask to become a core
+    member, and a name that is not in the list is refused before any
+    signature work happens.
+    """
+    if now is None:
+        now = int(time.time())
+    if seen_nonces is None:
+        seen_nonces = {}
+    if frame.get("v") != _VERSION or frame.get("t") != CORE_REQ_T:
+        raise ValueError("not a core_req")
+    name = frame.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError("core_req has no name")
+    entry = None
+    for member in membership:
+        if member.get("name") == name:
+            entry = member
+            break
+    if entry is None:
+        raise ValueError("%s is not a member of this cluster" % name)
+    if entry.get("ed_pub") != frame.get("ed_pub"):
+        raise ValueError("%s did not sign with the key this cluster "
+                         "recorded" % name)
+    body = {"v": frame["v"], "t": frame["t"], "name": frame["name"],
+            "nonce": frame.get("nonce"), "time": frame.get("time")}
+    if not isinstance(body["nonce"], str) or not isinstance(frame.get("sig"),
+                                                            str):
+        raise ValueError("core_req has no usable nonce or signature")
+    try:
+        VerifyKey(_b64d(frame["ed_pub"])).verify(_canonical(body),
+                                                _b64d(frame["sig"]))
+    except (BadSignatureError, CryptoError, ValueError) as exc:
+        raise ValueError("core_req signature does not verify (%s)" % exc)
+    try:
+        skew = abs(now - int(body["time"]))
+    except (TypeError, ValueError):
+        raise ValueError("core_req has no usable time")
+    if skew > _MAX_SKEW:
+        raise ValueError("core_req outside the clock window")
+    nonce = _b64d(body["nonce"])
+    stale = [k for k, t in seen_nonces.items() if now - t > _NONCE_WINDOW]
+    for k in stale:
+        del seen_nonces[k]
+    if nonce in seen_nonces:
+        raise ValueError("replayed core_req nonce")
+    seen_nonces[nonce] = now
+    return entry
 
 
 # --- Invite path: challenge-response ---

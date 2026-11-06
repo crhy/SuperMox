@@ -1,6 +1,7 @@
 """Tests for supermox.joinproto: JOIN_REQ/ACK round trips, replay, skew,
 invite path with challenge, signed membership, and no-phrase assertions."""
 
+import base64
 import hashlib
 import json
 import os
@@ -9,6 +10,11 @@ import unittest
 from supermox import secret
 from supermox import identity
 from supermox import joinproto
+
+
+def _b64t(data: bytes) -> str:
+    """How a membership entry stores a key: base64 text, as state.py does."""
+    return base64.b64encode(data).decode("ascii")
 
 ZERO_PHRASE = "abandon " * 11 + "about"
 
@@ -252,6 +258,98 @@ class JoinProtoTests(unittest.TestCase):
         fp1 = identity.fingerprint(self.ident_a["ed_pub"])
         fp2 = identity.fingerprint(self.ident_a["ed_pub"])
         self.assertEqual(fp1, fp2)
+
+
+class CoreReqTests(unittest.TestCase):
+    """CORE_REQ: a member asking the core to let it become a core member.
+
+    The signed body is only {v, t, name, nonce, time}: a frame cannot promise
+    a config, an address or a key, so every test here is about who is allowed
+    to ask and what a replay or a foreign key does.
+    """
+
+    def setUp(self):
+        self.member = identity.new_identity()
+        self.outsider = identity.new_identity()
+        self.membership = [{
+            "name": "node-b",
+            "ed_pub": _b64t(self.member["ed_pub"]),
+            "wg_pub": _b64t(self.member["wg_pub"]),
+            "overlay_addr": "10.0.0.2:8743",
+            "role": "edge",
+        }]
+
+    def test_signed_round_trip(self):
+        """A member's own CORE_REQ opens and returns its membership entry."""
+        frame = joinproto.make_core_req("node-b", self.member, now=1000000)
+        entry = joinproto.open_core_req(frame, self.membership, now=1000000,
+                                        seen_nonces={})
+        self.assertEqual(entry["name"], "node-b")
+        # The core needs the entry's address to compare it with where the
+        # request arrived from, and its wg_pub to seal the answer.
+        self.assertEqual(entry["overlay_addr"], "10.0.0.2:8743")
+
+    def test_name_not_in_membership(self):
+        """A name the cluster has never heard of is refused outright."""
+        frame = joinproto.make_core_req("node-z", self.member, now=1000000)
+        with self.assertRaises(ValueError) as ctx:
+            joinproto.open_core_req(frame, self.membership, now=1000000,
+                                    seen_nonces={})
+        self.assertIn("not a member", str(ctx.exception))
+
+    def test_ed_pub_mismatch_names_the_member(self):
+        """A rotated keypair gets a reason, not a bare bad-signature error.
+
+        This is the case where the node's identity file changed between its
+        join and its core step: the core must say so, because the operator
+        has to be told to re-join rather than to retry.
+        """
+        frame = joinproto.make_core_req("node-b", self.outsider, now=1000000)
+        with self.assertRaises(ValueError) as ctx:
+            joinproto.open_core_req(frame, self.membership, now=1000000,
+                                    seen_nonces={})
+        self.assertIn("node-b did not sign with the key this cluster recorded",
+                      str(ctx.exception))
+
+    def test_replay(self):
+        """The same CORE_REQ twice inside the window is refused."""
+        frame = joinproto.make_core_req("node-b", self.member, now=1000000)
+        seen = {}
+        joinproto.open_core_req(frame, self.membership, now=1000000,
+                               seen_nonces=seen)
+        with self.assertRaises(ValueError) as ctx:
+            joinproto.open_core_req(frame, self.membership, now=1000001,
+                                    seen_nonces=seen)
+        self.assertIn("replayed", str(ctx.exception))
+
+    def test_clock_skew(self):
+        """A CORE_REQ more than 300 s off this node's clock is refused."""
+        frame = joinproto.make_core_req("node-b", self.member, now=1000000)
+        with self.assertRaises(ValueError) as ctx:
+            joinproto.open_core_req(frame, self.membership, now=1000000 + 301,
+                                    seen_nonces={})
+        self.assertIn("clock window", str(ctx.exception))
+
+    def test_wrong_type(self):
+        """A frame that is not a core_req does not open."""
+        frame = joinproto.make_core_req("node-b", self.member, now=1000000)
+        frame["t"] = "join_req"
+        with self.assertRaises(ValueError):
+            joinproto.open_core_req(frame, self.membership, now=1000000,
+                                    seen_nonces={})
+
+    def test_membership_ack_still_opens(self):
+        """Adding CORE_REQ does not disturb the membership JOIN_ACK path.
+
+        The core step happens after a node is already a member, so both
+        frame types cross the same socket; a regression here would break
+        every join that follows the first core join.
+        """
+        derived = secret.derive(ZERO_PHRASE)
+        blob = joinproto.make_join_ack(derived, self.membership, "fd00::1",
+                                       self.member)
+        msg = joinproto.open_join_ack(derived, blob)
+        self.assertEqual(msg["membership"], self.membership)
 
 
 if __name__ == "__main__":

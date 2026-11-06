@@ -17,12 +17,26 @@ import importlib.machinery
 import importlib.util
 import io
 import os
+import shutil
 import stat
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+from supermox import corosync_cluster  # noqa: E402
+from supermox import identity as identity_mod  # noqa: E402
+from supermox import state as node_state  # noqa: E402
+
+PHRASE = "abandon " * 11 + "about"
+
+
+def _b64t(data: bytes) -> str:
+    """base64 of raw key bytes, the form the state files store."""
+    import base64
+    return base64.b64encode(data).decode("ascii")
 
 
 def _load_cli():
@@ -194,6 +208,302 @@ class CreateOverlayTest(unittest.TestCase):
         rc, out = self._create("create", "--name", "firstnode")
         self.assertEqual(rc, 0, out)
         self.assertIn("corosync cluster: cluster stub quorate", out)
+
+
+class CoreCommandTest(unittest.TestCase):
+    """`supermox-join core`: this node becomes a corosync core member.
+
+    The CORE_REQ -> CORE_ACK round trip is test_joind's job, so the answer
+    is handed over by a stub here. What these tests pin is what the CLI does
+    with it: which files it writes with which modes, what it refuses before
+    writing anything, the arguments it gives upstream's finish_join, and the
+    rollback when that call fails.
+    """
+
+    CONF = "global\n\tnum_nodes = 2\n\nnode\n\n\thostname = node-a\n"
+    AUTHKEY = bytes(range(64))
+
+    def setUp(self):
+        self.root = os.path.join(str(ROOT), "build", "test-core-cli-%d"
+                                % os.getpid())
+        shutil.rmtree(self.root, ignore_errors=True)
+        self.etc = os.path.join(self.root, "etc", "supermox")
+        self.corosync = os.path.join(self.root, "etc", "corosync")
+        self.run_dir = os.path.join(self.root, "run", "supermox")
+        self.stub = os.path.join(self.root, "stub")
+        self.perl_calls = os.path.join(self.root, "perl-calls")
+        for d in (self.corosync, self.run_dir, self.stub):
+            os.makedirs(d)
+        saved = dict(os.environ)
+        self.addCleanup(self._restore_env, saved)
+        os.environ["SUPERMOX_ETC"] = self.etc
+        os.environ["SUPERMOX_COROSYNC_DIR"] = self.corosync
+        os.environ["SUPERMOX_RUN_DIR"] = self.run_dir
+        os.environ["PATH"] = self.stub + os.pathsep + saved.get("PATH", "")
+        # The daemon round trip, stubbed: the endpoints and names this node
+        # asked with are what the CLI test can observe.
+        self.asks = []
+        self.ack = None
+        self.perl_rc = 0
+        self._real_core_join = cli.joind.core_join
+        self.addCleanup(self._restore_core_join)
+        cli.joind.core_join = self._fake_core_join
+        # A two-member cluster whose corosync step has already run: this node
+        # is node-a, node-b is the member whose daemon will be asked.
+        st = node_state.NodeState(self.etc)
+        st.create_cluster(PHRASE, "node-a", ["10.0.0.1:8743"], "amd64",
+                          ["kvm"], "10.0.0.1:8744")
+        other = identity_mod.new_identity()
+        st.add_member({
+            "name": "node-b",
+            "ed_pub": _b64t(other["ed_pub"]),
+            "wg_pub": _b64t(other["wg_pub"]),
+            "overlay_addr": "10.0.0.9:8743",
+            "role": "edge",
+        })
+        self.cluster_name = corosync_cluster.cluster_name(st)
+
+    def _restore_env(self, saved):
+        for var in ("SUPERMOX_ETC", "SUPERMOX_COROSYNC_DIR", "SUPERMOX_RUN_DIR",
+                    "PATH"):
+            if var in saved:
+                os.environ[var] = saved[var]
+            else:
+                os.environ.pop(var, None)
+
+    def _restore_core_join(self):
+        cli.joind.core_join = self._real_core_join
+
+    async def _fake_core_join(self, ep, ident, name, wg_pub):
+        """One member answering with this cluster's config and key."""
+        self.asks.append((ep, name, wg_pub))
+        if self.ack is None:
+            raise cli.joind.JoinError("no member answered")
+        return self.ack
+
+    def _want_ack(self):
+        self.ack = {"corosync_conf": self.CONF,
+                    "corosync_authkey": self.AUTHKEY,
+                    "cluster_name": self.cluster_name}
+
+    def _stub(self, name, body):
+        """Put one stub command first on PATH for this test."""
+        path = os.path.join(self.stub, name)
+        with open(path, "w") as fh:
+            fh.write("#!/bin/sh\n%s\n" % body)
+        os.chmod(path, 0o755)
+
+    def _stub_pvesh(self, payload="[]", rc=0):
+        self._stub("pvesh", "printf '%%s' '%s'\nexit %d" % (payload, rc))
+
+    def _stub_perl(self, rc=0):
+        """Stub perl: records each call's arguments, then a -- separator."""
+        self._stub("perl", "printf '%%s\\n' \"$@\" >> '%s'\n"
+                   "printf -- '--\\n' >> '%s'\nexit %d"
+                   % (self.perl_calls, self.perl_calls, rc))
+
+    def _core(self, *argv):
+        buf = io.StringIO()
+        err = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            rc = cli.main(list(argv))
+        return rc, buf.getvalue() + err.getvalue()
+
+    def _perl_argv(self):
+        """The arguments of each perl call, in order, -- separated."""
+        if not os.path.exists(self.perl_calls):
+            return []
+        with open(self.perl_calls) as fh:
+            lines = fh.read().split("\n")
+        calls, current = [], []
+        for line in lines:
+            if line == "--":
+                if current:
+                    calls.append(current)
+                current = []
+            else:
+                current.append(line)
+        return calls
+
+    def test_core_writes_key_and_config_then_calls_finish_join(self):
+        """authkey 0400, corosync.conf 0644, then upstream's finish_join.
+
+        The old single-node config is moved aside rather than overwritten:
+        a node that fails half way through becoming a core member has to be
+        able to boot the cluster it had before.
+        """
+        self._stub_pvesh()
+        self._stub_perl()
+        old = os.path.join(self.corosync, "corosync.conf")
+        with open(old, "w") as fh:
+            fh.write("num_nodes = 1\n")
+        self._want_ack()
+        rc, out = self._core("core")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("core member of cluster %s" % self.cluster_name, out)
+        auth = os.path.join(self.corosync, "authkey")
+        with open(auth, "rb") as fh:
+            self.assertEqual(fh.read(), self.AUTHKEY)
+        self.assertEqual(stat.S_IMODE(os.stat(auth).st_mode), 0o400)
+        with open(old) as fh:
+            self.assertEqual(fh.read(), self.CONF)
+        self.assertEqual(stat.S_IMODE(os.stat(old).st_mode), 0o644)
+        with open(os.path.join(self.corosync,
+                              "corosync.conf.supermox-single")) as fh:
+            self.assertEqual(fh.read(), "num_nodes = 1\n")
+        calls = self._perl_argv()
+        self.assertEqual(len(calls), 1, calls)
+        self.assertEqual(calls[0][-3], "node-a")
+        self.assertTrue(calls[0][-2].endswith("core-join.conf"))
+        self.assertTrue(calls[0][-1].endswith("core-join.authkey"))
+        # The staged secret is gone as soon as perl has read it.
+        self.assertEqual(os.listdir(self.run_dir), [])
+        # The request went to the member's overlay address and named this
+        # node, the one the member has to add to the cluster.
+        self.assertEqual(self.asks, [("10.0.0.9:8743", "node-a",
+                                      self._member_wg_pub())])
+
+    def _member_wg_pub(self):
+        st = node_state.NodeState(self.etc)
+        st.load()
+        for m in st.membership:
+            if m["name"] == "node-b":
+                return m["wg_pub"]
+        raise AssertionError("node-b is not in the membership list")
+
+    def test_core_refuses_a_node_that_runs_guests(self):
+        """A node with a VM or a container stays an edge node, loudly.
+
+        Upstream refuses this too (assert_joinable): a guest's disks, MAC
+        address and backup jobs belong to one machine, and a cluster has to
+        decide which one, so the operator has to move them off first.
+        """
+        self._stub_pvesh('[{"type": "vm", "node": "node-a", "vmid": 100}]')
+        self._stub_perl()
+        self._want_ack()
+        rc, out = self._core("core")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("guest(s)", out)
+        self.assertFalse(os.path.exists(os.path.join(self.corosync, "authkey")))
+        self.assertEqual(self._perl_argv(), [])
+
+    def test_core_refuses_when_the_guest_count_is_unknown(self):
+        """No answer from pvesh is not an answer of \"no guests\".
+
+        The guest check is the only thing standing between a node with VMs
+        on it and a cluster that disagrees about where those VMs live, so a
+        failed check has to stop the join rather than wave it through.
+        """
+        self._stub_pvesh("", rc=3)
+        self._stub_perl()
+        self._want_ack()
+        rc, out = self._core("core")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("cannot tell whether this node has guests", out)
+        self.assertFalse(os.path.exists(os.path.join(self.corosync, "authkey")))
+
+    def test_core_write_only_stops_before_finish_join(self):
+        """--write-only leaves the node an edge node with the files in place.
+
+        The point of the flag is to let an operator look at the config the
+        cluster handed over before anything is restarted.
+        """
+        self._stub_pvesh()
+        self._stub_perl()
+        self._want_ack()
+        rc, out = self._core("core", "--write-only")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("re-run without --write-only", out)
+        self.assertEqual(stat.S_IMODE(os.stat(os.path.join(
+            self.corosync, "authkey")).st_mode), 0o400)
+        self.assertEqual(self._perl_argv(), [])
+
+    def test_core_restores_the_old_config_when_finish_join_fails(self):
+        """A failed finish_join puts this node back the way it was.
+
+        Upstream may have written its own files and stopped pve-cluster before
+        it died, so the rollback is the old config plus a restart of both
+        services, and the node is reported as what it still is: an edge node.
+        """
+        self._stub_pvesh()
+        self._stub_perl(rc=11)
+        old = os.path.join(self.corosync, "corosync.conf")
+        with open(old, "w") as fh:
+            fh.write("num_nodes = 1\n")
+        self._want_ack()
+        rc, out = self._core("core")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("finish_join failed (rc=11)", out)
+        self.assertIn("still an edge node", out)
+        with open(old) as fh:
+            self.assertEqual(fh.read(), "num_nodes = 1\n")
+        self.assertFalse(os.path.exists(
+            os.path.join(self.corosync, "corosync.conf.supermox-single")))
+        calls = self._perl_argv()
+        self.assertEqual(len(calls), 2, calls)
+        self.assertIn("PVE::SysvService", " ".join(calls[1]))
+        self.assertEqual(os.listdir(self.run_dir), [])
+
+    def test_core_refuses_while_a_join_awaits_approval(self):
+        """A cluster with a request in its queue does not hand out its key.
+
+        The member that answers would be giving the corosync secret to a node
+        whose membership has not been decided yet, so the whole cluster has
+        to wait for that decision first.
+        """
+        self._stub_pvesh()
+        self._stub_perl()
+        self._want_ack()
+        st = node_state.NodeState(self.etc)
+        st.load()
+        st.add_pending({"name": "node-c", "arch": "amd64"})
+        rc, out = self._core("core")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("awaiting approval", out)
+        self.assertFalse(os.path.exists(os.path.join(self.corosync, "authkey")))
+
+    def test_core_refuses_a_node_that_is_not_a_member(self):
+        """No entry for this node means no name to ask a core member with."""
+        self._stub_pvesh()
+        self._stub_perl()
+        self._want_ack()
+        st = node_state.NodeState(self.etc)
+        st.load()
+        st.membership = [m for m in st.membership if m["name"] == "node-b"]
+        st.save()
+        rc, out = self._core("core")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("not in the membership list", out)
+        self.assertEqual(self.asks, [])
+
+    def test_core_reports_a_member_that_refused(self):
+        """A member that said no is reported, and the node stays an edge node.
+
+        The reason comes from the daemon (slow link, no quorum, replay), so
+        the CLI's job is to pass it through rather than to invent one.
+        """
+        self._stub_pvesh()
+        self._stub_perl()
+        self.ack = None
+        rc, out = self._core("core")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("no member made this node a core member", out)
+        self.assertFalse(os.path.exists(os.path.join(self.corosync, "authkey")))
+
+    def test_core_refuses_a_config_for_another_cluster(self):
+        """A member naming a different cluster gets no files written.
+
+        Two clusters that were told the same phrase would otherwise accept
+        each other's corosync key, which is the whole point of the check.
+        """
+        self._stub_pvesh()
+        self._stub_perl()
+        self._want_ack()
+        self.ack["cluster_name"] = "smx-other0"
+        rc, out = self._core("core")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("smx-other0", out)
+        self.assertFalse(os.path.exists(os.path.join(self.corosync, "authkey")))
 
 
 if __name__ == "__main__":

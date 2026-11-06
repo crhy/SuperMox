@@ -189,7 +189,27 @@ def cmd_join(args) -> int:
             "t": "endpoints", "node": args.name,
             "endpoints": [args.my_endpoint],
             "wg_endpoint": wg_ep}))
+    # A node with nothing running on it should not have to be told twice that
+    # it may join the core, so join finishes the job by asking a member to
+    # make it a core member. A node that has guests, or whose guests cannot
+    # be counted, stays an edge node and is told why.
+    count, err = _guests()
+    if err is None and count == 0:
+        if cmd_core(_core_args()) != 0:
+            print("joined, but not a core member yet: run supermox-join core",
+                  file=sys.stderr)
+    elif err:
+        print("staying an edge node: %s; run supermox-join core once that "
+              "changes" % err, file=sys.stderr)
+    else:
+        print("staying an edge node: %d guest(s) on this node; run supermox-join "
+              "core once they are moved off" % count, file=sys.stderr)
     return 0
+
+
+def _core_args():
+    """The argument namespace cmd_core needs when cmd_join calls it directly."""
+    return argparse.Namespace(write_only=False)
 
 
 def cmd_conf(args) -> int:
@@ -229,6 +249,236 @@ def cmd_cluster_init(args) -> int:
         print("corosync cluster: FAILED: %s" % msg, file=sys.stderr)
         return 1
     print("corosync cluster: %s" % msg)
+    return 0
+
+
+def _corosync_dir() -> str:
+    """Where this node's corosync config and key live.
+
+    SUPERMOX_COROSYNC_DIR redirects the directory for tests and for a staging
+    root; the default is the one corosync itself is built with, so nothing
+    here has to know about distro layout.
+    """
+    return os.environ.get("SUPERMOX_COROSYNC_DIR", "/etc/corosync")
+
+
+def _core_paths() -> tuple:
+    """(corosync.conf, authkey, where the pre-join config is moved to).
+
+    The third name is upstream's rollback: a node that fails half way through
+    becoming a core member must still be able to boot its old single-node
+    cluster, so the config it had before this command is kept, not overwritten
+    in place.
+    """
+    d = _corosync_dir()
+    return (os.path.join(d, "corosync.conf"),
+            os.path.join(d, "authkey"),
+            os.path.join(d, "corosync.conf.supermox-single"))
+
+
+def _write_mode(path: str, data, mode: int) -> None:
+    """Write one file atomically with its mode already set."""
+    tmp = "%s.tmp" % path
+    with open(tmp, "wb") as fh:
+        fh.write(data)
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def _write_core_files(authkey: bytes, conf_text: str) -> None:
+    """Put the authkey on disk before the config that needs it.
+
+    A corosync.conf naming peers this node has no key for is what makes
+    corosync refuse to start, so the key goes first; and the authkey is
+    corosync's shared secret, so it is never world-readable.
+    """
+    conf_path, auth_path, _single = _core_paths()
+    _write_mode(auth_path, authkey, 0o400)
+    _write_mode(conf_path, conf_text.encode("utf-8"), 0o644)
+
+
+def _run_argv(argv: list) -> tuple:
+    """Run one command, returning (rc, combined output)."""
+    import subprocess
+    try:
+        proc = subprocess.run(argv, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        return 1, "command timed out after 600 s"
+    except OSError as exc:
+        return 1, "cannot run %s: %s" % (argv[0], exc)
+    return proc.returncode, proc.stdout
+
+
+def _run_dir() -> str:
+    """Where data for upstream's PVE calls is staged.
+
+    SUPERMOX_RUN_DIR redirects it for tests and for a staging root; the default
+    is the tmpfs directory supermox owns, so a staged secret never has to sit
+    on a persistent filesystem.
+    """
+    return os.environ.get("SUPERMOX_RUN_DIR", "/run/supermox")
+
+
+def _stage_core_data(authkey: bytes, conf_text: str) -> tuple:
+    """(corosync.conf, authkey) staged under the run directory, mode 0600.
+
+    finish_join takes the config and the key as strings, and a command line
+    is visible in ps to anyone on the machine, so neither goes in argv: they
+    go in files only root can read, and are removed as soon as perl has read
+    them.
+    """
+    d = _run_dir()
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    paths = (os.path.join(d, "core-join.conf"),
+             os.path.join(d, "core-join.authkey"))
+    _write_mode(paths[1], authkey, 0o600)
+    _write_mode(paths[0], conf_text.encode("utf-8"), 0o600)
+    return paths
+
+
+def _unstage_core_data(paths: tuple) -> None:
+    """Remove the staged config and key."""
+    for path in paths:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _guests() -> tuple:
+    """(number of guests on this node, error or None).
+
+    Upstream refuses to make a node that runs VMs or containers a core member
+    (assert_joinable checks qm list and pct list), because a guest's disks,
+    MAC addresses and backup jobs belong to one machine and a cluster has to
+    decide which one. pmxcfs is the source of truth here, so pvesh is asked
+    instead of parsing the qm and pct tables.
+    """
+    rc, out = _run_argv(["pvesh", "get", "/cluster/resources",
+                         "--output-format", "json"])
+    if rc != 0:
+        return None, "pvesh get /cluster/resources failed (rc=%d)" % rc
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError:
+        return None, "pvesh get /cluster/resources did not answer with json"
+    if not isinstance(data, list):
+        return None, "pvesh get /cluster/resources answered with %s" % (
+            type(data).__name__)
+    return sum(1 for e in data
+               if isinstance(e, dict) and e.get("type") in ("vm", "lxc")), None
+
+
+def cmd_core(args) -> int:
+    """Make this node a corosync core member (docs/cluster-core-join.md §2).
+
+    Ask a member's daemon for this cluster's corosync.conf and authkey
+    (CORE_REQ -> CORE_ACK), then hand both to upstream's finish_join, which
+    writes them, stops pve-cluster, backs up the pmxcfs database, starts
+    corosync and pve-cluster, waits for quorum and regenerates the node
+    certificate. Nothing here duplicates that, and nothing is written
+    before a member has actually agreed.
+    """
+    st = _state()
+    if st.derived is None or not st.membership:
+        print("no cluster here: run supermox-join create first", file=sys.stderr)
+        return 1
+    if st.pending:
+        print("%d join request(s) still awaiting approval: a cluster with "
+              "edge nodes cannot hand out its corosync key"
+              % len(st.pending), file=sys.stderr)
+        return 1
+    try:
+        me = corosync_cluster.my_entry(st)
+    except corosync_cluster.CorosyncError as exc:
+        print("%s" % exc, file=sys.stderr)
+        return 1
+    count, err = _guests()
+    if err:
+        print("cannot tell whether this node has guests: %s; refusing to make a "
+              "node a core member without knowing that" % err, file=sys.stderr)
+        return 1
+    if count:
+        print("%d guest(s) on this node: only a node with no VMs or containers "
+              "may become a core member; move them off first" % count,
+              file=sys.stderr)
+        return 1
+    ident = _identity(st)
+    ack = None
+    answered_by = None
+    asked = []
+    for m in st.membership:
+        if m["name"] == me["name"]:
+            continue
+        asked.append(m["name"])
+        try:
+            ack = _run(joind.core_join(m["overlay_addr"], ident,
+                                       me["name"], m["wg_pub"]))
+        except joind.JoinError as exc:
+            print("%s: %s" % (m["name"], exc), file=sys.stderr)
+            continue
+        answered_by = m["name"]
+        break
+    if ack is None:
+        print("no member made this node a core member (asked: %s)"
+              % ", ".join(asked), file=sys.stderr)
+        return 1
+    expected = corosync_cluster.cluster_name(st)
+    if ack["cluster_name"] != expected:
+        print("%s sent a config for cluster %r; this node belongs to %r"
+              % (answered_by, ack["cluster_name"], expected), file=sys.stderr)
+        return 1
+    conf_path, auth_path, single_path = _core_paths()
+    # Upstream's finish_join overwrites corosync.conf, so the config this
+    # node had before becoming a core member is moved aside first: if the
+    # rest of the join fails, that file plus a restart is what puts the
+    # old single-node cluster back.
+    had_conf = os.path.exists(conf_path)
+    if had_conf:
+        os.replace(conf_path, single_path)
+    _write_core_files(ack["corosync_authkey"], ack["corosync_conf"])
+    print("wrote %s (0400) and %s" % (auth_path, conf_path))
+    if args.write_only:
+        print("not a core member yet: re-run without --write-only to let "
+              "upstream's finish_join start corosync and pve-cluster")
+        return 0
+    # finish_join takes the contents, not the paths, so they are staged as
+    # 0600 files under the run directory and read from there rather than put
+    # on the command line where ps would show the corosync key.
+    staged = _stage_core_data(ack["corosync_authkey"], ack["corosync_conf"])
+    try:
+        rc, out = _run_argv([
+            "perl", "-MPVE::Cluster::Setup", "-MPVE::Tools", "-e",
+            "PVE::Cluster::Setup::finish_join($ARGV[0], "
+            "PVE::Tools::file_get_contents($ARGV[1]), "
+            "PVE::Tools::file_get_contents($ARGV[2]));",
+            me["name"], staged[0], staged[1]])
+    finally:
+        _unstage_core_data(staged)
+    print(out.rstrip())
+    if rc != 0:
+        print("finish_join failed (rc=%d)" % rc, file=sys.stderr)
+        if had_conf:
+            os.replace(single_path, conf_path)
+            print("restored %s" % conf_path, file=sys.stderr)
+        rc2, out2 = _run_argv([
+            "perl", "-MPVE::SysvService", "-e",
+            'PVE::SysvService::restart("corosync"); '
+            'PVE::SysvService::restart("pve-cluster");'])
+        print(out2.rstrip())
+        if rc2 != 0:
+            print("corosync and pve-cluster were not restarted (rc=%d): "
+                  "this node is still an edge node, and its own cluster may "
+                  "need a manual start" % rc2, file=sys.stderr)
+        print("this node is still an edge node: re-run supermox-join core "
+              "(or supermox-join cluster-init) to repair it", file=sys.stderr)
+        return 1
+    # finish_join rewrites both files through PVE::Tools::file_set_contents,
+    # whose default mode is 0644; the authkey is corosync's shared secret,
+    # so put the mode back.
+    os.chmod(auth_path, 0o400)
+    print("this node is a corosync core member of cluster %s" % expected)
     return 0
 
 
@@ -334,6 +584,12 @@ def main(argv=None) -> int:
                             "(idempotent; repairs a cluster whose corosync "
                             "step never ran)")
     p.set_defaults(func=cmd_cluster_init)
+
+    p = sub.add_parser("core", help="make this node a corosync core member")
+    p.add_argument("--write-only", action="store_true",
+                   help="write /etc/corosync/authkey and corosync.conf and "
+                        "stop, without calling upstream's finish_join")
+    p.set_defaults(func=cmd_core)
 
     p = sub.add_parser("pending", help="list join requests waiting for approval")
     p.set_defaults(func=cmd_pending)

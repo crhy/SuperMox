@@ -24,9 +24,12 @@ script is what brings the interface up at boot.
 import argparse
 import asyncio
 import base64
+import binascii
 import json
 import logging
 import os
+import re
+import statistics
 import subprocess
 import sys
 import time
@@ -41,6 +44,7 @@ from supermox import invite as invite_mod
 from supermox import joinproto
 from supermox import secret
 from supermox import state as node_state
+from supermox import corosync_cluster
 
 DEFAULT_PORT = 8743
 MAX_FRAME = 65536                 # 64 KiB
@@ -76,6 +80,11 @@ WG_INITD_TIMEOUT = 30             # seconds the service script may take
 _legacy_conf_logged = False
 WG_LISTEN_PORT = 51820            # WireGuard tunnel port (UDP), same on every node
 
+CORE_RTT_SAMPLES = 5              # echo frames M sends to measure the link
+CORE_RTT_MAX_MS = 5.0             # median RTT under this makes a core member
+CORE_CMD_TIMEOUT = 120            # seconds a PVE call may take on M's side
+CORE_HANDSHAKE_TIMEOUT = 30       # seconds a CORE_ACK may take to arrive
+
 log = logging.getLogger("supermox-joind")
 
 
@@ -93,6 +102,19 @@ def b64(data: bytes) -> str:
 
 def b64d(text: str) -> bytes:
     return base64.b64decode(text)
+
+
+def default_run(argv):
+    """Run a command for the daemon's PVE calls; tests inject their own."""
+    try:
+        proc = subprocess.run(argv, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True,
+                              timeout=CORE_CMD_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return 1, "command timed out after %d s" % CORE_CMD_TIMEOUT
+    except OSError as exc:
+        return 1, "cannot run %s: %s" % (argv[0], exc)
+    return proc.returncode, proc.stdout
 
 
 def canonical_json(obj: dict) -> bytes:
@@ -163,6 +185,59 @@ def open_from_member(new_identity: dict, member_wg_pub: bytes, blob: bytes) -> d
     return json.loads(box.decrypt(blob).decode("utf-8"))
 
 
+def seal_core_ack(member_identity: dict, joiner_wg_pub: bytes,
+                  conf_text: str, authkey: bytes, cluster_name: str) -> bytes:
+    """Seal the corosync config and key for one member's curve (CORE_ACK).
+
+    Same construction as the key frame of an invite join: only the joiner
+    can open it, and the MAC the joiner checks under join_key authenticates
+    the member that sent it. The authkey is corosync's shared secret, so
+    this frame is the only copy of it that ever crosses the wire.
+    """
+    return seal_for_joiner(member_identity, joiner_wg_pub, {
+        "v": joinproto.VERSION,
+        "t": joinproto.CORE_ACK_T,
+        "corosync_conf": conf_text,
+        "corosync_authkey": b64(authkey),
+        "cluster_name": cluster_name,
+    })
+
+
+def open_core_ack(identity: dict, member_wg_pub: bytes, blob: bytes) -> dict:
+    """Open a CORE_ACK with this node's own curve.
+
+    `member_wg_pub` comes from this node's membership entry for the member
+    that answered, so a CORE_ACK from a node this cluster does not know
+    fails the curve check like any other forged frame. Raises ValueError
+    with a reason the CLI can print.
+    """
+    try:
+        box = CurveBox(PrivateKey(identity["wg_priv"]),
+                       PublicKey(member_wg_pub))
+        msg = json.loads(box.decrypt(blob).decode("utf-8"))
+    except CryptoError as exc:
+        raise ValueError("core_ack: %s" % exc)
+    if msg.get("v") != joinproto.VERSION or msg.get("t") != joinproto.CORE_ACK_T:
+        raise ValueError("not a core_ack")
+    conf = msg.get("corosync_conf")
+    key = msg.get("corosync_authkey")
+    name = msg.get("cluster_name")
+    if not isinstance(conf, str) or not conf.strip():
+        raise ValueError("core_ack carries no corosync.conf")
+    if not isinstance(key, str):
+        raise ValueError("core_ack authkey is not base64")
+    try:
+        authkey = b64d(key)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("core_ack authkey is not base64 (%s)" % exc)
+    if not authkey:
+        raise ValueError("core_ack carries no authkey")
+    if not isinstance(name, str) or not name:
+        raise ValueError("core_ack carries no cluster name")
+    return {"corosync_conf": conf, "corosync_authkey": authkey,
+            "cluster_name": name}
+
+
 class _Conn:
     """Per-connection state inside the daemon."""
 
@@ -186,7 +261,7 @@ class JoinDaemon:
 
     def __init__(self, state: node_state.NodeState, host: str = "127.0.0.1",
                  port: int = DEFAULT_PORT, auto_approve: bool = False,
-                 wg_conf: str = None):
+                 wg_conf: str = None, run=None):
         self.state = state
         self.host = host
         self.port = port
@@ -211,6 +286,11 @@ class JoinDaemon:
         self.fail_times = {}      # ip -> monotonic times of failed attempts
         self.blocked_until = {}   # ip -> time new connections from it resume
         self.clock = time.monotonic
+        # PVE calls (pvesh, corosync-quorumtool) go through this runner;
+        # offline tests inject one that returns canned JSON.
+        self.run = run or default_run
+        self.rtt_samples = CORE_RTT_SAMPLES
+        self.rtt_max_ms = CORE_RTT_MAX_MS
 
     async def start(self):
         """Start listening. Returns the asyncio server object."""
@@ -344,7 +424,8 @@ class JoinDaemon:
                     if not await self._bytes_message(conn, payload, writer):
                         break
                 elif kind == KIND_JSON:
-                    if not await self._json_message(conn, payload, writer):
+                    if not await self._json_message(conn, payload, writer,
+                                                    reader):
                         break
                 else:
                     log.warning("dropped frame: unknown kind %d", kind)
@@ -511,7 +592,7 @@ class JoinDaemon:
         return conn.decision == "allow"
     # --- JSON frames (control messages) ------------------------------
 
-    async def _json_message(self, conn, payload, writer) -> bool:
+    async def _json_message(self, conn, payload, writer, reader) -> bool:
         """Dispatch a control message: challenge, answer, approve, deny, ..."""
         try:
             obj = json.loads(payload.decode("utf-8"))
@@ -532,6 +613,8 @@ class JoinDaemon:
             return await self._adopt(conn, obj, writer)
         if kind == "endpoints":
             return await self._set_endpoints(conn, obj, writer)
+        if kind == joinproto.CORE_REQ_T:
+            return await self._core_request(conn, obj, writer, reader)
         log.warning("dropped frame: unknown message type %r", kind)
         return False
 
@@ -631,6 +714,146 @@ class JoinDaemon:
             {"t": "endpoints_ok"}))
         await self._broadcast(membership)
         return True
+
+    async def _core_request(self, conn, obj, writer, reader) -> bool:
+        """CORE_REQ: a member asks this node to make it a corosync core member.
+
+        Every refusal is a `core_refused` JSON frame carrying the reason: a
+        node that cannot go core stays an edge node, which is a normal
+        outcome and not an error. The order is forced - verify, then measure
+        the link, then ask PVE - because a node that fails the RTT test
+        must not already have been added to this cluster's nodelist.
+        """
+        try:
+            entry = joinproto.open_core_req(obj, self.state.membership,
+                                            seen_nonces=self.seen_nonces)
+        except ValueError as exc:
+            self.state.save_nonces()
+            log.warning("core_req refused: %s", exc)
+            await self._refuse_core(writer, str(exc))
+            return False
+        self.state.save_nonces()
+        ok, reason = await self._core_check(conn, entry, reader, writer)
+        if not ok:
+            await self._refuse_core(writer, reason)
+            log.warning("core_req from %s refused: %s", entry["name"], reason)
+            return False
+        conf, authkey, reason = await self._core_addnode(entry["name"],
+                                                        entry["overlay_addr"])
+        if conf is None:
+            await self._refuse_core(writer, reason)
+            log.warning("core_req from %s refused: %s", entry["name"], reason)
+            return False
+        ack = seal_core_ack(self.state.identity, b64d(entry["wg_pub"]),
+                            conf, authkey,
+                            corosync_cluster.cluster_name(self.state))
+        await write_frame(writer, KIND_BYTES, ack)
+        # The authkey is corosync's shared secret: log its length, never it.
+        log.info("core_ack to %s: %d byte config, %d byte authkey",
+                 entry["name"], len(conf), len(authkey))
+        return True
+
+    async def _refuse_core(self, writer, reason: str) -> None:
+        await write_frame(writer, KIND_JSON, canonical_json(
+            {"t": "core_refused", "reason": reason}))
+
+    async def _core_check(self, conn, entry: dict, reader, writer):
+        """Whether this node may answer a CORE_REQ, and why not.
+
+        The pending check is the "no guests" rule seen from the core side:
+        a cluster that still has join requests awaiting approval contains
+        edge nodes, and a cluster with edge nodes must not hand out its
+        corosync key - the new core member's authkey would let it talk to
+        nodes that are not in its nodelist.
+        """
+        if self.state.derived is None or not self.state.membership:
+            return False, "this node is not a member of a cluster"
+        if self.state.pending:
+            return False, ("%d join request(s) still awaiting approval; a "
+                           "cluster with edge nodes cannot hand out its "
+                           "corosync key" % len(self.state.pending))
+        # The connection arrives through the WireGuard overlay, so the peer
+        # address this daemon sees is N's overlay address, recorded in the
+        # membership entry it produced at join time.
+        if entry.get("overlay_addr") != conn.peer_ip:
+            return False, ("request arrived from %s, not from %s recorded "
+                           "for %s" % (conn.peer_ip,
+                                       entry.get("overlay_addr") or "nothing",
+                                       entry["name"]))
+        rc, out = self.run(["corosync-quorumtool", "-s"])
+        if rc != 0:
+            return False, ("this node has no corosync cluster yet "
+                           "(supermox-join cluster-init has not run): %s"
+                           % (out.strip()[:120] or "no output"))
+        ms = await self._measure_rtt(reader, writer)
+        if ms is None:
+            return False, "rtt measurement failed"
+        if ms >= self.rtt_max_ms:
+            return False, "rtt %.2f ms" % ms
+        return True, ""
+
+    async def _measure_rtt(self, reader, writer):
+        """Median round trip of self.rtt_samples echo frames, in milliseconds.
+
+        corosync's token budget decides whether a member can hold quorum,
+        and a link that cannot echo 5 frames inside a 5 ms median cannot
+        hold that either (docs/cluster-core-join.md: corosync already
+        reports "Token has not been received in 2250 ms" on a 2 GB amd64
+        KVM VM). self.clock is the injectable monotonic clock, so a test
+        decides the outcome without sleeping; the joiner's client echoes
+        each frame straight back, which is what makes the number real.
+        """
+        samples = []
+        for index in range(self.rtt_samples):
+            start = self.clock()
+            await write_frame(writer, KIND_JSON, canonical_json(
+                {"t": "echo", "n": index}))
+            try:
+                kind, payload = await asyncio.wait_for(
+                    read_frame(reader), timeout=self.read_timeout)
+                obj = json.loads(payload.decode("utf-8"))
+            except (asyncio.TimeoutError, asyncio.IncompleteReadError,
+                    ConnectionError, UnicodeDecodeError,
+                    json.JSONDecodeError):
+                return None
+            if kind != KIND_JSON or obj.get("t") != "echo" \
+                    or obj.get("n") != index:
+                return None
+            samples.append((self.clock() - start) * 1000.0)
+        return statistics.median(samples)
+
+    async def _core_addnode(self, name: str, link: str):
+        """Ask PVE to add the requester to this cluster's nodelist.
+
+        pvesh's addnode is the call upstream's `pvecm add` makes (docs
+        section 2 step 6): the existing cluster decides the config, and
+        its reply carries both the new corosync.conf and the authkey. Returns
+        (conf, authkey, None) or (None, None, reason).
+        """
+        if not corosync_cluster.NODE_NAME_RE.match(name):
+            return None, None, "member name %r is not a usable node name" % name
+        argv = ["pvesh", "create", "/cluster/config/nodes/%s" % name,
+                "--link0", link, "--output-format", "json"]
+        rc, out = await asyncio.to_thread(self.run, argv)
+        if rc != 0:
+            return None, None, ("pvesh addnode failed (rc=%d): %s"
+                                % (rc, out.strip()[:200] or "no output"))
+        try:
+            data = json.loads(out)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            return None, None, "pvesh output is not JSON (%s)" % exc
+        if not isinstance(data, dict):
+            return None, None, "pvesh output is not a JSON object"
+        conf = data.get("corosync_conf")
+        if not isinstance(conf, str) or not conf.strip():
+            return None, None, "pvesh returned no corosync_conf"
+        try:
+            authkey = b64d(data.get("corosync_authkey", ""))
+        except (binascii.Error, ValueError, TypeError):
+            return None, None, "pvesh returned an unusable authkey"
+        if not authkey:
+            return None, None, "pvesh returned an empty authkey"
+        return conf, authkey, None
 
     async def _broadcast(self, membership: list) -> None:
         """Send the signed membership change to every other member's daemon."""
@@ -797,6 +1020,48 @@ async def join_invite(endpoint: str, invite: dict, identity: dict,
         ack["cluster_id"] = keys["cluster_id"]
         ack["entropy"] = keys["entropy"]
         return ack
+
+
+async def core_join(endpoint: str, identity: dict, name: str,
+                    member_wg_pub: str) -> dict:
+    """Send CORE_REQ to a member's daemon and return its opened CORE_ACK.
+
+    The handshake is a loop because the member measures the link before it
+    answers: every ``echo`` frame it sends must be sent straight back for
+    the round-trip measurement to mean anything, and the answer arrives as
+    one CurveBox frame only this node's curve can open. A ``core_refused``
+    frame carries the reason that member gave, and the caller in the CLI
+    tries the next member with it.
+    """
+    async with _Client(endpoint) as c:
+        await write_frame(c.writer, KIND_JSON,
+                          canonical_json(joinproto.make_core_req(name, identity)))
+        while True:
+            try:
+                kind, payload = await asyncio.wait_for(
+                    read_frame(c.reader), timeout=CORE_HANDSHAKE_TIMEOUT)
+            except asyncio.TimeoutError:
+                raise JoinError("no reply from %s within %d s"
+                                % (endpoint, CORE_HANDSHAKE_TIMEOUT))
+            if kind == KIND_BYTES:
+                try:
+                    return open_core_ack(identity, b64d(member_wg_pub),
+                                         payload)
+                except ValueError as exc:
+                    raise JoinError("CORE_ACK: %s" % exc)
+            if kind != KIND_JSON:
+                raise JoinError("member sent frame kind %d" % kind)
+            try:
+                obj = json.loads(payload.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                raise JoinError("member sent a frame that is not JSON")
+            t = obj.get("t")
+            if t == "echo":
+                await write_frame(c.writer, KIND_JSON, canonical_json(obj))
+                continue
+            if t == "core_refused":
+                raise JoinError(obj.get("reason") or "refused")
+            raise JoinError("member sent %r instead of a core_ack" % t)
 
 
 async def send_command(endpoint: str, obj: dict) -> dict:

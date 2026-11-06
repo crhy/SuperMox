@@ -22,6 +22,7 @@ import unittest
 from supermox import identity as identity_mod
 from supermox import invite as invite_mod
 from supermox import joinproto, secret
+from supermox import corosync_cluster
 from supermox import state as node_state
 from supermox import joind
 
@@ -865,6 +866,187 @@ class NetworkHardeningTests(JoindBase):
         a = self.seeder(tag, [ep])
         await self.daemon_for(a, port, auto_approve)
         return a, port, ep, None
+
+
+class CoreJoinTests(JoindBase):
+    """CORE_REQ -> CORE_ACK: a member asks this node to make it a core member.
+
+    The PVE calls the daemon makes (corosync-quorumtool, pvesh addnode) are
+    injected: this test box has no corosync cluster and no pvesh, and what
+    is under test is the decision to answer, not PVE's output. The monotonic
+    clock is injected for the same reason - the round-trip gate is a timing
+    decision, and a test that slept instead would be measuring the scheduler.
+    """
+
+    CONF = "global\n\tnum_nodes = 2\n\nnode\n\n\thostname = node-a\n"
+    AUTHKEY = bytes(range(64))
+
+    def run_ok(self, argv):
+        """Quorum present, and an addnode reply carrying a config and a key."""
+        if argv[0] == "corosync-quorumtool":
+            return 0, "Quorum OK"
+        return 0, json.dumps({"corosync_conf": self.CONF,
+                              "corosync_authkey": joind.b64(self.AUTHKEY)})
+
+    def run_no_quorum(self, argv):
+        if argv[0] == "corosync-quorumtool":
+            return 1, "not running"
+        return self.run_ok(argv)
+
+    def run_addnode_fails(self, argv):
+        if argv[0] == "corosync-quorumtool":
+            return 0, "Quorum OK"
+        return 2, "cluster is not running"
+
+    async def pair(self, tag: str, run) -> tuple:
+        """Two members and one daemon: the state a core join starts from.
+
+        The second node joins by phrase, so its membership entry - name,
+        wg_pub, overlay_addr - is the one the real join path produced, which
+        is what the core compares the arriving request against.
+        """
+        port = free_port()
+        ep = "127.0.0.1:%d" % port
+        a = self.seeder(tag, [ep])
+        d = joind.JoinDaemon(a, "127.0.0.1", port, wg_conf=self.wg_conf(tag),
+                             run=run)
+        await d.start()
+        self._daemons.append(d)
+        b_dir, bident = self.joiner("%s-b" % tag)
+        await joind.join_phrase(ep, self.derived(PHRASE), bident, "node-b",
+                                "amd64", ["kvm"],
+                                wg_endpoint="127.0.0.1:%d" % joind.WG_LISTEN_PORT)
+        # A CORE_REQ reaches the daemon through the WireGuard overlay, so the
+        # peer address it sees is the requester's overlay address. This box
+        # has no overlay: the loopback address the test client connects from
+        # stands in for it, and the check under test is unchanged.
+        for m in a.membership:
+            if m["name"] == "node-b":
+                m["overlay_addr"] = "127.0.0.1"
+        return a, bident, ep, port
+
+    async def raw_core(self, ep: str, frame: dict) -> tuple:
+        """Send one CORE_REQ over a fresh socket and read the reply.
+
+        Echoing every ``echo`` frame is what makes the measurement real: a
+        client that ignored them would be timing an empty buffer, and the
+        RTT gate would pass for the wrong reason.
+        """
+        host, port = joind.parse_endpoint(ep)
+        reader, writer = await asyncio.open_connection(host, port)
+        try:
+            await joind.write_frame(writer, joind.KIND_JSON,
+                                    joind.canonical_json(frame))
+            while True:
+                kind, payload = await joind.read_frame(reader)
+                if kind == joind.KIND_BYTES:
+                    return kind, payload
+                obj = json.loads(payload.decode("utf-8"))
+                if obj.get("t") != "echo":
+                    return kind, obj
+                await joind.write_frame(writer, joind.KIND_JSON,
+                                        joind.canonical_json(obj))
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    async def test_core_ack_end_to_end(self):
+        """A member's CORE_REQ comes back as a config, a key and a name."""
+        a, bident, ep, _ = await self.pair("ack", self.run_ok)
+        # The member's WireGuard public key travels as base64 in the membership
+        # entry, which is where the CLI reads it from.
+        member = [m for m in a.membership if m["name"] == a.my_name()][0]
+        ack = await joind.core_join(ep, bident, "node-b", member["wg_pub"])
+        self.assertEqual(ack["corosync_conf"], self.CONF)
+        self.assertEqual(ack["corosync_authkey"], self.AUTHKEY)
+        # The cluster name is what stops a node of one cluster being handed
+        # another cluster's key: the CLI compares it with its own.
+        self.assertEqual(ack["cluster_name"],
+                         corosync_cluster.cluster_name(a))
+
+    async def test_core_refused_while_a_join_waits(self):
+        """A pending join request means edge nodes: no key may leave."""
+        a, bident, ep, _ = await self.pair("pending", self.run_ok)
+        a.pending["req-c"] = {"name": "node-c"}
+        frame = joinproto.make_core_req("node-b", bident)
+        kind, obj = await self.raw_core(ep, frame)
+        self.assertEqual(kind, joind.KIND_JSON)
+        self.assertEqual(obj["t"], "core_refused")
+        self.assertIn("edge nodes", obj["reason"])
+
+    async def test_core_refused_from_the_wrong_address(self):
+        """The request must arrive from the address this cluster recorded.
+
+        Otherwise a node that has been moved, or an attacker sitting on a
+        loopback of the core's host, gets the shared key.
+        """
+        a, bident, ep, port = await self.pair("addr", self.run_ok)
+        for m in a.membership:
+            if m["name"] == "node-b":
+                m["overlay_addr"] = "10.0.0.9"
+        frame = joinproto.make_core_req("node-b", bident)
+        kind, obj = await self.raw_core(ep, frame)
+        self.assertEqual(obj["t"], "core_refused")
+        self.assertIn("not from", obj["reason"])
+
+    async def test_core_refused_from_a_stranger(self):
+        """A name that is not in the membership list gets no answer."""
+        a, bident, ep, _ = await self.pair("stranger", self.run_ok)
+        frame = joinproto.make_core_req("node-z", bident)
+        kind, obj = await self.raw_core(ep, frame)
+        self.assertEqual(obj["t"], "core_refused")
+        self.assertIn("node-z", obj["reason"])
+
+    async def test_core_refused_when_rtt_is_too_slow(self):
+        """A link that cannot echo 5 frames inside 5 ms cannot hold quorum."""
+        calls = []
+
+        def run(argv):
+            calls.append(argv[0])
+            return self.run_ok(argv)
+
+        a, bident, ep, _ = await self.pair("rtt", run)
+        d = self._daemons[-1]
+        tick = [0.0]
+
+        def fake_clock():
+            tick[0] += 0.010
+            return tick[0]
+
+        d.clock = fake_clock
+        frame = joinproto.make_core_req("node-b", bident)
+        kind, obj = await self.raw_core(ep, frame)
+        self.assertEqual(obj["t"], "core_refused")
+        self.assertIn("rtt", obj["reason"])
+        # PVE was never asked: a node that fails the link test must not
+        # already be in this cluster's nodelist.
+        self.assertEqual(calls, ["corosync-quorumtool"])
+
+    async def test_core_refused_without_a_corosync_cluster(self):
+        """No quorum here means cluster-init has not run, so no answer."""
+        a, bident, ep, _ = await self.pair("quorum", self.run_no_quorum)
+        frame = joinproto.make_core_req("node-b", bident)
+        kind, obj = await self.raw_core(ep, frame)
+        self.assertEqual(obj["t"], "core_refused")
+        self.assertIn("corosync cluster", obj["reason"])
+
+    async def test_core_refused_when_addnode_fails(self):
+        """A failed pvesh addnode is a reason, not a silent no-reply."""
+        a, bident, ep, _ = await self.pair("addnode", self.run_addnode_fails)
+        frame = joinproto.make_core_req("node-b", bident)
+        kind, obj = await self.raw_core(ep, frame)
+        self.assertEqual(obj["t"], "core_refused")
+        self.assertIn("addnode", obj["reason"])
+
+    async def test_core_req_replay(self):
+        """The same CORE_REQ twice is refused the second time."""
+        a, bident, ep, _ = await self.pair("replay", self.run_ok)
+        frame = joinproto.make_core_req("node-b", bident)
+        kind, _payload = await self.raw_core(ep, frame)
+        self.assertEqual(kind, joind.KIND_BYTES)
+        kind, obj = await self.raw_core(ep, frame)
+        self.assertEqual(obj["t"], "core_refused")
+        self.assertIn("replayed", obj["reason"])
 
 
 if __name__ == "__main__":
