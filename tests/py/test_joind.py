@@ -1049,5 +1049,52 @@ class CoreJoinTests(JoindBase):
         self.assertIn("replayed", obj["reason"])
 
 
+class OverlayEndpointTests(JoindBase):
+    """Core requests travel over the IPv6 WireGuard overlay."""
+
+    OVERLAY = "fd5f:845b:23ce:6ef1:b235:de3f:6f33:0"
+
+    def test_bare_overlay_address_is_bracketed(self):
+        ep = joind.endpoint_for_addr(self.OVERLAY)
+        self.assertEqual(ep, "[%s]:%d" % (self.OVERLAY, joind.DEFAULT_PORT))
+        self.assertEqual(joind.parse_endpoint(ep),
+                         (self.OVERLAY, joind.DEFAULT_PORT))
+
+    def test_bracketed_endpoints_parse(self):
+        self.assertEqual(joind.parse_endpoint("[::1]:4567"), ("::1", 4567))
+        self.assertEqual(joind.parse_endpoint("[::1]"),
+                         ("::1", joind.DEFAULT_PORT))
+        for bad in ("[::1", "[]:1", "[::1]x", "[::1]:port"):
+            with self.assertRaises(joind.JoinError):
+                joind.parse_endpoint(bad)
+
+    def test_ipv4_endpoints_are_unchanged(self):
+        self.assertEqual(joind.endpoint_for_addr("10.0.0.9"),
+                         "10.0.0.9:%d" % joind.DEFAULT_PORT)
+        self.assertEqual(joind.parse_endpoint("10.0.0.9:8743"),
+                         ("10.0.0.9", 8743))
+
+    def test_wireguard_endpoint_brackets_ipv6(self):
+        self.assertEqual(joind.wg_endpoint_for("[%s]:8743" % self.OVERLAY),
+                         "[%s]:%d" % (self.OVERLAY, joind.WG_LISTEN_PORT))
+        self.assertEqual(joind.wg_endpoint_for("10.0.0.9:8743"),
+                         "10.0.0.9:%d" % joind.WG_LISTEN_PORT)
+
+    async def test_default_bind_accepts_ipv4_and_ipv6(self):
+        # 0.0.0.0 never sees a request sent to an IPv6 overlay address.
+        port = free_port()
+        d = joind.JoinDaemon(self.seeder("ds1", []), "*", port)
+        await d.start()
+        self._daemons.append(d)
+        for host in ("127.0.0.1", "::1"):
+            reader, writer = await asyncio.open_connection(host, port)
+            writer.close()
+            await writer.wait_closed()
+
+    def test_main_defaults_to_every_address(self):
+        import inspect
+        self.assertIn('default="*"', inspect.getsource(joind.main))
+
+
 if __name__ == "__main__":
     unittest.main()

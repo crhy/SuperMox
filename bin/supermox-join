@@ -413,7 +413,10 @@ def cmd_core(args) -> int:
             continue
         asked.append(m["name"])
         try:
-            ack = _run(joind.core_join(m["overlay_addr"], ident,
+            # Overlay addresses are IPv6: bracket them, or the endpoint
+            # parser splits the address itself on its last colon.
+            endpoint = joind.endpoint_for_addr(m["overlay_addr"])
+            ack = _run(joind.core_join(endpoint, ident,
                                        me["name"], m["wg_pub"]))
         except joind.JoinError as exc:
             print("%s: %s" % (m["name"], exc), file=sys.stderr)

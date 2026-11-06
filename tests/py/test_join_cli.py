@@ -258,7 +258,7 @@ class CoreCommandTest(unittest.TestCase):
             "name": "node-b",
             "ed_pub": _b64t(other["ed_pub"]),
             "wg_pub": _b64t(other["wg_pub"]),
-            "overlay_addr": "10.0.0.9:8743",
+            "overlay_addr": "fd00:5:6:7:8:9:a:0",
             "role": "edge",
         })
         self.cluster_name = corosync_cluster.cluster_name(st)
@@ -360,7 +360,7 @@ class CoreCommandTest(unittest.TestCase):
         self.assertEqual(os.listdir(self.run_dir), [])
         # The request went to the member's overlay address and named this
         # node, the one the member has to add to the cluster.
-        self.assertEqual(self.asks, [("10.0.0.9:8743", "node-a",
+        self.assertEqual(self.asks, [("[fd00:5:6:7:8:9:a:0]:8743", "node-a",
                                       self._member_wg_pub())])
 
     def _member_wg_pub(self):

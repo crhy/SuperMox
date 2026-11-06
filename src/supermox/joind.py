@@ -123,7 +123,25 @@ def canonical_json(obj: dict) -> bytes:
 
 
 def parse_endpoint(text: str) -> tuple:
-    """Split "host:port" (or bare "host") into (host, port)."""
+    """Split "host:port", "[ipv6]:port" or a bare host into (host, port).
+
+    An unbracketed IPv6 address is ambiguous ("::1:4567" is itself an
+    address), so it is read as host:port; callers holding a bare IPv6
+    address, such as an overlay address, must pass it as "[addr]:port"
+    (see endpoint_for_addr).
+    """
+    if text.startswith("["):
+        host, sep, rest = text[1:].partition("]")
+        if not sep or not host:
+            raise JoinError("bad endpoint: %r" % text)
+        if not rest:
+            return host, DEFAULT_PORT
+        if not rest.startswith(":"):
+            raise JoinError("bad endpoint: %r" % text)
+        try:
+            return host, int(rest[1:])
+        except ValueError:
+            raise JoinError("bad endpoint: %r" % text)
     host, sep, port = text.rpartition(":")
     if not sep:
         return text, DEFAULT_PORT
@@ -133,6 +151,14 @@ def parse_endpoint(text: str) -> tuple:
         raise JoinError("bad endpoint: %r" % text)
 
 
+def endpoint_for_addr(addr: str, port: int = None) -> str:
+    """A join endpoint for a bare address: IPv6 (the overlay) gets brackets."""
+    port = DEFAULT_PORT if port is None else port
+    if ":" in addr:
+        return "[%s]:%d" % (addr, port)
+    return "%s:%d" % (addr, port)
+
+
 def wg_endpoint_for(endpoint: str) -> str:
     """WireGuard endpoint of a node: its join host, at WG_LISTEN_PORT.
 
@@ -140,6 +166,8 @@ def wg_endpoint_for(endpoint: str) -> str:
     are different services on the same host; wg0.conf must name the latter.
     """
     host, _ = parse_endpoint(endpoint)
+    if ":" in host:
+        return "[%s]:%d" % (host, WG_LISTEN_PORT)
     return "%s:%d" % (host, WG_LISTEN_PORT)
 
 async def write_frame(writer, kind: int, payload: bytes) -> None:
@@ -298,8 +326,12 @@ class JoinDaemon:
         # Replay protection must survive a daemon restart: the nonce set
         # lives in the state dir (state.seen_nonces), not in this object.
         self.seen_nonces = self.state.seen_nonces
+        # "*" (or "") listens on every IPv4 AND IPv6 address: core requests
+        # arrive over the IPv6 WireGuard overlay, so an IPv4-only bind such as
+        # 0.0.0.0 could never receive them.
+        host = None if self.host in ("", "*") else self.host
         self.server = await asyncio.start_server(
-            self.handle, self.host, self.port, reuse_address=True)
+            self.handle, host, self.port, reuse_address=True)
         return self.server
 
     async def serve(self) -> None:
@@ -1259,7 +1291,8 @@ def _peer_wg_endpoint(m: dict) -> str:
 def main(argv=None) -> int:
     """Run the join daemon (used by init.d/supermox-joind and by hand)."""
     ap = argparse.ArgumentParser(prog="supermox-joind")
-    ap.add_argument("--host", default="0.0.0.0")
+    ap.add_argument("--host", default="*",
+                    help='bind address; "*" = every IPv4 and IPv6 address')
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--auto-approve", action="store_true",
                     help="approve invite joins without asking (tests only)")

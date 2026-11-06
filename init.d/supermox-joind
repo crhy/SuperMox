@@ -17,7 +17,8 @@
 #
 # Bind address and port come from the environment (JOIND_HOST, JOIND_PORT) so
 # tests and non-default deployments can point it at 127.0.0.1 and a free port;
-# defaults are 0.0.0.0:8743.
+# defaults are *:8743, every IPv4 and IPv6 address: core-join requests arrive
+# over the IPv6 WireGuard overlay, which an IPv4-only 0.0.0.0 bind never sees.
 #
 # The daemon answers joins for a cluster this node belongs to. A node that has
 # not created or joined one has nothing to serve: the daemon says so on stderr
@@ -32,7 +33,7 @@ PIDFILE=${JOIND_PIDFILE:-/run/supermox-joind.pid}
 NAME=supermox-joind
 LOGPIPE=${JOIND_LOGPIPE:-/usr/lib/supermox/supermox-logpipe}
 PYTHON=${JOIND_PYTHON:-python3}
-JOIND_HOST=${JOIND_HOST:-0.0.0.0}
+JOIND_HOST=${JOIND_HOST:-*}
 JOIND_PORT=${JOIND_PORT:-8743}
 
 # The same test the daemon applies to itself (NodeState.load() is true only
