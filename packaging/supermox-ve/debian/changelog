@@ -1,3 +1,29 @@
+supermox-ve (0.1.25) unstable; urgency=medium
+
+  * apt channel: an installed node now receives SuperMox updates. supermox-ve
+    ships the source and the key that authenticates it. etc/apt/sources.list.d/
+    supermox.sources (deb822) enables our own `supermox` suite in the signed
+    Spaced repository (https://crhy.github.io/spaced-apt), and
+    usr/share/keyrings/supermox-archive-keyring.gpg carries the public half of
+    the Spaced archive key that signs it; the .sources file's Signed-By names
+    that keyring, so apt trusts only that key and not the whole system trust
+    store. debian/conffiles declares the .sources file (debhelper does not
+    auto-register files copied in by debian/rules). etc/apt/preferences.d/
+    supermox-origins gains a `Pin: release o=SuperMox` record at priority 990
+    so the hosted suite also wins over Proxmox's dependency repository, next
+    to the existing records (which are all kept). scripts/build-apt-repo.sh
+    publishes the suite: it picks the newest version of each package with the
+    same rules as the ISO staging loop, stages them under pool/supermox/,
+    writes amd64/arm64/all Packages with apt-ftparchive and a SuperMox Release,
+    and signs InRelease/Release.gpg with the same key, refusing a substituted
+    signing identity before writing anything and touching nothing outside
+    pool/supermox/ and dists/supermox/ so Spaced's own suites in the same clone
+    stay byte-identical. tests/test-apt-repo.sh proves this offline with a
+    throwaway key; tests/test-supermox-ve.sh checks the shipped source, keyring
+    fingerprint, rules install and the new pin record.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 21:30:00 -0800
+
 supermox-ve (0.1.24) unstable; urgency=medium
 
   * supermox-join cluster-init: a new subcommand, and

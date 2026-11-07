@@ -1,3 +1,4 @@
 /etc/apt/preferences.d/supermox-no-systemd
 /etc/apt/preferences.d/supermox-origins
+/etc/apt/sources.list.d/supermox.sources
 /etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units

@@ -1,0 +1,5 @@
+Types: deb
+URIs: https://crhy.github.io/spaced-apt
+Suites: supermox
+Components: main
+Signed-By: /usr/share/keyrings/supermox-archive-keyring.gpg

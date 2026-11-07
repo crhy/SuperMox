@@ -41,6 +41,20 @@ override_dh_auto_install:
 	mkdir -p debian/supermox-ve/etc/dpkg/dpkg.cfg.d
 	cp -a etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units debian/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units
 	chmod 0644 debian/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units
+	# The apt channel: an installed node must actually receive SuperMox updates.
+	# supermox-ve ships the source and the key that authenticates it. The deb822
+	# source points at our own `supermox` suite in the signed Spaced repository
+	# (https://crhy.github.io/spaced-apt), signed by the Spaced archive key, whose
+	# public half ships as /usr/share/keyrings/supermox-archive-keyring.gpg; the
+	# .sources file's Signed-By names that keyring, so apt trusts only that key
+	# (never the whole system trust store). scripts/build-apt-repo.sh publishes
+	# the suite with the same key. The .sources file is a conffile (declared in
+	# debian/conffiles, same reason as the pins: debhelper does not auto-register
+	# files copied in here); the keyring under /usr/share is not a conffile.
+	mkdir -p debian/supermox-ve/etc/apt/sources.list.d debian/supermox-ve/usr/share/keyrings
+	cp -a etc/apt/sources.list.d/supermox.sources debian/supermox-ve/etc/apt/sources.list.d/supermox.sources
+	cp -a usr/share/keyrings/supermox-archive-keyring.gpg debian/supermox-ve/usr/share/keyrings/supermox-archive-keyring.gpg
+	chmod 0644 debian/supermox-ve/etc/apt/sources.list.d/supermox.sources debian/supermox-ve/usr/share/keyrings/supermox-archive-keyring.gpg
 
 override_dh_installinit:
 	dh_installinit --name=networking --no-start

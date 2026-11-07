@@ -136,7 +136,7 @@ if [ -f "$origins_pin" ]; then
       }
       print pkg "|" pin "|" prio
     }' "$origins_pin")"
-  for want in '*|origin ""|999' '*|origin download.proxmox.com|100' 'swtpm swtpm-libs swtpm-tools|origin download.proxmox.com|600' 'libpve-network-*|version 1.6.7*|990'; do
+  for want in '*|origin ""|999' '*|release o=SuperMox|990' '*|origin download.proxmox.com|100' 'swtpm swtpm-libs swtpm-tools|origin download.proxmox.com|600' 'libpve-network-*|version 1.6.7*|990'; do
     if ! printf '%s\n' "$records" | grep -qF "$want"; then
       echo "FAIL: $origins_pin has no record matching $want"
       fail=1
@@ -265,6 +265,53 @@ if ! grep -qF 'chmod 0644 debian/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-sys
 fi
 if [ ! -f "$pkg_root/debian/conffiles" ] || ! grep -qx "/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units" "$pkg_root/debian/conffiles"; then
   echo "FAIL: debian/conffiles does not declare /etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units"
+  fail=1
+fi
+# The apt channel: an installed node must actually receive SuperMox updates, so
+# supermox-ve ships the source and the key that authenticates it. The deb822
+# source enables our own `supermox` suite in the signed Spaced repository and
+# names the shipped keyring in Signed-By, so apt trusts only that key and not
+# the whole system trust store. scripts/build-apt-repo.sh publishes the suite
+# with the same key, so the shipped keyring's fingerprint must be that key's.
+sources="$pkg_root/etc/apt/sources.list.d/supermox.sources"
+keyring="$pkg_root/usr/share/keyrings/supermox-archive-keyring.gpg"
+if [ ! -f "$sources" ]; then
+  echo "FAIL: supermox-ve ships no $sources"
+  fail=1
+fi
+if [ -f "$sources" ]; then
+  for field in 'Types: deb' 'URIs: https://crhy.github.io/spaced-apt' 'Suites: supermox' 'Components: main' 'Signed-By: /usr/share/keyrings/supermox-archive-keyring.gpg'; do
+    if ! grep -qxF "$field" "$sources"; then
+      echo "FAIL: $sources is missing the field: $field"
+      fail=1
+    fi
+  done
+fi
+if [ ! -f "$keyring" ]; then
+  echo "FAIL: supermox-ve ships no $keyring"
+  fail=1
+elif command -v gpg > /dev/null 2>&1; then
+  # .strata is never committed, so compare against the fingerprint itself.
+  fpr="$(gpg --batch --show-keys --with-colons "$keyring" | awk -F: '$1=="fpr"{print $10; exit}')"
+  if [ "${fpr:-none}" != "6C16F77C2DAE19D262CFD9F0CC05F885576EBB05" ]; then
+    echo "FAIL: $keyring fingerprint is not the SuperMox archive key (got: ${fpr:-none})"
+    fail=1
+  fi
+fi
+if ! grep -qF 'cp -a etc/apt/sources.list.d/supermox.sources debian/supermox-ve/etc/apt/sources.list.d/supermox.sources' "$pkg_root/debian/rules"; then
+  echo "FAIL: debian/rules does not copy the supermox.sources file"
+  fail=1
+fi
+if ! grep -qF 'cp -a usr/share/keyrings/supermox-archive-keyring.gpg debian/supermox-ve/usr/share/keyrings/supermox-archive-keyring.gpg' "$pkg_root/debian/rules"; then
+  echo "FAIL: debian/rules does not copy the supermox keyring"
+  fail=1
+fi
+if ! grep -qF 'chmod 0644 debian/supermox-ve/etc/apt/sources.list.d/supermox.sources debian/supermox-ve/usr/share/keyrings/supermox-archive-keyring.gpg' "$pkg_root/debian/rules"; then
+  echo "FAIL: debian/rules does not install the source and keyring as 0644"
+  fail=1
+fi
+if [ ! -f "$pkg_root/debian/conffiles" ] || ! grep -qx "/etc/apt/sources.list.d/supermox.sources" "$pkg_root/debian/conffiles"; then
+  echo "FAIL: debian/conffiles does not declare /etc/apt/sources.list.d/supermox.sources"
   fail=1
 fi
 for f in scripts/build-rootfs.sh scripts/build-iso.sh; do

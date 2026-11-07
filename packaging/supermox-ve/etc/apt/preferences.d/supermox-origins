@@ -6,6 +6,16 @@ Package: *
 Pin: origin ""
 Pin-Priority: 999
 
+Explanation: The hosted SuperMox suite (the `supermox` suite in the signed
+  Spaced repository, enabled by etc/apt/sources.list.d/supermox.sources and
+  published by scripts/build-apt-repo.sh) is our own distribution, so an
+  installed node receives SuperMox updates and they win over Proxmox's
+  dependency repository too. Its Release sets Origin: SuperMox, which is
+  exactly what this record matches.
+Package: *
+Pin: release o=SuperMox
+Pin-Priority: 990
+
 Explanation: Proxmox's repository is a dependency source on SuperMox VMs,
   not a distribution: 100 means apt takes its packages only when nothing
   else provides them.
