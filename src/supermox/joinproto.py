@@ -190,6 +190,93 @@ def verify_membership(signed: dict, trusted_ed_pubs: list) -> list:
 
 CORE_REQ_T = "core_req"
 CORE_ACK_T = "core_ack"
+CORE_DONE_T = "core_done"
+CORE_ABORT_T = "core_abort"
+
+
+def make_core_confirm(kind: str, name: str, identity: dict,
+                      now: int = None, nonce: bytes = None) -> dict:
+    """Build a CORE_DONE or CORE_ABORT frame: the joiner's confirmation.
+
+    The member has already run addnode when it sent the CORE_ACK, so it needs
+    to know whether the joiner's finish_join actually reached quorum: DONE
+    means "keep me in the nodelist", ABORT means "take me out again now". The
+    signed body is exactly {v, t, name, nonce, time}, the shape CORE_REQ uses,
+    so the member verifies it the same way: against its own membership list,
+    with a clock window and a nonce replay check.
+    """
+    if kind not in (CORE_DONE_T, CORE_ABORT_T):
+        raise ValueError("not a core confirmation type: %r" % kind)
+    if now is None:
+        now = int(time.time())
+    body = {
+        "v": _VERSION,
+        "t": kind,
+        "name": name,
+        "nonce": _b64s(nonce or os.urandom(16)),
+        "time": now,
+    }
+    sig = SigningKey(identity["ed_priv"]).sign(_canonical(body)).signature
+    frame = dict(body)
+    frame["sig"] = _b64s(sig)
+    frame["ed_pub"] = _b64s(identity["ed_pub"])
+    return frame
+
+
+def open_core_confirm(frame: dict, membership: list, now: int = None,
+                      seen_nonces: dict = None) -> dict:
+    """Verify a CORE_DONE or CORE_ABORT against this cluster's membership.
+
+    Same checks as open_core_req (version, type, the member's recorded ed_pub,
+    the signature, the clock window, the nonce window), and it returns the
+    requester's membership entry. Raises ValueError otherwise, so a stranger
+    or a node that never asked cannot make this cluster undo an addnode.
+    """
+    if now is None:
+        now = int(time.time())
+    if seen_nonces is None:
+        seen_nonces = {}
+    kind = frame.get("t")
+    if frame.get("v") != _VERSION or kind not in (CORE_DONE_T, CORE_ABORT_T):
+        raise ValueError("not a core_done or core_abort")
+    name = frame.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError("core confirmation has no name")
+    entry = None
+    for member in membership:
+        if member.get("name") == name:
+            entry = member
+            break
+    if entry is None:
+        raise ValueError("%s is not a member of this cluster" % name)
+    if entry.get("ed_pub") != frame.get("ed_pub"):
+        raise ValueError("%s did not sign with the key this cluster "
+                         "recorded" % name)
+    body = {"v": frame["v"], "t": frame["t"], "name": frame["name"],
+            "nonce": frame.get("nonce"), "time": frame.get("time")}
+    if not isinstance(body["nonce"], str) or not isinstance(frame.get("sig"),
+                                                            str):
+        raise ValueError("core confirmation has no usable nonce or signature")
+    try:
+        VerifyKey(_b64d(frame["ed_pub"])).verify(_canonical(body),
+                                                _b64d(frame["sig"]))
+    except (BadSignatureError, CryptoError, ValueError) as exc:
+        raise ValueError("core confirmation signature does not verify (%s)"
+                         % exc)
+    try:
+        skew = abs(now - int(body["time"]))
+    except (TypeError, ValueError):
+        raise ValueError("core confirmation has no usable time")
+    if skew > _MAX_SKEW:
+        raise ValueError("core confirmation outside the clock window")
+    nonce = _b64d(body["nonce"])
+    stale = [k for k, t in seen_nonces.items() if now - t > _NONCE_WINDOW]
+    for k in stale:
+        del seen_nonces[k]
+    if nonce in seen_nonces:
+        raise ValueError("replayed core confirmation nonce")
+    seen_nonces[nonce] = now
+    return entry
 
 
 def make_core_req(name: str, identity: dict, now: int = None,

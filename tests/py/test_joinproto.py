@@ -352,5 +352,103 @@ class CoreReqTests(unittest.TestCase):
         self.assertEqual(msg["membership"], self.membership)
 
 
+class CoreConfirmTests(unittest.TestCase):
+    """CORE_DONE / CORE_ABORT: the joiner's report on its finish_join.
+
+    The member has already run addnode when it answered the CORE_REQ, so
+    this frame decides whether it keeps the new node in the nodelist or
+    takes it back out. The signed body is the CORE_REQ shape and the checks
+    are the CORE_REQ checks: who is allowed to report, and what a replay,
+    a foreign key or a tampered signature does.
+    """
+
+    def setUp(self):
+        self.member = identity.new_identity()
+        self.outsider = identity.new_identity()
+        self.membership = [{
+            "name": "node-b",
+            "ed_pub": _b64t(self.member["ed_pub"]),
+            "wg_pub": _b64t(self.member["wg_pub"]),
+            "overlay_addr": "10.0.0.2:8743",
+            "role": "edge",
+        }]
+
+    def test_done_round_trip(self):
+        """A member's own CORE_DONE opens and returns its membership entry."""
+        frame = joinproto.make_core_confirm(joinproto.CORE_DONE_T,
+                                            "node-b", self.member, now=1000000)
+        entry = joinproto.open_core_confirm(frame, self.membership,
+                                            now=1000000, seen_nonces={})
+        self.assertEqual(entry["name"], "node-b")
+
+    def test_abort_round_trip(self):
+        """CORE_ABORT is the same shape and opens the same way."""
+        frame = joinproto.make_core_confirm(joinproto.CORE_ABORT_T,
+                                            "node-b", self.member, now=1000000)
+        entry = joinproto.open_core_confirm(frame, self.membership,
+                                            now=1000000, seen_nonces={})
+        self.assertEqual(entry["name"], "node-b")
+
+    def test_make_rejects_other_type(self):
+        """make_core_confirm only builds a confirmation frame."""
+        with self.assertRaises(ValueError) as ctx:
+            joinproto.make_core_confirm(joinproto.CORE_REQ_T, "node-b",
+                                        self.member)
+        self.assertIn("not a core confirmation type", str(ctx.exception))
+
+    def test_tampered_signature(self):
+        """One flipped signature byte is refused, not trusted."""
+        frame = joinproto.make_core_confirm(joinproto.CORE_DONE_T,
+                                            "node-b", self.member, now=1000000)
+        sig = bytearray(base64.b64decode(frame["sig"]))
+        sig[0] ^= 0xFF
+        frame["sig"] = base64.b64encode(bytes(sig)).decode("ascii")
+        with self.assertRaises(ValueError) as ctx:
+            joinproto.open_core_confirm(frame, self.membership,
+                                        now=1000000, seen_nonces={})
+        self.assertIn("signature does not verify", str(ctx.exception))
+
+    def test_wrong_type(self):
+        """A frame that is not a core_done or core_abort does not open."""
+        frame = joinproto.make_core_confirm(joinproto.CORE_DONE_T,
+                                            "node-b", self.member, now=1000000)
+        frame["t"] = joinproto.CORE_REQ_T
+        with self.assertRaises(ValueError) as ctx:
+            joinproto.open_core_confirm(frame, self.membership,
+                                        now=1000000, seen_nonces={})
+        self.assertIn("not a core_done or core_abort", str(ctx.exception))
+
+    def test_replay(self):
+        """The same CORE_DONE twice inside the window is refused."""
+        frame = joinproto.make_core_confirm(joinproto.CORE_DONE_T,
+                                            "node-b", self.member, now=1000000)
+        seen = {}
+        joinproto.open_core_confirm(frame, self.membership, now=1000000,
+                                    seen_nonces=seen)
+        with self.assertRaises(ValueError) as ctx:
+            joinproto.open_core_confirm(frame, self.membership, now=1000001,
+                                        seen_nonces=seen)
+        self.assertIn("replayed", str(ctx.exception))
+
+    def test_name_not_a_member(self):
+        """A name the cluster has never heard of is refused outright."""
+        frame = joinproto.make_core_confirm(joinproto.CORE_DONE_T,
+                                            "node-z", self.member, now=1000000)
+        with self.assertRaises(ValueError) as ctx:
+            joinproto.open_core_confirm(frame, self.membership,
+                                        now=1000000, seen_nonces={})
+        self.assertIn("not a member", str(ctx.exception))
+
+    def test_ed_pub_mismatch(self):
+        """A report signed with a key this cluster never recorded is refused."""
+        frame = joinproto.make_core_confirm(joinproto.CORE_DONE_T,
+                                            "node-b", self.outsider, now=1000000)
+        with self.assertRaises(ValueError) as ctx:
+            joinproto.open_core_confirm(frame, self.membership,
+                                        now=1000000, seen_nonces={})
+        self.assertIn("did not sign with the key this cluster recorded",
+                      str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

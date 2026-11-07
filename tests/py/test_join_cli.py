@@ -448,6 +448,25 @@ class CoreCommandTest(unittest.TestCase):
         self._real_core_join = cli.joind.core_join
         self.addCleanup(self._restore_core_join)
         cli.joind.core_join = self._fake_core_join
+        # The report the joiner sends after finish_join, and the quorum
+        # reading that decides it, are stubbed the same way: the member's
+        # side of the confirmation is test_joind's job, so here only the
+        # choice cmd_core makes (CORE_DONE or CORE_ABORT) is observable.
+        self.reports = []
+        self._real_core_done = cli.joind.core_done
+        self.addCleanup(self._restore_core_done)
+        cli.joind.core_done = self._fake_core_done
+        self.quorum = (2, True, ["Nodes: 2", "Quorate: Yes"])
+        self._quorum_patcher = mock.patch.object(
+            cli, "_quorum_reading", lambda: self.quorum)
+        self._quorum_patcher.start()
+        self.addCleanup(self._quorum_patcher.stop)
+        # A not-quorate reading must not make the test wait the 120 s default
+        # for a vote that never arrives.
+        self._quorum_timeout = mock.patch.object(
+            cli, "JOINER_QUORUM_TIMEOUT", 0.0)
+        self._quorum_timeout.start()
+        self.addCleanup(self._quorum_timeout.stop)
         # A two-member cluster whose corosync step has already run: this node
         # is node-a, node-b is the member whose daemon will be asked.
         st = node_state.NodeState(self.etc)
@@ -474,6 +493,19 @@ class CoreCommandTest(unittest.TestCase):
     def _restore_core_join(self):
         cli.joind.core_join = self._real_core_join
 
+    async def _fake_core_done(self, ep, ident, name, report):
+        """Record the joiner's report to the member instead of sending it.
+
+        cmd_core tells the member CORE_DONE or CORE_ABORT depending on whether
+        the cluster really gained its vote; this is the only place that choice
+        is observable without a live daemon, which test_joind covers.
+        """
+        self.reports.append((ep, name, report))
+        return {"t": "core_confirm_ok", "report": report}
+
+    def _restore_core_done(self):
+        cli.joind.core_done = self._real_core_done
+
     async def _fake_core_join(self, ep, ident, name, wg_pub):
         """One member answering with this cluster's config and key."""
         self.asks.append((ep, name, wg_pub))
@@ -485,6 +517,86 @@ class CoreCommandTest(unittest.TestCase):
         self.ack = {"corosync_conf": self.CONF,
                     "corosync_authkey": self.AUTHKEY,
                     "cluster_name": self.cluster_name}
+
+    def test_core_reports_done_when_the_cluster_is_quorate(self):
+        """finish_join reached quorum: the member is told to keep this node.
+
+        CORE_DONE is what stops the member undoing its addnode, and the Nodes
+        and Quorate lines are the reading that decided, so they belong in the
+        output the operator sees.
+        """
+        self._stub_pvesh()
+        self._stub_perl()
+        self._stub("corosync-init", "exit 0")
+        os.environ["SUPERMOX_COROSYNC_INIT"] = os.path.join(
+            self.stub, "corosync-init")
+        self.addCleanup(os.environ.pop, "SUPERMOX_COROSYNC_INIT", None)
+        self._want_ack()
+        rc, out = self._core("core")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.reports,
+                         [("[fd00:5:6:7:8:9:a:0]:8743", "node-a",
+                          joinproto.CORE_DONE_T)])
+        self.assertIn("Nodes: 2", out)
+        self.assertIn("Quorate: Yes", out)
+        self.assertIn("core member of cluster", out)
+
+    def test_core_reports_abort_and_restores_the_edge_node_when_not_quorate(self):
+        """finish_join did not reach quorum: the member is told to undo.
+
+        CORE_ABORT makes the member take this node back out of the nodelist,
+        and this node is put back the way it was: the config it had before
+        the join is restored, the node is reported as still an edge node, and
+        the command exits 1. The vote total stays at one node, so the wait
+        ends on the timeout, not on a reading.
+        """
+        self._stub_pvesh()
+        self._stub_perl()
+        self._stub("corosync-init", "exit 0")
+        os.environ["SUPERMOX_COROSYNC_INIT"] = os.path.join(
+            self.stub, "corosync-init")
+        self.addCleanup(os.environ.pop, "SUPERMOX_COROSYNC_INIT", None)
+        self.quorum = (1, False, ["Nodes: 1", "Quorate: No"])
+        old = os.path.join(self.corosync, "corosync.conf")
+        with open(old, "w") as fh:
+            fh.write("num_nodes = 1\n")
+        self._want_ack()
+        rc, out = self._core("core")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(self.reports,
+                         [("[fd00:5:6:7:8:9:a:0]:8743", "node-a",
+                          joinproto.CORE_ABORT_T)])
+        self.assertIn("Quorate: No", out)
+        self.assertIn("still an edge node", out)
+        with open(old) as fh:
+            self.assertEqual(fh.read(), "num_nodes = 1\n")
+        self.assertFalse(os.path.exists(
+            os.path.join(self.corosync, "corosync.conf.supermox-single")))
+
+    def test_core_reports_abort_when_the_member_refuses_the_report(self):
+        """A member that will not accept the report still leaves rc 1.
+
+        The report is the last thing cmd_core can do for a node that is not
+        quorate; if the member refuses it, that is said on stderr, and the
+        edge-node restore and the exit code do not depend on the reply.
+        """
+        self._stub_pvesh()
+        self._stub_perl()
+        self._stub("corosync-init", "exit 0")
+        os.environ["SUPERMOX_COROSYNC_INIT"] = os.path.join(
+            self.stub, "corosync-init")
+        self.addCleanup(os.environ.pop, "SUPERMOX_COROSYNC_INIT", None)
+        self.quorum = (1, False, ["Nodes: 1", "Quorate: No"])
+        self._want_ack()
+
+        async def refuse(ep, ident, name, report):
+            raise cli.joind.JoinError("no core join waiting")
+
+        cli.joind.core_done = refuse
+        rc, out = self._core("core")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("did not accept", out)
+        self.assertIn("still an edge node", out)
 
     def _stub(self, name, body):
         """Put one stub command first on PATH for this test."""

@@ -15,6 +15,7 @@ import time
 
 try:
     from supermox import joind
+    from supermox import joinproto
     from supermox import identity as node_identity
     from supermox import invite as invite_mod
     from supermox import secret
@@ -24,11 +25,21 @@ except ImportError:  # repo checkout: bin/ sits next to src/
     sys.path.insert(
         0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
     from supermox import joind
+    from supermox import joinproto
     from supermox import identity as node_identity
     from supermox import invite as invite_mod
     from supermox import secret
     from supermox import state as node_state
     from supermox import corosync_cluster
+
+# How long this node polls corosync-quorumtool -s after finish_join for the
+# new node to become a voter, and how often it polls. The reading that decides
+# is printed and reported to the member as CORE_DONE or CORE_ABORT; the member
+# undoes its addnode on CORE_ABORT. Kept below the member's own 180 s wait
+# so the report always arrives before the member gives up. The two environment
+# variables are the test hook.
+JOINER_QUORUM_TIMEOUT = float(os.environ.get("SUPERMOX_QUORUM_TIMEOUT", "120"))
+JOINER_QUORUM_POLL = float(os.environ.get("SUPERMOX_QUORUM_POLL", "2"))
 
 
 def _arch() -> str:
@@ -374,6 +385,90 @@ def _unstage_core_data(paths: tuple) -> None:
             pass
 
 
+def _quorum_reading():
+    """(nodes, quorate, lines) as corosync-quorumtool -s reports them.
+
+    nodes is None when the tool is missing, timed out or failed, which is
+    not a reading at all; lines are the Nodes and Quorate lines of that
+    reading, the two numbers the join decision is made on.
+    """
+    rc, out = _run_argv(["corosync-quorumtool", "-s"])
+    if rc != 0:
+        return None, None, []
+    nodes = None
+    quorate = None
+    lines = []
+    for raw in out.splitlines():
+        key, sep, value = raw.partition(":")
+        if not sep:
+            continue
+        key = key.strip().lower()
+        value = value.strip()
+        if key == "nodes":
+            try:
+                nodes = int(value)
+            except ValueError:
+                nodes = None
+            lines.append("Nodes: %s" % nodes if nodes is not None
+                         else raw.strip())
+        elif key == "quorate":
+            quorate = value.lower().startswith("yes")
+            lines.append("Quorate: %s" % ("Yes" if quorate else "No"))
+        elif key == "not quorate":
+            quorate = False
+            lines.append("Quorate: No (%s)" % value)
+    return nodes, quorate, lines
+
+
+def _wait_core_quorum(timeout: float = None) -> bool:
+    """Poll corosync-quorumtool -s until this node really is a voter.
+
+    Two nodes is the minimum for a core member: one node is still its own
+    single-node cluster, and a nodelist that grew without the vote arriving
+    is what takes a cluster read-only. Prints the Nodes and Quorate lines
+    of the reading that decided, then reports True when the cluster is
+    quorate with at least two nodes.
+    """
+    if timeout is None:
+        timeout = JOINER_QUORUM_TIMEOUT
+    deadline = time.monotonic() + timeout
+    lines = []
+    while True:
+        nodes, quorate, lines = _quorum_reading()
+        if nodes is not None and nodes >= 2 and quorate:
+            break
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(JOINER_QUORUM_POLL)
+    if not lines:
+        print("corosync-quorumtool -s gave no reading", file=sys.stderr)
+        return False
+    for line in lines:
+        print(line)
+    return nodes is not None and nodes >= 2 and bool(quorate)
+
+
+def _restore_edge_node(had_conf: bool, single_path: str, conf_path: str) -> None:
+    """Put this node's own single-node cluster back after a failed join.
+
+    The config moved aside before the join is the only thing that can: finish_join
+    already overwrote corosync.conf, and corosync and pve-cluster have to be
+    restarted to read it again.
+    """
+    if had_conf:
+        os.replace(single_path, conf_path)
+        print("restored %s" % conf_path, file=sys.stderr)
+    rc, out = _run_argv([
+        "perl", "-MPVE::SysvService", "-e",
+        'PVE::SysvService::restart("corosync"); '
+        'PVE::SysvService::restart("pve-cluster");'])
+    print(out.rstrip())
+    if rc != 0:
+        print("corosync and pve-cluster were not restarted (rc=%d): "
+              "this node is still an edge node, and its own cluster may "
+              "need a manual start" % rc, file=sys.stderr)
+
+
 def _guests() -> tuple:
     """(number of guests on this node, error or None).
 
@@ -443,6 +538,7 @@ def cmd_core(args) -> int:
     ident = _identity(st)
     ack = None
     answered_by = None
+    answered_ep = None
     asked = []
     for m in st.membership:
         if m["name"] == me["name"]:
@@ -458,6 +554,7 @@ def cmd_core(args) -> int:
             print("%s: %s" % (m["name"], exc), file=sys.stderr)
             continue
         answered_by = m["name"]
+        answered_ep = endpoint
         break
     if ack is None:
         print("no member made this node a core member (asked: %s)"
@@ -509,18 +606,7 @@ def cmd_core(args) -> int:
     print(out.rstrip())
     if rc != 0:
         print("finish_join failed (rc=%d)" % rc, file=sys.stderr)
-        if had_conf:
-            os.replace(single_path, conf_path)
-            print("restored %s" % conf_path, file=sys.stderr)
-        rc2, out2 = _run_argv([
-            "perl", "-MPVE::SysvService", "-e",
-            'PVE::SysvService::restart("corosync"); '
-            'PVE::SysvService::restart("pve-cluster");'])
-        print(out2.rstrip())
-        if rc2 != 0:
-            print("corosync and pve-cluster were not restarted (rc=%d): "
-                  "this node is still an edge node, and its own cluster may "
-                  "need a manual start" % rc2, file=sys.stderr)
+        _restore_edge_node(had_conf, single_path, conf_path)
         print("this node is still an edge node: re-run supermox-join core "
               "(or supermox-join cluster-init) to repair it", file=sys.stderr)
         return 1
@@ -528,6 +614,22 @@ def cmd_core(args) -> int:
     # whose default mode is 0644; the authkey is corosync's shared secret,
     # so put the mode back.
     os.chmod(auth_path, 0o400)
+    # finish_join's own report is not the end of the join: this node is a core
+    # member only once the cluster really has its vote. Tell the member that
+    # added us what happened - CORE_DONE keeps it in the nodelist, CORE_ABORT
+    # makes it undo its addnode - and only then decide how to report ourselves.
+    quorate = _wait_core_quorum()
+    report = joinproto.CORE_DONE_T if quorate else joinproto.CORE_ABORT_T
+    try:
+        _run(joind.core_done(answered_ep, ident, me["name"], report))
+    except joind.JoinError as exc:
+        print("%s did not accept %s: %s" % (answered_ep, report, exc),
+              file=sys.stderr)
+    if not quorate:
+        _restore_edge_node(had_conf, single_path, conf_path)
+        print("this node is still an edge node: re-run supermox-join core "
+              "(or supermox-join cluster-init) to repair it", file=sys.stderr)
+        return 1
     print("this node is a corosync core member of cluster %s" % expected)
     return 0
 

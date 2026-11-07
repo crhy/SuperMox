@@ -930,6 +930,11 @@ class CoreJoinTests(JoindBase):
                              run=run)
         await d.start()
         self._daemons.append(d)
+        # A CORE_REQ handler that answers parks waiting for the joiner's
+        # report; pin the wait short so it gives up in well under a second
+        # instead of the 180 s default. Tests that need to prove a report
+        # arrived *before* the wait ends raise it again on the daemon.
+        d.core_confirm_timeout = 0.2
         b_dir, bident = self.joiner("%s-b" % tag)
         await joind.join_phrase(ep, self.derived(PHRASE), bident, "node-b",
                                 "amd64", ["kvm"],
@@ -1074,6 +1079,151 @@ class CoreJoinTests(JoindBase):
         kind, obj = await self.raw_core(ep, frame)
         self.assertEqual(obj["t"], "core_refused")
         self.assertIn("replayed", obj["reason"])
+
+    async def raw_report(self, ep: str, frame: dict) -> tuple:
+        """Send one CORE_DONE / CORE_ABORT frame and read the daemon's reply.
+
+        A report gets no echo frames, so this is raw_core without the echo
+        loop: the answer is core_confirm_ok or core_refused, both JSON.
+        """
+        host, port = joind.parse_endpoint(ep)
+        reader, writer = await asyncio.open_connection(host, port)
+        try:
+            await joind.write_frame(writer, joind.KIND_JSON,
+                                    joind.canonical_json(frame))
+            kind, payload = await joind.read_frame(reader)
+            return kind, json.loads(payload.decode("utf-8"))
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    def stub_conf(self, tag: str, nodes: int) -> int:
+        """Point the nodelist count at a scratch conf listing `nodes` nodes.
+
+        _core_addnode reads the pre-addnode node count from PVE_COROSYNC_CONF,
+        and that count is the vote total the undo has to restore, so the
+        test pins it instead of trusting whatever /etc/pve holds here.
+        """
+        path = os.path.join(self.node_dir("conf-%s" % tag), "corosync.conf")
+        with open(path, "w") as handle:
+            for index in range(nodes):
+                handle.write("\tnode {\n\t\tname = node%d\n\t}\n" % index)
+        orig = corosync_cluster.PVE_COROSYNC_CONF
+        corosync_cluster.PVE_COROSYNC_CONF = path
+        self.addCleanup(setattr, corosync_cluster, "PVE_COROSYNC_CONF", orig)
+        return nodes
+
+    async def test_core_done_keeps_the_node_in_the_nodelist(self):
+        """A signed CORE_DONE after the ACK: the member keeps its addnode.
+
+        The joiner reached quorum, so the CORE_REQ handler must not undo
+        anything: this is the whole point of the confirmation flow.
+        """
+        a, bident, ep, _ = await self.pair("done", self.run_ok)
+        d = self._daemons[-1]
+        # A long wait: if the handler undid on timeout it would not have
+        # fired within the sleep below, so an empty list proves DONE kept it.
+        d.core_confirm_timeout = 5.0
+        undone = []
+        d._undo_addnode = lambda name, nb: undone.append((name, nb))
+        self.stub_conf("done", 2)
+        frame = joinproto.make_core_req("node-b", bident)
+        kind, _ = await self.raw_core(ep, frame)
+        self.assertEqual(kind, joind.KIND_BYTES)
+        reply = await joind.core_done(ep, bident, "node-b",
+                                      joinproto.CORE_DONE_T)
+        self.assertEqual(reply["report"], joinproto.CORE_DONE_T)
+        await asyncio.sleep(0.3)
+        self.assertEqual(undone, [])
+
+    async def test_core_abort_undoes_the_addnode_at_once(self):
+        """CORE_ABORT reaches the member well before its wait times out.
+
+        The joiner said finish_join failed, so the member takes the node
+        back out immediately and restores the vote count addnode had raised.
+        """
+        a, bident, ep, _ = await self.pair("abort", self.run_ok)
+        d = self._daemons[-1]
+        d.core_confirm_timeout = 5.0
+        undone = []
+        d._undo_addnode = lambda name, nb: undone.append((name, nb))
+        self.stub_conf("abort", 2)
+        frame = joinproto.make_core_req("node-b", bident)
+        kind, _ = await self.raw_core(ep, frame)
+        self.assertEqual(kind, joind.KIND_BYTES)
+        reply = await joind.core_done(ep, bident, "node-b",
+                                      joinproto.CORE_ABORT_T)
+        self.assertEqual(reply["report"], joinproto.CORE_ABORT_T)
+        # The wait is 5 s and we only slept 0.3 s: the undo came from the
+        # report, not from a timeout.
+        await asyncio.sleep(0.3)
+        self.assertEqual(undone, [("node-b", 2)])
+
+    async def test_silence_undoes_the_addnode_after_the_timeout(self):
+        """No report at all: the member gives up and takes the node back out.
+
+        A joiner that died between the ACK and its report must not leave
+        this cluster waiting for a vote that never comes.
+        """
+        a, bident, ep, _ = await self.pair("silence", self.run_ok)
+        d = self._daemons[-1]
+        d.core_confirm_timeout = 0.2
+        undone = []
+        d._undo_addnode = lambda name, nb: undone.append((name, nb))
+        self.stub_conf("silence", 2)
+        frame = joinproto.make_core_req("node-b", bident)
+        kind, _ = await self.raw_core(ep, frame)
+        self.assertEqual(kind, joind.KIND_BYTES)
+        self.assertEqual(undone, [])
+        await asyncio.sleep(0.5)
+        self.assertEqual(undone, [("node-b", 2)])
+
+    async def test_core_done_with_no_core_join_waiting_is_refused(self):
+        """A report that arrives when nothing is waiting undoes nothing.
+
+        The member only ever undoes a node it added on this daemon, so a
+        CORE_DONE with no parked CORE_REQ handler is refused outright.
+        """
+        a, bident, ep, _ = await self.pair("none", self.run_ok)
+        d = self._daemons[-1]
+        undone = []
+        d._undo_addnode = lambda name, nb: undone.append((name, nb))
+        frame = joinproto.make_core_confirm(joinproto.CORE_DONE_T,
+                                            "node-b", bident)
+        kind, obj = await self.raw_report(ep, frame)
+        self.assertEqual(obj["t"], "core_refused")
+        self.assertIn("no core join", obj["reason"])
+        self.assertEqual(undone, [])
+
+    async def test_core_done_with_a_bad_signature_is_refused(self):
+        """A tampered report cannot make this cluster undo an addnode."""
+        a, bident, ep, _ = await self.pair("badsig", self.run_ok)
+        d = self._daemons[-1]
+        undone = []
+        d._undo_addnode = lambda name, nb: undone.append((name, nb))
+        frame = joinproto.make_core_confirm(joinproto.CORE_DONE_T,
+                                            "node-b", bident)
+        sig = bytearray(base64.b64decode(frame["sig"]))
+        sig[0] ^= 0xFF
+        frame["sig"] = base64.b64encode(bytes(sig)).decode("ascii")
+        kind, obj = await self.raw_report(ep, frame)
+        self.assertEqual(obj["t"], "core_refused")
+        self.assertIn("signature does not verify", obj["reason"])
+        self.assertEqual(undone, [])
+
+    async def test_replayed_core_done_is_refused(self):
+        """The same report twice: the second is a nonce replay."""
+        a, bident, ep, _ = await self.pair("repc", self.run_ok)
+        d = self._daemons[-1]
+        undone = []
+        d._undo_addnode = lambda name, nb: undone.append((name, nb))
+        frame = joinproto.make_core_confirm(joinproto.CORE_DONE_T,
+                                            "node-b", bident)
+        await self.raw_report(ep, frame)
+        kind, obj = await self.raw_report(ep, frame)
+        self.assertEqual(obj["t"], "core_refused")
+        self.assertIn("replayed", obj["reason"])
+        self.assertEqual(undone, [])
 
 
 class OverlayEndpointTests(JoindBase):

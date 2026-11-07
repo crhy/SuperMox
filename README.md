@@ -99,7 +99,9 @@ on amd64 and passes:
 
 Nodes closer than 5 ms over the overlay (normally the same LAN) become corosync core members and share `/etc/pve`;
 others stay edge nodes on the overlay ([docs/cluster-core-join.md](docs/cluster-core-join.md)). The Manager's
-Cluster page creates a cluster, invites nodes, approves joins and makes a member core.
+Cluster page creates a cluster, invites nodes, approves joins and makes a member core. If a node fails after it was
+admitted to the corosync cluster but before it joined, the member now undoes its addnode: at once on `CORE_ABORT`, or
+after 180 s with no `CORE_DONE` from the joiner. Unit tests cover both paths; the live LAN test is pending.
 
 Not ready yet (open issues):
 
@@ -110,8 +112,6 @@ Not ready yet (open issues):
   ([#8](https://github.com/crhy/SuperMox/issues/8)).
 - Our DHCP fork tracks end-of-life upstream software ([#9](https://github.com/crhy/SuperMox/issues/9)).
 - No signed update channel for our packages ([#10](https://github.com/crhy/SuperMox/issues/10)).
-- If a node fails after it was admitted to the corosync cluster but before it joined, the member does not yet
-  remove it again on its own (`pvecm expected 1` and `pvesh delete /cluster/config/nodes/<name>` repair it).
 - The discovery libraries (gossip, DHT locator, onion helper) have unit tests only: `supermox-joind` does not
   consult them yet ([docs/node-join-architecture.md](docs/node-join-architecture.md)).
 

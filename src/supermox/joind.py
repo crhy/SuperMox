@@ -85,6 +85,15 @@ CORE_RTT_MAX_MS = 5.0             # median RTT under this makes a core member
 CORE_CMD_TIMEOUT = 120            # seconds a PVE call may take on M's side
 CORE_HANDSHAKE_TIMEOUT = 30       # seconds a CORE_ACK may take to arrive
 
+# A core join is not finished when CORE_ACK goes out: this node has only
+# just run addnode. The joiner then writes its files, calls finish_join and
+# reports over the overlay whether the cluster really reached quorum (CORE_DONE)
+# or not (CORE_ABORT). Until that report says DONE this node is an expected
+# voter that may never vote, which takes /etc/pve read-only, so the wait is
+# bounded and the addnode is undone when the report says abort or never comes.
+CORE_CONFIRM_TIMEOUT = 180        # seconds a CORE_DONE may take to arrive
+CORE_CONFIRM_POLL = 0.05          # how often the wait re-reads its record
+
 log = logging.getLogger("supermox-joind")
 
 
@@ -330,10 +339,14 @@ class JoinDaemon:
         self.wg_conf = wg_conf
         self.seen_nonces = {}
         self.waiting = {}          # request_id -> _Conn
+        # member name -> {"result": report type} while a core join waits for
+        # that node's CORE_DONE / CORE_ABORT report
+        self.core_pending = {}
         self.server = None
         self._tasks = set()
         self.active_conns = 0      # connections currently being handled
         self.read_timeout = READ_TIMEOUT
+        self.core_confirm_timeout = CORE_CONFIRM_TIMEOUT
         self.max_connections = MAX_CONNECTIONS
         # Failed-attempt throttle: per source IP, on a monotonic clock the
         # tests can inject. Localhost is not exempt.
@@ -678,6 +691,8 @@ class JoinDaemon:
             return await self._set_endpoints(conn, obj, writer)
         if kind == joinproto.CORE_REQ_T:
             return await self._core_request(conn, obj, writer, reader)
+        if kind in (joinproto.CORE_DONE_T, joinproto.CORE_ABORT_T):
+            return await self._core_confirm(conn, obj, writer)
         log.warning("dropped frame: unknown message type %r", kind)
         return False
 
@@ -812,8 +827,8 @@ class JoinDaemon:
             await self._refuse_core(writer, reason)
             log.warning("core_req from %s refused: %s", entry["name"], reason)
             return False
-        conf, authkey, reason = await self._core_addnode(entry["name"],
-                                                        entry["overlay_addr"])
+        conf, authkey, nodes_before, reason = await self._core_addnode(
+            entry["name"], entry["overlay_addr"])
         if conf is None:
             await self._refuse_core(writer, reason)
             log.warning("core_req from %s refused: %s", entry["name"], reason)
@@ -825,6 +840,69 @@ class JoinDaemon:
         # The authkey is corosync's shared secret: log its length, never it.
         log.info("core_ack to %s: %d byte config, %d byte authkey",
                  entry["name"], len(conf), len(authkey))
+        # The joiner now writes its files, calls finish_join and reports back
+        # on a connection of its own; this one stays open while it waits.
+        report = await self._wait_core_confirmation(entry["name"])
+        if report == joinproto.CORE_DONE_T:
+            log.info("core join by %s confirmed", entry["name"])
+            return True
+        note = await asyncio.to_thread(self._undo_addnode, entry["name"],
+                                       nodes_before)
+        why = ("reported %s" % report if report == joinproto.CORE_ABORT_T
+               else "no confirmation within %d s"
+               % int(self.core_confirm_timeout))
+        log.warning("core join by %s undone (%s): %s", entry["name"], why, note)
+        return False
+
+    async def _wait_core_confirmation(self, name: str):
+        """Wait for this node's CORE_DONE/CORE_ABORT report, or give up.
+
+        The report arrives on another connection, whose handler only sets
+        this record's result. self.core_confirm_timeout is the injectable
+        wait, so a test can watch the timeout fire without sleeping 180 s.
+        Returns the report type, or None when nothing arrived in time.
+        """
+        rec = {"result": None}
+        self.core_pending[name] = rec
+        try:
+            start = self.clock()
+            while True:
+                if rec["result"] is not None:
+                    return rec["result"]
+                if self.clock() - start >= self.core_confirm_timeout:
+                    return None
+                await asyncio.sleep(CORE_CONFIRM_POLL)
+        finally:
+            self.core_pending.pop(name, None)
+
+    async def _core_confirm(self, conn, obj, writer) -> bool:
+        """CORE_DONE / CORE_ABORT: the joiner's report on its finish_join.
+
+        Verified like CORE_REQ: against this cluster's membership list, inside
+        the clock window, with a nonce replay check. On top of that a report
+        only counts while a core join from that node is actually waiting, so
+        neither a stranger nor a node this daemon never added can make this
+        cluster undo an addnode.
+        """
+        try:
+            entry = joinproto.open_core_confirm(obj, self.state.membership,
+                                                seen_nonces=self.seen_nonces)
+        except ValueError as exc:
+            self.state.save_nonces()
+            log.warning("core confirmation refused: %s", exc)
+            await self._refuse_core(writer, str(exc))
+            return False
+        self.state.save_nonces()
+        rec = self.core_pending.get(entry["name"])
+        if rec is None:
+            await write_frame(writer, KIND_JSON, canonical_json(
+                {"t": "core_refused",
+                 "reason": "no core join from %s is waiting for "
+                           "confirmation" % entry["name"]}))
+            return False
+        rec["result"] = obj["t"]
+        await write_frame(writer, KIND_JSON, canonical_json(
+            {"t": "core_confirm_ok", "report": obj["t"]}))
         return True
 
     async def _refuse_core(self, writer, reason: str) -> None:
@@ -898,18 +976,21 @@ class JoinDaemon:
         pvesh's addnode is the call upstream's `pvecm add` makes (docs
         section 2 step 6): the existing cluster decides the config, and
         its reply carries both the new corosync.conf and the authkey. Returns
-        (conf, authkey, None) or (None, None, reason).
+        (conf, authkey, nodes_before, None) or (None, None, nodes_before,
+        reason); nodes_before is what the undo needs to restore quorum.
         """
         if not corosync_cluster.NODE_NAME_RE.match(name):
-            return None, None, "member name %r is not a usable node name" % name
+            return (None, None, None,
+                    "member name %r is not a usable node name" % name)
         nodes_before = corosync_cluster.count_nodes(
             corosync_cluster.PVE_COROSYNC_CONF)
         argv = ["pvesh", "create", "/cluster/config/nodes/%s" % name,
                 "--link0", link, "--output-format", "json"]
         rc, out = await asyncio.to_thread(self.run, argv)
         if rc != 0:
-            return None, None, ("pvesh addnode failed (rc=%d): %s"
-                                % (rc, out.strip()[:200] or "no output"))
+            return None, None, nodes_before, (
+                "pvesh addnode failed (rc=%d): %s"
+                % (rc, out.strip()[:200] or "no output"))
         conf, authkey, reason = self._parse_addnode(out)
         if reason is not None:
             # addnode already put the requester into the nodelist and raised
@@ -918,8 +999,8 @@ class JoinDaemon:
             # LAN pair). Take it out again before refusing.
             note = await asyncio.to_thread(self._undo_addnode, name,
                                            nodes_before)
-            return None, None, "%s; %s" % (reason, note)
-        return conf, authkey, None
+            return None, None, nodes_before, "%s; %s" % (reason, note)
+        return conf, authkey, nodes_before, None
 
     def _undo_addnode(self, name: str, nodes_before: int) -> str:
         """Remove a node addnode just added; restore quorum first if needed."""
@@ -1212,6 +1293,34 @@ async def core_join(endpoint: str, identity: dict, name: str,
             if t == "core_refused":
                 raise JoinError(obj.get("reason") or "refused")
             raise JoinError("member sent %r instead of a core_ack" % t)
+
+
+async def core_done(endpoint: str, identity: dict, name: str,
+                    report: str = joinproto.CORE_DONE_T) -> dict:
+    """Send the CORE_DONE / CORE_ABORT report and read the member's answer.
+
+    The member's handler for the CORE_REQ connection is parked waiting for
+    exactly this frame, so the report goes on a connection of its own. The
+    answer is core_confirm_ok when the member accepted it, core_refused with
+    the reason when it did not - a stranger's report, or one that arrived after
+    the member had already given up and undone its addnode.
+    """
+    frame = joinproto.make_core_confirm(report, name, identity)
+    async with _Client(endpoint) as c:
+        await write_frame(c.writer, KIND_JSON, canonical_json(frame))
+        kind, payload = await read_frame(c.reader)
+        if kind != KIND_JSON:
+            raise JoinError("member sent no reply to the core report")
+        try:
+            obj = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise JoinError("member sent a reply that is not JSON")
+        if obj.get("t") == "core_refused":
+            raise JoinError(obj.get("reason") or "refused")
+        if obj.get("t") != "core_confirm_ok":
+            raise JoinError("member sent %r instead of core_confirm_ok"
+                            % obj.get("t"))
+        return obj
 
 
 async def send_command(endpoint: str, obj: dict) -> dict:
