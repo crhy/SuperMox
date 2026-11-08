@@ -269,10 +269,11 @@ if [ ! -f "$pkg_root/debian/conffiles" ] || ! grep -qx "/etc/dpkg/dpkg.cfg.d/sup
 fi
 # The apt channel: an installed node must actually receive SuperMox updates, so
 # supermox-ve ships the source and the key that authenticates it. The deb822
-# source enables our own `supermox` suite in the signed Spaced repository and
-# names the shipped keyring in Signed-By, so apt trusts only that key and not
-# the whole system trust store. scripts/build-apt-repo.sh publishes the suite
-# with the same key, so the shipped keyring's fingerprint must be that key's.
+# source enables our own `supermox` suite in SuperMox's own apt repository
+# (crhy/supermox-apt, served by GitHub Pages) and names the shipped keyring in
+# Signed-By, so apt trusts only that key and not the whole system trust store.
+# scripts/build-apt-repo.sh publishes the suite with SuperMox's own archive key,
+# so the shipped keyring's fingerprint must be that key's.
 sources="$pkg_root/etc/apt/sources.list.d/supermox.sources"
 keyring="$pkg_root/usr/share/keyrings/supermox-archive-keyring.gpg"
 if [ ! -f "$sources" ]; then
@@ -280,7 +281,7 @@ if [ ! -f "$sources" ]; then
   fail=1
 fi
 if [ -f "$sources" ]; then
-  for field in 'Types: deb' 'URIs: https://crhy.github.io/spaced-apt' 'Suites: supermox' 'Components: main' 'Signed-By: /usr/share/keyrings/supermox-archive-keyring.gpg'; do
+  for field in 'Types: deb' 'URIs: https://crhy.github.io/supermox-apt' 'Suites: supermox' 'Components: main' 'Signed-By: /usr/share/keyrings/supermox-archive-keyring.gpg'; do
     if ! grep -qxF "$field" "$sources"; then
       echo "FAIL: $sources is missing the field: $field"
       fail=1
@@ -293,7 +294,7 @@ if [ ! -f "$keyring" ]; then
 elif command -v gpg > /dev/null 2>&1; then
   # .strata is never committed, so compare against the fingerprint itself.
   fpr="$(gpg --batch --show-keys --with-colons "$keyring" | awk -F: '$1=="fpr"{print $10; exit}')"
-  if [ "${fpr:-none}" != "6C16F77C2DAE19D262CFD9F0CC05F885576EBB05" ]; then
+  if [ "${fpr:-none}" != "D7FA64A80A5D7ABA007C701AF0D2E8CFC76CE6CF" ]; then
     echo "FAIL: $keyring fingerprint is not the SuperMox archive key (got: ${fpr:-none})"
     fail=1
   fi

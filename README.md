@@ -111,7 +111,8 @@ Not ready yet (open issues):
 - The ISO is built and boot-tested in a VM but not yet installed to disk with its installer, nor published
   ([#8](https://github.com/crhy/SuperMox/issues/8)).
 - Our DHCP fork tracks end-of-life upstream software ([#9](https://github.com/crhy/SuperMox/issues/9)).
-- The apt source and keyring now ship in supermox-ve, and publishing our packages to the signed `supermox` suite uses
+- The apt source and keyring now ship in supermox-ve, and publishing our packages to the signed `supermox`
+  suite of our own repository (`crhy/supermox-apt`, key `D7FA64A80A5D7ABA007C701AF0D2E8CFC76CE6CF`) uses
   `scripts/build-apt-repo.sh`; the issue stays open until that suite is actually published
   ([#10](https://github.com/crhy/SuperMox/issues/10)).
 - The discovery libraries (gossip, DHT locator, onion helper) have unit tests only: `supermox-joind` does not

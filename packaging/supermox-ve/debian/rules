@@ -43,8 +43,8 @@ override_dh_auto_install:
 	chmod 0644 debian/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units
 	# The apt channel: an installed node must actually receive SuperMox updates.
 	# supermox-ve ships the source and the key that authenticates it. The deb822
-	# source points at our own `supermox` suite in the signed Spaced repository
-	# (https://crhy.github.io/spaced-apt), signed by the Spaced archive key, whose
+	# source points at our own `supermox` suite in SuperMox's own repository
+	# (https://crhy.github.io/supermox-apt), signed by the SuperMox archive key, whose
 	# public half ships as /usr/share/keyrings/supermox-archive-keyring.gpg; the
 	# .sources file's Signed-By names that keyring, so apt trusts only that key
 	# (never the whole system trust store). scripts/build-apt-repo.sh publishes

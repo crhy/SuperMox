@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# Publish SuperMox packages into a signed apt repository.
+# Publish SuperMox packages into SuperMox's own signed apt repository.
 #
-# Our packages are published as their own suite `supermox` inside the existing
-# signed Spaced apt repository clone (https://crhy.github.io/spaced-apt), signed
-# with the existing Spaced archive key. This mirrors .strata/ref/build-apt-repo.sh
+# Our packages are published as their own suite `supermox` in SuperMox's own
+# repository, crhy/supermox-apt (GitHub Pages: https://crhy.github.io/supermox-apt),
+# signed with SuperMox's own archive key. This mirrors .strata/ref/build-apt-repo.sh
 # and .strata/ref/publish-apt-package.sh: same index generator (apt-ftparchive),
 # same Filename rewrite (relative to the repository root), same pinned key, same
-# InRelease/Release.gpg signing. It touches nothing outside pool/supermox/ and
-# dists/supermox/, so Spaced's own suites in the same clone stay byte-identical.
+# InRelease/Release.gpg signing. It touches nothing outside pool/main/ and
+# dists/supermox/, so any other suite in the same clone stays byte-identical.
 #
-# Usage: bash scripts/build-apt-repo.sh DEB_DIR APT_REPO_DIR
+# Usage: bash scripts/build-apt-repo.sh DEB_DIR [APT_REPO_DIR]
 #   DEB_DIR      the directory of built .deb files (SUPERMOX_DEBS_DIR / build/<vm>/debs)
-#   APT_REPO_DIR a clone of crhy/spaced-apt (its dists/ and pool/ trees)
+#   APT_REPO_DIR defaults to ./supermox-apt and must be a clone of crhy/supermox-apt
+#                (its dists/ and pool/ trees); a directory that is not a git clone
+#                is refused before anything is written.
 #
 # Package selection follows the staging loop in scripts/build-iso.sh: newest
 # version per package, skipping *-dbgsym_* and *-build-deps_*.
@@ -19,13 +21,13 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
-DEB_DIR="${1:?Usage: build-apt-repo.sh DEB_DIR APT_REPO_DIR}"
-APT_REPO_DIR="${2:?Usage: build-apt-repo.sh DEB_DIR APT_REPO_DIR}"
+DEB_DIR="${1:?Usage: build-apt-repo.sh DEB_DIR [APT_REPO_DIR]}"
+APT_REPO_DIR="${2:-${SUPERMOX_APT_REPO_DIR:-$repo_root/supermox-apt}}"
 
 DIST=supermox
 COMP=main
-# The pinned Spaced archive key and the keyring shipped in supermox-ve.
-SIGNING_KEY=${SUPERMOX_APT_SIGNING_KEY:-6C16F77C2DAE19D262CFD9F0CC05F885576EBB05}
+# The pinned SuperMox archive key and the keyring shipped in supermox-ve.
+SIGNING_KEY=${SUPERMOX_APT_SIGNING_KEY:-D7FA64A80A5D7ABA007C701AF0D2E8CFC76CE6CF}
 KEYRING=${SUPERMOX_APT_KEYRING:-$repo_root/packaging/supermox-ve/usr/share/keyrings/supermox-archive-keyring.gpg}
 
 die() {
@@ -35,6 +37,14 @@ die() {
 
 [ -d "$DEB_DIR" ] || die "no deb dir: $DEB_DIR"
 [ -f "$KEYRING" ] || die "no keyring: $KEYRING"
+[ -d "$APT_REPO_DIR" ] ||
+  die "$APT_REPO_DIR is not a clone of crhy/supermox-apt: run 'git clone https://github.com/crhy/supermox-apt' there first"
+APT_REPO_DIR=$(cd "$APT_REPO_DIR" && pwd)
+# The repository directory itself must be the clone, not a directory inside some
+# other repository: --show-toplevel names the clone's own root, and a directory
+# that merely sits inside a repository resolves to that repository's root instead.
+[ "$(git -C "$APT_REPO_DIR" rev-parse --show-toplevel 2>/dev/null)" = "$APT_REPO_DIR" ] ||
+  die "$APT_REPO_DIR is not a clone of crhy/supermox-apt: run 'git clone https://github.com/crhy/supermox-apt' there first"
 
 # Refuse a substituted signing identity before touching repository metadata.
 key_fingerprint=$(gpg --batch --show-keys --with-colons "$KEYRING" \
@@ -44,8 +54,7 @@ key_fingerprint=$(gpg --batch --show-keys --with-colons "$KEYRING" \
 gpg --batch --list-secret-keys "$SIGNING_KEY" >/dev/null ||
   die "no secret key $SIGNING_KEY available for signing"
 
-APT_REPO_DIR=$(cd "$APT_REPO_DIR" && pwd)
-pool_root="$APT_REPO_DIR/pool/$DIST"
+pool_root="$APT_REPO_DIR/pool/$COMP"
 dist_root="$APT_REPO_DIR/dists/$DIST"
 mkdir -p "$pool_root" "$dist_root/$COMP"
 
@@ -93,7 +102,7 @@ if [ "${#managed[@]}" -eq 0 ]; then
   die "no SuperMox .debs found in $DEB_DIR"
 fi
 
-# --- Stage into pool/supermox/<first letter>/<package>/ ----------------------
+# --- Stage into pool/main/<first letter>/<package>/ ------------------------
 # Remove every older version of each package we manage from its pool dir first,
 # then copy in the newest, so the pool holds exactly one version per package.
 for name in "${!managed[@]}"; do
@@ -108,9 +117,9 @@ for name in "${!best_file[@]}"; do
 done
 
 # --- Generate Packages indexes (Filename relative to the repository root) ---
-# apt-ftparchive run from the repository root over pool/supermox already yields
-# Filename: pool/supermox/... paths, which is what apt resolves downloads from.
-(cd "$APT_REPO_DIR" && apt-ftparchive packages "pool/$DIST") > "$work/Packages"
+# apt-ftparchive run from the repository root over pool/main already yields
+# Filename: pool/main/... paths, which is what apt resolves downloads from.
+(cd "$APT_REPO_DIR" && apt-ftparchive packages "pool/$COMP") > "$work/Packages"
 
 # Build the index in a clean metadata tree (like .strata/ref/build-apt-repo.sh):
 # apt-ftparchive release must see only the component index files, so its

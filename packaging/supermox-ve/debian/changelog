@@ -1,11 +1,31 @@
+supermox-ve (0.1.26) unstable; urgency=medium
+
+  * apt channel: the source and the key now point at SuperMox's own repository.
+    etc/apt/sources.list.d/supermox.sources sets URIs to
+    https://crhy.github.io/supermox-apt, the GitHub Pages site of crhy/supermox-apt,
+    instead of another project's repository; Suites, Components and Signed-By are
+    unchanged. usr/share/keyrings/supermox-archive-keyring.gpg is now the public
+    half of SuperMox's own archive key, fingerprint
+    D7FA64A80A5D7ABA007C701AF0D2E8CFC76CE6CF, so a node trusts only SuperMox's
+    key for SuperMox packages. scripts/build-apt-repo.sh defaults its signing
+    key to that fingerprint and its repository directory to ./supermox-apt, refuses
+    a directory that is not a git clone of crhy/supermox-apt before writing
+    anything, and stages packages under pool/main/<first letter>/<package>/, the
+    Debian pool layout of a repository whose only component is main, instead of
+    a per-suite pool directory. tests/test-supermox-ve.sh checks the new URI and
+    the new keyring fingerprint; tests/test-apt-repo.sh keeps its throwaway key
+    and checks the new pool path and the not-a-clone refusal.
+
+ -- SuperMox <noreply@supermox.me>  Sat, 07 Nov 2026 14:00:00 -0800
+
 supermox-ve (0.1.25) unstable; urgency=medium
 
   * apt channel: an installed node now receives SuperMox updates. supermox-ve
     ships the source and the key that authenticates it. etc/apt/sources.list.d/
     supermox.sources (deb822) enables our own `supermox` suite in the signed
-    Spaced repository (https://crhy.github.io/spaced-apt), and
+    apt repository (its dists/ and pool/ trees), and
     usr/share/keyrings/supermox-archive-keyring.gpg carries the public half of
-    the Spaced archive key that signs it; the .sources file's Signed-By names
+    the archive key that signs it; the .sources file's Signed-By names
     that keyring, so apt trusts only that key and not the whole system trust
     store. debian/conffiles declares the .sources file (debhelper does not
     auto-register files copied in by debian/rules). etc/apt/preferences.d/
@@ -13,12 +33,12 @@ supermox-ve (0.1.25) unstable; urgency=medium
     so the hosted suite also wins over Proxmox's dependency repository, next
     to the existing records (which are all kept). scripts/build-apt-repo.sh
     publishes the suite: it picks the newest version of each package with the
-    same rules as the ISO staging loop, stages them under pool/supermox/,
+    same rules as the ISO staging loop, stages them under the pool,
     writes amd64/arm64/all Packages with apt-ftparchive and a SuperMox Release,
     and signs InRelease/Release.gpg with the same key, refusing a substituted
-    signing identity before writing anything and touching nothing outside
-    pool/supermox/ and dists/supermox/ so Spaced's own suites in the same clone
-    stay byte-identical. tests/test-apt-repo.sh proves this offline with a
+    signing identity before writing anything and touching nothing outside the
+    pool and dists/supermox/ so other suites in the same clone stay
+    byte-identical. tests/test-apt-repo.sh proves this offline with a
     throwaway key; tests/test-supermox-ve.sh checks the shipped source, keyring
     fingerprint, rules install and the new pin record.
 

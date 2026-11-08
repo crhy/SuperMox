@@ -2,10 +2,11 @@
 # tests/test-apt-repo.sh — offline test for scripts/build-apt-repo.sh.
 #
 # It generates a throwaway signing key, builds tiny .debs with dpkg-deb, and
-# publishes them into a scratch repository clone. It checks: only the newest
-# version of each package is published, the Release metadata is ours (Origin
-# SuperMox, suite supermox, amd64/arm64/all), InRelease verifies against the
-# keyring, a pre-existing Spaced suite file in the same clone is left byte-identical,
+# publishes them into a scratch clone of SuperMox's own apt repository. It checks:
+# only the newest version of each package is published under pool/main/, the
+# Release metadata is ours (Origin SuperMox, suite supermox, amd64/arm64/all),
+# InRelease verifies against the keyring, a pre-existing other suite in the same
+# clone is left byte-identical, a directory that is not a git clone is refused,
 # and a substituted signing identity fails without writing anything.
 set -euo pipefail
 
@@ -19,7 +20,7 @@ if [ ! -f "$target" ]; then
   exit 1
 fi
 
-work="$PWD/build/c14-test"
+work="$PWD/build/c14b-own-apt-repo/test-apt-repo"
 rm -rf "$work"
 mkdir -p "$work"
 
@@ -65,11 +66,32 @@ mk_deb dummy 1.0.0 amd64
 mk_deb dummy 1.1.0 amd64
 mk_deb allpkg 2.0.0 all
 
-# A scratch repository clone with a pre-existing Spaced suite file that must
-# survive untouched.
+# A scratch clone of SuperMox's own repository, with a pre-existing other suite
+# (dists/other plus its pool files) that must survive untouched. A directory that
+# is not a git clone is refused, so the scratch repo has to be a repo.
 repo="$work/repo"
-mkdir -p "$repo/dists/spaced"
-printf 'spaced-original\n' > "$repo/dists/spaced/Release"
+mkdir -p "$repo/dists/other/main" "$repo/pool/o/other"
+git init -q "$repo"
+printf 'other-original\n' > "$repo/dists/other/Release"
+printf 'other-pool-file\n' > "$repo/pool/o/other/other_1.0.0_all.deb"
+
+# A plain directory is not a clone of crhy/supermox-apt: it must be refused before
+# anything is written.
+plain="$work/plain"
+mkdir -p "$plain"
+if out="$(SUPERMOX_APT_SIGNING_KEY="$KEY" SUPERMOX_APT_KEYRING="$KEYRING" timeout 120 bash "$target" "$debs" "$plain" 2>&1)"; then
+  echo "FAIL: build-apt-repo.sh published into a directory that is not a clone"
+  missing=1
+fi
+printf '%s\n' "$out" | grep -qF -- 'not a clone of crhy/supermox-apt' || {
+  printf '%s\n' "$out"
+  echo "FAIL: build-apt-repo.sh did not explain that the repository dir is not a clone"
+  missing=1
+}
+if [ -d "$plain/dists" ] || [ -d "$plain/pool" ]; then
+  echo "FAIL: the not-a-clone run wrote repository metadata"
+  missing=1
+fi
 
 if ! out="$(SUPERMOX_APT_SIGNING_KEY="$KEY" SUPERMOX_APT_KEYRING="$KEYRING" timeout 120 bash "$target" "$debs" "$repo" 2>&1)"; then
   echo "FAIL: build-apt-repo.sh failed:"
@@ -78,18 +100,18 @@ if ! out="$(SUPERMOX_APT_SIGNING_KEY="$KEY" SUPERMOX_APT_KEYRING="$KEYRING" time
 fi
 
 # Newest version only: the pool and the amd64 index must hold 1.1.0, never 1.0.0.
-if [ ! -f "$repo/pool/supermox/d/dummy/dummy_1.1.0_amd64.deb" ]; then
-  echo "FAIL: the newest dummy (1.1.0) is not in pool/supermox/d/dummy/"
+if [ ! -f "$repo/pool/main/d/dummy/dummy_1.1.0_amd64.deb" ]; then
+  echo "FAIL: the newest dummy (1.1.0) is not in pool/main/d/dummy/"
   missing=1
 fi
-if [ -f "$repo/pool/supermox/d/dummy/dummy_1.0.0_amd64.deb" ]; then
+if [ -f "$repo/pool/main/d/dummy/dummy_1.0.0_amd64.deb" ]; then
   echo "FAIL: the older dummy (1.0.0) is still in the pool"
   missing=1
 fi
-if [ -f "$repo/pool/supermox/a/allpkg/allpkg_2.0.0_all.deb" ]; then
+if [ -f "$repo/pool/main/a/allpkg/allpkg_2.0.0_all.deb" ]; then
   :
 else
-  echo "FAIL: the arch-all package is not in pool/supermox/a/allpkg/"
+  echo "FAIL: the arch-all package is not in pool/main/a/allpkg/"
   missing=1
 fi
 
@@ -115,12 +137,12 @@ if [ -f "$all_arch_idx" ] && ! grep -qF -- 'Package: allpkg' "$all_arch_idx"; th
   missing=1
 fi
 # Filename must be relative to the repository root (apt resolves downloads there).
-if [ -f "$amd64_idx" ] && ! grep -qF -- 'Filename: pool/supermox/d/dummy/dummy_1.1.0_amd64.deb' "$amd64_idx"; then
-  echo "FAIL: binary-amd64/Packages Filename is not pool/supermox/... relative to the repo root"
+if [ -f "$amd64_idx" ] && ! grep -qF -- 'Filename: pool/main/d/dummy/dummy_1.1.0_amd64.deb' "$amd64_idx"; then
+  echo "FAIL: binary-amd64/Packages Filename is not pool/main/... relative to the repo root"
   missing=1
 fi
 
-# Release metadata is ours, not Spaced's.
+# Release metadata is ours.
 rel="$repo/dists/supermox/Release"
 if [ ! -f "$rel" ]; then
   echo "FAIL: dists/supermox/Release does not exist"
@@ -154,21 +176,27 @@ if [ -f "$repo/dists/supermox/InRelease" ]; then
   fi
 fi
 
-# The pre-existing Spaced suite in the same clone must be byte-identical.
-if ! cmp -s <(printf 'spaced-original\n') "$repo/dists/spaced/Release"; then
-  echo "FAIL: the pre-existing dists/spaced/Release was modified"
+# The pre-existing other suite in the same clone must be byte-identical, in
+# dists and in pool.
+if ! cmp -s <(printf 'other-original\n') "$repo/dists/other/Release"; then
+  echo "FAIL: the pre-existing dists/other/Release was modified"
+  missing=1
+fi
+if ! cmp -s <(printf 'other-pool-file\n') "$repo/pool/o/other/other_1.0.0_all.deb"; then
+  echo "FAIL: the pre-existing pool/o/other/ file was modified"
   missing=1
 fi
 
 # A substituted signing identity must fail without writing anything.
 bad="$work/repo-bad"
 mkdir -p "$bad"
+git init -q "$bad"
 if SUPERMOX_APT_SIGNING_KEY="0000000000000000000000000000000000000000" \
   SUPERMOX_APT_KEYRING="$KEYRING" timeout 120 bash "$target" "$debs" "$bad" >/dev/null 2>&1; then
   echo "FAIL: build-apt-repo.sh accepted a signing key that does not match the keyring"
   missing=1
 fi
-if [ -e "$bad/dists/supermox" ] || [ -e "$bad/pool/supermox" ]; then
+if [ -e "$bad/dists/supermox" ] || [ -e "$bad/pool/main" ]; then
   echo "FAIL: the mismatched-key run wrote repository metadata"
   missing=1
 fi
@@ -179,6 +207,6 @@ if [ "$missing" -ne 0 ]; then
   exit 1
 fi
 
-echo "OK: build-apt-repo.sh publishes only the newest version of each package into pool/supermox/"
+echo "OK: build-apt-repo.sh publishes only the newest version of each package into pool/main/<letter>/<package>/"
 echo "OK: build-apt-repo.sh writes amd64/arm64/all Packages with repo-root-relative Filenames and SuperMox Release metadata"
-echo "OK: build-apt-repo.sh signs InRelease/Release.gpg so they verify against the shipped keyring, leaves other suites untouched, and fails on a substituted signing key"
+echo "OK: build-apt-repo.sh signs InRelease/Release.gpg so they verify against the shipped keyring, refuses a directory that is not a clone, leaves other suites untouched, and fails on a substituted signing key"
