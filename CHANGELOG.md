@@ -31,6 +31,15 @@
 - Documentation: `docs/README.md` index, `docs/architecture.md`, `docs/development.md`;
   Manager coverage updated.
 
+### Fixed
+
+- `init.d/waydroid-container`: `start` reported success while the Android
+  container was down - a live daemon pid next to a stopped container passed,
+  and a missing pidfile passed too. It now waits for both the recorded pid
+  and the container manager's LXC state (RUNNING), stops the container and
+  exits non-zero when either is missing, and `tests/test-waydroid-container.sh`
+  covers it (#7).
+
 ### Known limitations
 
 - Web UI still shows Proxmox branding (not yet rebranded in the running UI).

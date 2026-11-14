@@ -8,6 +8,13 @@ supermox-android (0.1.0) unstable; urgency=medium
     `waydroid container start`. Upstream ships only a unit file for an
     init system we do not use, and the rootfs build drops unit files at
     install time, so nothing else started the container.
+  * init.d/waydroid-container start now proves the container is up instead of
+    trusting a live pid: it waits (up to 10 s) for the recorded pid to stay
+    alive and for the container manager to report the LXC container RUNNING -
+    lxc-info, or waydroid's own status line where the lxc tools are not
+    installed. If either half fails the container is stopped, the pid file
+    removed and the start exits non-zero, so a container that stopped at once
+    is no longer reported as a successful start.
   * /etc/modules-load.d/waydroid.conf: loads binder_linux with the
     binder/hwbinder/vndbinder device arguments Android's bind mounts need.
   * /usr/sbin/supermox-android-setup: idempotent setup, pinned Lawnchair

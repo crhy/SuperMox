@@ -51,6 +51,20 @@ load_binder() {
   return 0
 }
 
+# Ask the container manager whether the Android container is actually up.
+# A live daemon pid is not proof: the daemon parks on its D-Bus listener even
+# when the LXC container stopped at once. waydroid names its container "waydroid";
+# lxc-info answers with the state alone, and where the lxc tools are not installed
+# we parse waydroid's own status line instead.
+container_running() {
+  if command -v lxc-info >/dev/null 2>&1; then
+    state=$(lxc-info -n waydroid --state --no-header 2>/dev/null | tr -d '[:space:]')
+    [ "$state" = "RUNNING" ] && return 0
+    return 1
+  fi
+  "$DAEMON" status 2>/dev/null | grep -q 'Container:[[:space:]]*RUNNING'
+}
+
 case "$1" in
   start)
     log_begin_msg "Starting $NAME"
@@ -75,10 +89,36 @@ case "$1" in
       log_end_msg "$rc"
       exit "$rc"
     fi
-    # The daemon forks into the background; give it a moment to fail fast
-    # (missing image, no D-Bus bus) so a broken start is reported, not hidden.
-    sleep 2
-    if [ -f "$PIDFILE" ] && ! kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+    # Both halves must hold before this start is called a success: the pid
+    # start-stop-daemon recorded is still alive (a missing pidfile is a failure,
+    # not a pass), and the container manager reports the container RUNNING. Bounded
+    # wait - 10 x 1 s, no fixed sleep - so a start that needs a moment to bring
+    # the container up still passes, and one that is dead is reported.
+    pid_ok=0
+    state_ok=0
+    i=0
+    while [ "$i" -lt 10 ]; do
+      i=$((i + 1))
+      if [ ! -f "$PIDFILE" ] || ! kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        pid_ok=0
+        break
+      fi
+      pid_ok=1
+      if container_running; then
+        state_ok=1
+        break
+      fi
+      sleep 1
+    done
+    if [ "$pid_ok" -ne 1 ] || [ "$state_ok" -ne 1 ]; then
+      if [ "$pid_ok" -ne 1 ]; then
+        printf '%s: %s daemon did not stay up (no live pid in %s)\n' "$NAME" "$NAME" "$PIDFILE" >&2
+      else
+        printf '%s: %s daemon is up but the container is not RUNNING\n' "$NAME" "$NAME" >&2
+      fi
+      # Tear the half-started layer down so a later start cannot mistake it
+      # for a working container, and leave no stale pidfile behind.
+      "$DAEMON" container stop >/dev/null 2>&1 || true
       rm -f "$PIDFILE"
       log_end_msg 1
       exit 1
