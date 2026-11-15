@@ -43,20 +43,9 @@ fi
 printf 'deb [signed-by=%s] http://download.proxmox.com/debian/pve trixie pve-no-subscription\ndeb [signed-by=%s] http://download.proxmox.com/debian/devel trixie main\n' "$KEY_PATH" "$KEY_PATH" > /etc/apt/sources.list.d/proxmox.list
 rm -f /etc/apt/sources.list.d/pve.list
 
-cat > /etc/apt/preferences.d/supermox-origins <<'PIN'
-Package: *
-Pin: origin download.proxmox.com
-Pin-Priority: 100
-
-Package: *
-Pin: origin ""
-Pin-Priority: 999
-
-Explanation: qemu-server needs Proxmox's patched swtpm (0.10.2+pve1), not Devuan's.
-Package: swtpm swtpm-libs swtpm-tools
-Pin: origin download.proxmox.com
-Pin-Priority: 600
-PIN
+# /etc/apt/preferences.d/supermox-origins is copied in from the repo copy
+# (packaging/supermox-ve/etc/apt/preferences.d/supermox-origins) before this
+# script runs; on an installed system the supermox-ve package ships that file.
 
 printf 'deb http://deb.devuan.org/merged excalibur main\n' > /etc/apt/sources.list.d/excalibur-rust.list
 
@@ -84,6 +73,17 @@ RUSTPIN
 
 apt-get update
 REMOTE
+
+pin_src="$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-origins"
+if [ ! -f "$pin_src" ]; then
+  printf 'ERROR: apt pin file not found: %s\n' "$pin_src" >&2
+  exit 1
+fi
+
+if ! remote 'install -d /etc/apt/preferences.d && install -m 0644 /dev/stdin /etc/apt/preferences.d/supermox-origins' < "$pin_src"; then
+  printf 'FAIL: install /etc/apt/preferences.d/supermox-origins (SuperMox origin pins)\n' >&2
+  exit 1
+fi
 
 if ! remote 'bash -s' < "$remote_script"; then
   printf 'FAIL: apt repository setup (keyring, sources, pins, apt-get update)\n' >&2

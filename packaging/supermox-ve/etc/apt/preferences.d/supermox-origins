@@ -1,0 +1,58 @@
+# SuperMox apt origin pins, installed at /etc/apt/preferences.d/supermox-origins
+# by the supermox-ve package. This file is the single source of truth: the build
+# VM (scripts/vm-setup-proxmox-repos.sh) and the ISO chroot (scripts/build-iso.sh)
+# copy it instead of carrying their own text.
+#
+# Every pin here is structural, not a version hold: nothing keeps a Proxmox
+# package behind the version upstream ships today. They only decide which origin
+# a package may come from - our sysvinit rebuilds in front of Proxmox's systemd
+# based builds, and systemd itself out altogether.
+
+Explanation: SuperMox ships its own rebuilt PVE stack; local .debs must win.
+Package: *
+Pin: origin ""
+Pin-Priority: 999
+
+Explanation: Proxmox's trixie pve and devel repositories fill in the rest.
+Package: *
+Pin: origin download.proxmox.com
+Pin-Priority: 100
+
+Explanation: qemu-server needs Proxmox's patched swtpm (0.10.2+pve1), not Devuan's.
+Package: swtpm swtpm-libs swtpm-tools
+Pin: origin download.proxmox.com
+Pin-Priority: 600
+
+Explanation: these are the packages SuperMox rebuilds with its sysvinit patches,
+ so an upstream Proxmox build of the same name must never replace one of ours:
+ the Proxmox origin is refused outright (-1) for exactly these names, and only
+ the local SuperMox repository (origin "", 999 above) may provide them.
+# Component -> package(s) it builds; the names are not always identical.
+# proxmox-perl-rs builds pve-rs from its pve-rs subdir (config/build-subdirs.txt);
+# proxmox-ve is upstream's meta package, which SuperMox replaces with supermox-ve
+# (that package Provides: proxmox-ve); every other component builds one package
+# of its own name. Components are the directories under patches/ plus the ones
+# config/upstream-overrides.txt pins to an upstream commit without a patch yet.
+#   proxmox-perl-rs -> pve-rs
+#   pve-cluster -> pve-cluster
+#   pve-common -> pve-common
+#   pve-container -> pve-container
+#   pve-firewall -> pve-firewall
+#   pve-ha-manager -> pve-ha-manager
+#   pve-manager -> pve-manager
+#   pve-storage -> pve-storage
+#   qemu-server -> qemu-server
+#   pve-access-control -> pve-access-control
+#   pve-guest-common -> pve-guest-common
+#   pve-http-server -> pve-http-server
+#   proxmox-ve -> proxmox-ve
+#   librados2-perl -> librados2-perl
+Package: pve-rs pve-cluster pve-common pve-container pve-firewall pve-ha-manager pve-manager pve-storage qemu-server pve-access-control pve-guest-common pve-http-server proxmox-ve librados2-perl
+Pin: origin download.proxmox.com
+Pin-Priority: -1
+
+Explanation: ZERO systemd. sysvinit-core and the standalone sysusers/tmpfiles
+ binaries installed at bootstrap stay; nothing may pull systemd in later.
+Package: systemd systemd-sysv libsystemd0 libpam-systemd libsystemd-twitch-1 libsystemd-twitch2 systemd-notify systemd-loginctl
+Pin: version *
+Pin-Priority: -1

@@ -4,3 +4,4 @@
 # A non-comment line without a "# reason" is an error (exit 2).
 pve-container/pve-container/src/test/*  # guest OS fixtures for container setup tests
 pve-container/pve-container/src/PVE/LXC/Setup/*  # configures init inside guest containers
+packaging/supermox-ve/etc/apt/preferences.d/supermox-origins  # names systemd packages only to pin them out of the Proxmox origin (Pin-Priority: -1); SuperMox stays sysvinit

@@ -23,6 +23,8 @@ WORKTREE="$repo_root/build/spaced-iso"
 KEY_URL='https://enterprise.proxmox.com/debian/proxmox-archive-keyring-trixie.gpg'
 HOST_KEY='/usr/share/keyrings/proxmox-archive-keyring.gpg'
 KEY_CACHE="$repo_root/build/proxmox-archive-keyring.gpg"
+# Single source of truth for the apt origin pins, shipped by supermox-ve.
+PIN_SRC="$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-origins"
 # GitHub releases reject files larger than this.
 ISO_MAX_BYTES=$((2 * 1024 * 1024 * 1024))
 # Same squashfs tuning the Spaced Makefile uses (docs/10.26.6-IMAGE-SIZE.md).
@@ -237,28 +239,10 @@ step "Proxmox key: $lb_dir/config/archives/proxmox.key.chroot (live-build instal
 run cp "$key_src" "$lb_dir/config/archives/proxmox.key.chroot"
 
 step "pins: $lb_dir/config/archives/supermox.pref.chroot (local 999 > Proxmox 100, swtpm+pve1 600, systemd -1)"
-write_file "$lb_dir/config/archives/supermox.pref.chroot" <<'PREF'
-Explanation: SuperMox ships its own rebuilt PVE stack; local .debs must win.
-Package: *
-Pin: origin ""
-Pin-Priority: 999
-
-Explanation: Proxmox's trixie pve and devel repositories fill in the rest.
-Package: *
-Pin: origin download.proxmox.com
-Pin-Priority: 100
-
-Explanation: qemu-server needs Proxmox's patched swtpm (0.10.2+pve1), not Devuan's.
-Package: swtpm swtpm-libs swtpm-tools
-Pin: origin download.proxmox.com
-Pin-Priority: 600
-
-Explanation: ZERO systemd. sysvinit-core and the standalone sysusers/tmpfiles
-binaries installed at bootstrap stay; nothing may pull systemd in later.
-Package: systemd systemd-sysv libsystemd0 libpam-systemd libsystemd-twitch-1 libsystemd-twitch2 systemd-notify systemd-loginctl
-Pin: version *
-Pin-Priority: -1
-PREF
+if [ ! -f "$PIN_SRC" ]; then
+  fail "apt pin file missing at $PIN_SRC (packaging/supermox-ve ships it)"
+fi
+run cp "$PIN_SRC" "$lb_dir/config/archives/supermox.pref.chroot"
 
 step "branding: $lb_dir/config/includes.chroot/etc/supermox/release (Spaced's /etc/os-release is left as is)"
 run mkdir -p "$lb_dir/config/includes.chroot/etc/supermox"

@@ -20,6 +20,12 @@
   secret (`src/supermox/locator.py`).
 - Daemon stderr reaches syslog under sysvinit (`scripts/supermox-logpipe`).
 - `scripts/check-overrides.sh`: offline check of `config/upstream-overrides.txt`.
+- `supermox-ve` ships `/etc/apt/preferences.d/supermox-origins` (#10 item 2): the
+  apt origin pins (local builds 999 > Proxmox 100, swtpm 600, `Pin-Priority: -1`
+  from the Proxmox origin for every package we rebuild, systemd packages -1), so
+  an upstream Proxmox release can never replace one of our sysvinit builds on an
+  installed system. `scripts/vm-setup-proxmox-repos.sh` and `scripts/build-iso.sh`
+  copy that one file instead of carrying their own copy of the text.
 - Waydroid test VM and debugging notes for the Android layer.
 - SuperMox Manager: page registry (one module per page), every module shipped and
   smoke-tested by the gate, live test harness (`tests/manager-live.sh`), and native pages
@@ -33,6 +39,10 @@
 
 ### Known limitations
 
+- No update channel yet (#10 items 1, 3, 4): no signed SuperMox apt repository
+  configured on installed systems, no `+supermoxN` version suffix on rebuilt
+  components, no release routine. The pins are in place; what they pin to is not
+  published yet.
 - Web UI still shows Proxmox branding (not yet rebranded in the running UI).
 - ZFS is opt-in (requires `zfs-dkms` built against the installed kernel).
 - WireGuard join verified end to end between network namespaces in the test VM
