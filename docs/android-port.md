@@ -43,7 +43,11 @@ The Android UI is **LineageOS running inside a Waydroid LXC container** on the h
   (Waydroid needs bind mounts inside the container), runs `waydroid init` to fetch the LineageOS
   image, then installs Lawnchair from a release APK that **must** be given with a sha256
   (`--lawnchair-url URL --sha256 SUM`), installs it with `waydroid app install` and sets it as the
-  home app.
+  home app. It chooses the Waydroid image from the node's architecture
+  (`--arch`, defaulting to `dpkg --print-architecture`: amd64 → `x86_64`, arm64/armhf →
+  `aarch64`, no image for riscv64/loong64) and refuses to start the download when no
+  `waydroid (>= 1.6.3)` package is installable there; that arm64 image path is coded but
+  unproven, and issue #6's live boot steps on an arm64 node are what prove it.
 
 ## Two hardware paths
 
