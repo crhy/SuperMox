@@ -78,6 +78,105 @@ if [ "$rc" -eq 0 ]; then
 fi
 check_has "VANILLA or MAINLINE"
 
+# --arch selects the Waydroid image for the node's architecture: an arm64
+# node must get the aarch64 image, never the amd64 one (crhy/SuperMox#6).
+out="$(bash "$script" --dry-run --arch arm64 --cache "$cache" 2>&1)" || {
+  echo "FAIL: --dry-run --arch arm64 exited non-zero"
+  printf '%s\n' "$out"
+  exit 1
+}
+check_has "waydroid init -s VANILLA -a aarch64"
+check_has "apt-cache policy waydroid (waydroid >= 1.6.3 must be installable on arm64 nodes)"
+# armhf runs the same aarch64 image.
+out="$(bash "$script" --dry-run --arch armhf --cache "$cache" 2>&1)" || {
+  echo "FAIL: --dry-run --arch armhf exited non-zero"
+  fail=1
+}
+check_has "waydroid init -s VANILLA -a aarch64"
+
+# The default --arch is dpkg --print-architecture, so on this amd64 host the
+# plan still names the x86_64 image.
+out="$(bash "$script" --dry-run --cache "$cache" 2>&1)" || {
+  echo "FAIL: --dry-run exited non-zero"
+  fail=1
+}
+if [ "$(dpkg --print-architecture)" = amd64 ]; then
+  check_has "waydroid init -s VANILLA -a x86_64"
+fi
+
+# An architecture outside scripts/arch.sh's vocabulary is refused with arch.sh's
+# own wording and exit code, not silently mapped onto some image.
+want="$(SUPERMOX_ARCH=sparc64 bash -c 'source scripts/arch.sh; supermox_arch_known' 2>&1)" || true
+out="$(bash "$script" --dry-run --arch sparc64 2>&1)" && rc=0 || rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo "FAIL: --arch sparc64 accepted"
+  fail=1
+fi
+if [ "$rc" -ne 2 ]; then
+  echo "FAIL: --arch sparc64 exited $rc, expected 2 (scripts/arch.sh's code)"
+  fail=1
+fi
+if ! printf '%s\n' "$out" | grep -qF -- "$want"; then
+  echo "FAIL: --arch sparc64 message does not match scripts/arch.sh: [$want]"
+  printf '%s\n' "$out"
+  fail=1
+fi
+
+# Waydroid publishes x86_64 and aarch64 images only, so the other architectures
+# SuperMox targets are refused before the script touches anything.
+for arch in riscv64 loong64; do
+  out="$(bash "$script" --dry-run --arch "$arch" 2>&1)" && rc=0 || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    echo "FAIL: --arch $arch accepted although waydroid has no such image"
+    fail=1
+  fi
+  check_has "waydroid publishes no $arch image"
+  check_lacks "waydroid init"
+done
+
+# The ~1 GB image download must not be planned on a node where the waydroid
+# package itself is not installable - the arm64 availability gap the issue
+# names. A PATH stub keeps this offline; apt-cache reports no candidate.
+stub="build/test-android-setup/stub"
+mkdir -p "$stub"
+cat > "$stub/apt-cache" <<'EOF'
+#!/bin/sh
+printf 'waydroid:\n  Installed: (none)\n  Candidate: (none)\n  Version table:\n'
+EOF
+chmod 755 "$stub/apt-cache"
+out="$(PATH="$stub:$PATH" bash "$script" --dry-run --arch arm64 --cache "$cache" 2>&1)" && rc=0 || rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo "FAIL: arm64 plan accepted although apt-cache reports no candidate"
+  printf '%s\n' "$out"
+  fail=1
+fi
+check_has "no waydroid candidate for arm64 nodes"
+check_has "refusing to download the aarch64 image"
+check_lacks "waydroid init"
+
+# A candidate below the floor the package declares is refused too.
+cat > "$stub/apt-cache" <<'EOF'
+#!/bin/sh
+printf 'waydroid:\n  Installed: (none)\n  Candidate: 1.5.0+ds-1\n'
+EOF
+out="$(PATH="$stub:$PATH" bash "$script" --dry-run --arch arm64 --cache "$cache" 2>&1)" && rc=0 || rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo "FAIL: waydroid candidate 1.5.0 accepted below the declared floor"
+  fail=1
+fi
+check_has "older than 1.6.3"
+check_lacks "waydroid init"
+
+# The floor the script checks must stay the floor the package declares.
+if ! grep -q 'waydroid (>= 1.6.3)' packaging/supermox-android/debian/control; then
+  echo "FAIL: packaging/supermox-android/debian/control no longer requires waydroid (>= 1.6.3)"
+  fail=1
+fi
+if ! grep -q '^WAYDROID_MIN_VERSION="1.6.3"$' "$script"; then
+  echo "FAIL: $script no longer checks the 1.6.3 floor from debian/control"
+  fail=1
+fi
+
 # Unknown option is rejected rather than ignored.
 out="$(bash "$script" --no-such-flag 2>&1)" && rc=0 || rc=$?
 if [ "$rc" -eq 0 ]; then

@@ -27,6 +27,10 @@ LAWNCHAIR_SHA256="d4200d0985169fd79ba1bd225d653f2a2fe7b50aa07cb0d05ca64c7623f860
 LAWNCHAIR_PACKAGE="ch.deletescape.lawnchair"
 
 variant="VANILLA"
+# Debian architecture name of this node; same vocabulary as SUPERMOX_ARCH in
+# scripts/arch.sh. amd64 is only the first test target, so the Waydroid image
+# has to be picked from the node, not assumed.
+arch="$(dpkg --print-architecture)"
 url="$LAWNCHAIR_URL"
 sha256="$LAWNCHAIR_SHA256"
 home_app="$LAWNCHAIR_PACKAGE"
@@ -34,13 +38,54 @@ cache="/var/cache/supermox-android"
 want_lawnchair=1
 dry=0
 
+# Waydroid publishes two images only: x86_64 and aarch64. The Debian arch
+# names of the nodes SuperMox runs on map onto those two; the rest of the
+# vocabulary has no image and is refused before anything is downloaded.
+WAYDROID_MIN_VERSION="1.6.3"
+
 die() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
 }
 
+# scripts/arch.sh is the project's single architecture vocabulary, but it is a
+# build-time library and is not shipped to the node, so the case and its exact
+# error text are mirrored here; tests/test-android-setup.sh fails if the two
+# wordings ever drift apart.
+arch_known() {
+  case "$1" in
+    amd64 | arm64 | armhf | riscv64 | loong64) return 0 ;;
+    *)
+      printf 'ERROR: unknown SUPERMOX_ARCH=%s (known: amd64 arm64 armhf riscv64 loong64)\n' "$1" >&2
+      return 2
+      ;;
+  esac
+}
+
 step() {
   printf '\n== %s\n' "$*"
+}
+
+waydroid_available() {
+  local policy installed candidate
+  policy="$(apt-cache policy waydroid 2>/dev/null)" ||
+    die "apt-cache policy waydroid failed; cannot check waydroid availability on $arch nodes"
+  installed="$(printf '%s\n' "$policy" | sed -n 's/^[[:space:]]*Installed:[[:space:]]*//p')"
+  candidate="$(printf '%s\n' "$policy" | sed -n 's/^[[:space:]]*Candidate:[[:space:]]*//p')"
+
+  case "$candidate" in
+    '' | '(none)')
+      die "no waydroid candidate for $arch nodes (apt-cache policy waydroid reports no candidate); refusing to download the $image_arch image"
+      ;;
+  esac
+  dpkg --compare-versions "$candidate" ge "$WAYDROID_MIN_VERSION" ||
+    die "waydroid candidate $candidate on $arch nodes is older than $WAYDROID_MIN_VERSION (the floor supermox-android declares); refusing to download the $image_arch image"
+
+  if [ "$installed" != '(none)' ] && [ -n "$installed" ]; then
+    printf '   waydroid %s installed (candidate %s, need >= %s on %s nodes)\n' "$installed" "$candidate" "$WAYDROID_MIN_VERSION" "$arch"
+  else
+    printf '   waydroid not installed yet; candidate %s satisfies >= %s on %s nodes\n' "$candidate" "$WAYDROID_MIN_VERSION" "$arch"
+  fi
 }
 
 run() {
@@ -56,6 +101,9 @@ while [ "$#" -gt 0 ]; do
     --dry-run) dry=1; shift ;;
     --variant) [ "$#" -ge 2 ] || die "--variant needs VANILLA or MAINLINE"
       variant="$2"
+      shift 2 ;;
+    --arch) [ "$#" -ge 2 ] || die "--arch needs a Debian architecture name (amd64 arm64 armhf riscv64 loong64)"
+      arch="$2"
       shift 2 ;;
     --lawnchair-url) [ "$#" -ge 2 ] || die "--lawnchair-url needs a URL"
       url="$2"
@@ -76,11 +124,19 @@ while [ "$#" -gt 0 ]; do
     -h|--help)
       cat <<'EOF'
 usage: supermox-android-setup [--dry-run] [--variant VANILLA|MAINLINE]
+                              [--arch DEBIAN_ARCH]
                               [--lawnchair-url URL --sha256 SUM]
                               [--home-app PACKAGE] [--cache DIR] [--no-lawnchair]
 
 Prepares this node's Android layer: binder_linux, the Waydroid image,
 the waydroid-container service, and the Lawnchair home screen.
+
+--arch takes a Debian architecture name (the same names SUPERMOX_ARCH takes
+in scripts/arch.sh: amd64 arm64 armhf riscv64 loong64) and defaults to
+dpkg --print-architecture. It selects the Waydroid image this node can run
+(amd64 -> x86_64, arm64/armhf -> aarch64); architectures Waydroid has no
+image for are refused, and the waydroid package is checked before the
+image download starts.
 EOF
       exit 0 ;;
     *) die "unknown option: $1" ;;
@@ -90,6 +146,17 @@ done
 case "$variant" in
   VANILLA | MAINLINE) ;;
   *) die "--variant must be VANILLA or MAINLINE (got $variant)" ;;
+esac
+
+arch_known "$arch" || exit 2
+
+# Debian arch -> the image tag waydroid init downloads. Waydroid ships x86_64
+# and aarch64 images only, so riscv64 and loong64 nodes are refused here,
+# before the root check and before any change to the system.
+case "$arch" in
+  amd64) image_arch="x86_64" ;;
+  arm64 | armhf) image_arch="aarch64" ;;
+  *) die "waydroid publishes no $arch image" ;;
 esac
 
 if [ "$dry" -eq 0 ] && [ "$(id -u)" -ne 0 ]; then
@@ -120,7 +187,16 @@ if [ "$dry" -eq 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-step "2/5 Waydroid image ($variant)"
+step "2/5 Waydroid image ($variant, $image_arch)"
+# The image is about 1 GB and useless on a node that cannot even install the
+# waydroid package, which is the arm64 gap crhy/SuperMox#6 names. Check the
+# package against the floor the supermox-android package declares
+# (waydroid (>= 1.6.3)) before the download starts. apt-cache policy is
+# read-only, so --dry-run prints the plan line and still runs the check: a
+# node that cannot get the package must be told before the plan promises a
+# download.
+printf '   plan: apt-cache policy waydroid (waydroid >= %s must be installable on %s nodes)\n' "$WAYDROID_MIN_VERSION" "$arch"
+waydroid_available
 img_dir="/var/lib/waydroid/images"
 cfg="/var/lib/waydroid/waydroid.cfg"
 if [ -f "$cfg" ] && [ -f "$img_dir/system.img" ] && [ -f "$img_dir/vendor.img" ]; then
@@ -130,14 +206,18 @@ else
   # the rootfs directory, both of which a half-finished setup leaves behind,
   # so a plain init on a node with a cfg but no images prints "Already
   # initialized" and downloads nothing. --force is only added in that case.
-  init_cmd=(waydroid init -s "$variant")
+  # -a is waydroid's image architecture tag (x86_64 / aarch64), not its
+  # -b branch switch, which -s above already sets. The exact command is
+  # printed in the plan, so a live arm64 node can correct the flag against
+  # `waydroid init --help` without editing this script.
+  init_cmd=(waydroid init -s "$variant" -a "$image_arch")
   if [ -f "$cfg" ]; then
     init_cmd+=(--force)
   fi
   if [ "$dry" -eq 1 ]; then
     printf '   plan: %s (downloads about 1 GB, the slow step)\n' "${init_cmd[*]}"
   else
-    printf '   downloading the image; this is the slow step, re-run if interrupted\n'
+    printf '   downloading the %s image; this is the slow step, re-run if interrupted\n' "$image_arch"
     run "${init_cmd[@]}"
   fi
 fi

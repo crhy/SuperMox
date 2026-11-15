@@ -2,6 +2,13 @@
 
 ## 11.26 (unreleased)
 
+### Changed
+
+- The Android layer now selects the Waydroid image by node architecture
+  (`supermox-android-setup --arch`: amd64 -> x86_64, arm64/armhf -> aarch64, riscv64/loong64
+  refused) and refuses to download the image when no `waydroid (>= 1.6.3)` package is
+  available on that node.
+
 ### Added
 
 - Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13, pve-container 6.1.15) built
