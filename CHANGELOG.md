@@ -29,6 +29,10 @@
 - PC edition: Spaced Linux desktop (MATE, Windows-XP panel, Flatpak, Calamares)
   with the SuperMox packages and branding. Built by `scripts/build-iso.sh`.
 - `supermox-ve` meta-package (it carries the `supermox-joind` join daemon) and `supermox-tmpfiles`.
+- `supermox-dhcp-client`: `/usr/sbin/dhclient` as a POSIX sh adapter that implements the ISC
+  dhclient contract on top of a maintained client (dhcpcd by default, udhcpc/udhcpc6 or a
+  stand-in via `SUPERMOX_DHCP_CLIENT`), satisfying pve-container's `isc-dhcp-client` dependency
+  without the ISC fork (`Provides/Replaces/Conflicts: isc-dhcp-client`, crhy/SuperMox#9).
 - `scripts/check-no-systemd.sh` verifies no systemd on the running system.
 - `scripts/supermox-node-caps.sh` reports node capability tier (KVM/LXC/TCG).
 
@@ -113,6 +117,9 @@
   before joining it, the member does not yet remove it again by itself.
 - amd64 only so far; arm64 and other architectures planned but untested.
 - Ceph storage built but untested.
+- Container DHCP: the `supermox-dhcp-client` adapter ships, but the pve-container `manage_dhclient`
+  patch and the live OCI-app-container host-managed-network test are not done yet, so the interim
+  isc-dhcp fork still has to be built and re-pinned (crhy/SuperMox#9).
 - Manager node shell window (copy/paste) and guest consoles are not finished yet
   (parked tasks t70b and t71).
 - The newest Manager pages are written by a local model and still await human review.

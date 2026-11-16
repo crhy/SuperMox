@@ -1,0 +1,8 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_install:
+	mkdir -p debian/supermox-dhcp-client/usr/sbin
+	cp -a usr/sbin/dhclient debian/supermox-dhcp-client/usr/sbin/dhclient
+	chmod 0755 debian/supermox-dhcp-client/usr/sbin/dhclient

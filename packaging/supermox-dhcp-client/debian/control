@@ -1,0 +1,29 @@
+Source: supermox-dhcp-client
+Section: admin
+Priority: optional
+Maintainer: SuperMox <noreply@supermox.me>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: supermox-dhcp-client
+Architecture: all
+Provides: isc-dhcp-client
+Replaces: isc-dhcp-client
+Conflicts: isc-dhcp-client
+Depends: dhcpcd-base | udhcpc | busybox-udhcpc,
+         ${misc:Depends}
+Description: DHCP client adapter implementing the ISC dhclient contract
+  SuperMox's answer to pve-container's dependency on isc-dhcp-client, which
+  Devuan Ceres no longer ships (ISC DHCP is end-of-life upstream). It installs
+  /sbin/dhclient as a POSIX sh adapter: it accepts the options pve-container's
+  PVE::LXC::manage_dhclient and ifupdown2's dhcp method pass (-pf, -lf, -sf,
+  -r, -s, -n, -q, -1, --timeout, --release, --renew, --request, interface
+  names), obtains the binding from a maintained client that Devuan does ship
+  (dhcpcd by default, udhcpc/udhcpc6 or a stand-in via SUPERMOX_DHCP_CLIENT),
+  and translates it into the ISC dhclient-script contract the LXC hook
+  consumes: reason, interface, new_ip_address, new_subnet_mask,
+  new_network_mask, router_count, router_1..router_N, new_domain_name,
+  new_domain_name_servers and pid, with every file written under $ROOTFS.
+  It satisfies the "isc-dhcp-client" dependency of pve-container without
+  copying any ISC source and without pulling in any systemd code.
