@@ -70,6 +70,7 @@ bash scripts/vm-test-install.sh                 # milestone 1 on a clean test VM
 | `vm-start.sh`, `vm-stop.sh`, `vm-status.sh`, `vm-ssh.sh`, `vm-wait-ssh.sh`, `vm-smoke.sh` | VM lifecycle and access. |
 | `vm-setup-proxmox-repos.sh`, `vm-prepare-build.sh`, `vm-missing-build-deps.sh`, `vm-build-pkg.sh` | Build PVE packages inside the build VM. |
 | `vm-test-install.sh` | Install our packages on a clean VM, start PVE under sysvinit, prove there is no systemd. |
+| `release-check.sh` | The live release-audit steps as a registry (see below); a failing step is recorded and the run continues. |
 | `join-e2e.sh` | Real WireGuard join between network namespaces in the test VM. |
 | `build-iso.sh` | PC edition ISO (needs a Spaced Linux checkout). |
 | `build-manager.sh` | The architecture-neutral `supermox-manager` package. |
@@ -78,6 +79,35 @@ bash scripts/vm-test-install.sh                 # milestone 1 on a clean test VM
 | `supermox-node-caps.sh` | Node capability tier probe (KVM / LXC / TCG). |
 | `supermox-android-setup.sh` | Prepare a node for the Android layer (Waydroid + Lawnchair). |
 | `supermox-logpipe` | Send a daemon's stderr to syslog under sysvinit. |
+
+## Release check
+
+```sh
+bash scripts/release-check.sh --list
+bash scripts/release-check.sh --dry-run
+bash scripts/release-check.sh --only first-history
+bash scripts/release-check.sh          # every step, in registry order
+```
+
+One function per step. A step that fails is recorded and the run continues; the exit
+status is non-zero only after every step has been attempted. That is what SuperMox#12
+needs: on the first boot after a fresh install `pvestatd` can sit in its QEMU CPU-flag
+probe and file no RRD history, and that must not stop the other live steps from running.
+
+| Step | What it proves |
+| --- | --- |
+| `first-history` | a node archive appears under `/var/lib/rrdcached/db/`; if none does, the step prints pvestatd's wait, the defunct probe kvm and the QMP socket path, then fails alone |
+| `check-no-systemd` | our tree stays inside `config/systemd-baseline.txt` |
+| `check-overrides` | `config/upstream-overrides.txt` still matches the pinned upstream |
+| `vm-smoke` | the booted VM: sysvinit PID 1, no systemd in the image, `/dev/kvm` present |
+
+Live steps reach the VM through `scripts/vm-ssh.sh` only (`SUPERMOX_VM_SSH_PORT` picks
+which VM); the harness never starts, stops or restarts a VM and never fixes anything.
+`--dry-run` prints the plan and makes no VM call. Waits are bounded by
+`SUPERMOX_RELEASE_HISTORY_TIMEOUT` (default 300 s) and `SUPERMOX_RELEASE_HISTORY_POLL`, so a
+full run can take minutes: start it in the background and poll its log.
+The bounded QMP probe in the pve-manager/qemu-server patch set is still owed (SuperMox#12):
+until it lands, `first-history` reports the stall instead of fixing it.
 
 ## Live Manager tests
 
