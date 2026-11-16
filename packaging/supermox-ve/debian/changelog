@@ -1,3 +1,20 @@
+supermox-ve (0.1.11) unstable; urgency=medium
+
+  * Ship /etc/init.d/supermox-hosts: a boot-time script that maps this node's
+    hostname to its own non-loopback IP in /etc/hosts before pve-cluster starts.
+    Nothing shipped did the mapping, so pmxcfs could not resolve the node's own
+    name on a fresh install's first boot; only scripts/vm-test-install.sh did it,
+    by hand, on the test VM. It takes the address from `hostname -I` (first
+    non-loopback one), rewrites /etc/hosts in a temp file and mv-s it into place
+    so the file is never truncated, drops any stale line for the same hostname
+    and is idempotent on re-run. It is DHCP-safe: with no address resolvable it
+    retries a bounded number of times, then logs a note and exits 0 without
+    writing an entry with an empty address; stop and status never touch the file.
+    pve-cluster's Required-Start now lists supermox-hosts, so insserv starts the
+    mapping first.
+
+ -- SuperMox <noreply@supermox.me>  Mon, 16 Nov 2026 06:00:00 +0000
+
 supermox-ve (0.1.10) unstable; urgency=medium
 
   * Depend on supermox-ui: the SuperMox dark theme, logo and favicon that

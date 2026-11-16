@@ -1,0 +1,184 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          supermox-hosts
+# Required-Start:    $network $local_fs
+# Required-Stop:     $local_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Map this node's hostname to its own IP in /etc/hosts
+### END INIT INFO
+
+# Why: pmxcfs (pve-cluster) resolves this node's own name through the name
+# resolver, and a fresh install's /etc/hosts carries no line for it, so pve-cluster
+# fails on the first boot of a new node. Nothing shipped did the mapping: only
+# scripts/vm-test-install.sh did it, by hand, on the test VM.
+#
+# pve-cluster lists supermox-hosts in its Required-Start, so insserv starts this
+# script before pve-cluster. Required-Start: $network means the interfaces are
+# already up (init.d/networking has run, dhcpcd included).
+#
+# DHCP-safe: the address can still be missing for a moment (DHCP not finished,
+# interface not in the routing table yet). We retry a bounded number of times
+# with a short sleep and then give up with a note: exit 0, file untouched. Writing
+# an entry with an empty address would leave a broken /etc/hosts and break every
+# name lookup on the node, which is worse than no entry at all.
+#
+# stop and status never touch the file: an entry in /etc/hosts is not a process,
+# there is nothing to stop, and a stale entry costs nothing at shutdown.
+#
+# SUPERMOX_HOSTS_FILE overrides which file is written (tests/test-supermox-hosts.sh
+# points it at a sandbox copy); it defaults to /etc/hosts.
+
+. /lib/lsb/init-functions
+
+NAME=supermox-hosts
+HOSTS_FILE="${SUPERMOX_HOSTS_FILE:-/etc/hosts}"
+
+# Bounded: never hang the boot. 10 tries, 1 s apart, so the worst case costs
+# about 9 s and then the boot continues with a note in the log.
+TRIES=10
+RETRY_SLEEP=1
+
+node_hostname() {
+    # The name the node calls itself by: the same one pve-cluster looks up.
+    hn=$(hostname 2>/dev/null)
+    [ -n "$hn" ] || return 1
+    printf '%s\n' "$hn"
+}
+
+node_ip() {
+    # The node's own address: `hostname -I` lists the addresses of this host's
+    # interfaces; the first real IPv4 one is the address to map. Loopback, bracketed
+    # and IPv6 forms are skipped: 127.0.0.1 would make the node resolve itself only
+    # over the loopback interface, and a non-IPv4 string in /etc/hosts would break
+    # name lookups; pmxcfs needs the real IPv4 address.
+    for a in $(hostname -I 2>/dev/null); do
+        case "$a" in
+            127.*|\[*|*[!0-9.]*) continue ;;
+        esac
+        # Must look like an IPv4 dotted quad.
+        case "$a" in
+            [0-9]*.[0-9]*.[0-9]*.[0-9]*) ;;
+            *) continue ;;
+        esac
+        printf '%s\n' "$a"
+        return 0
+    done
+    return 1
+}
+
+write_entry() {
+    # $1 is the address, $2 the hostname. Rewrite in a temp file next to the
+    # target and mv it into place: /etc/hosts is never left truncated, empty or
+    # half-written, which is what a `>>` or an in-place sed could do.
+    # A stale line for the same hostname is dropped, so re-running is a no-op.
+    tmpf="$HOSTS_FILE.new"
+    if [ -f "$HOSTS_FILE" ]; then
+        # Exact field match, not a regex: a hostname with dots (an FQDN) must
+        # not make grep drop unrelated lines.
+        if ! awk -v h="$2" '{ drop = 0
+            for (i = 2; i <= NF; i++) if ($i == h) drop = 1
+            if (!drop) print }' "$HOSTS_FILE" > "$tmpf"; then
+            # Never mv a half-read file over the real one.
+            rm -f "$tmpf"
+            return 1
+        fi
+    else
+        : > "$tmpf"
+    fi
+    # A file without a trailing newline would glue our entry onto its last line.
+    if [ -s "$tmpf" ] && [ "$(tail -c 1 "$tmpf")" != "" ]; then
+        printf '\n' >> "$tmpf"
+    fi
+    printf '%s %s\n' "$1" "$2" >> "$tmpf" || return 1
+    mv "$tmpf" "$HOSTS_FILE"
+}
+
+log_note() {
+    # One line to the boot log (what an operator reads) and one to syslog, where
+    # the record has to live; `logger` is the syslog writer and is skipped if
+    # this node has no syslog at all.
+    log_warning_msg "$NAME: $*"
+    if command -v logger >/dev/null 2>&1; then
+        logger -t "$NAME" "$NAME: $*" || true
+    fi
+}
+
+do_start() {
+    hn=$(node_hostname)
+    if [ -z "$hn" ]; then
+        log_note "hostname is empty, $HOSTS_FILE left unchanged"
+        return 0
+    fi
+
+    try=1
+    while :; do
+        ip=$(node_ip)
+        [ -n "$ip" ] && break
+        if [ "$try" -ge "$TRIES" ]; then
+            break
+        fi
+        sleep "$RETRY_SLEEP"
+        try=$((try + 1))
+    done
+
+    if [ -z "$ip" ]; then
+        # DHCP-safe exit: no address, so no entry. pve-cluster may still fail
+        # on this boot; the next start (or `invoke-rc.d supermox-hosts start`)
+        # writes the line once the interface answers.
+        log_note "no non-loopback address for $hn after $TRIES tries, $HOSTS_FILE left unchanged"
+        return 0
+    fi
+
+    if ! write_entry "$ip" "$hn"; then
+        log_note "could not rewrite $HOSTS_FILE"
+        return 1
+    fi
+    log_note "mapped $hn -> $ip in $HOSTS_FILE"
+    return 0
+}
+
+do_status() {
+    hn=$(node_hostname)
+    if [ -z "$hn" ]; then
+        echo "$NAME: hostname is empty"
+        return 1
+    fi
+    mapped=""
+    if [ -f "$HOSTS_FILE" ]; then
+        mapped=$(awk -v h="$hn" \
+            '{ for (i = 2; i <= NF; i++) if ($i == h) { print $1; exit } }' "$HOSTS_FILE")
+    fi
+    if [ -n "$mapped" ]; then
+        echo "$NAME: $hn mapped to $mapped in $HOSTS_FILE"
+        return 0
+    fi
+    echo "$NAME: $hn not mapped in $HOSTS_FILE"
+    return 1
+}
+
+case "$1" in
+    start)
+        do_start
+        ;;
+    stop)
+        # Nothing to stop: no daemon, and the entry stays for the next boot.
+        log_success_msg "$NAME: nothing to stop"
+        ;;
+    restart)
+        do_start
+        ;;
+    force-reload)
+        do_start
+        ;;
+    status)
+        do_status
+        exit $?
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|force-reload|status}" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

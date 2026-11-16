@@ -1,7 +1,7 @@
 #!/bin/sh
 ### BEGIN INIT INFO
 # Provides:          pve-cluster
-# Required-Start:    $network $time corosync
+# Required-Start:    $network $time corosync supermox-hosts
 # Required-Stop:     $network $time corosync
 # Should-Start:      rrdcached
 # Should-Stop:       rrdcached
@@ -18,7 +18,9 @@
 # corosync itself: it connects to a running corosync daemon over the corosync
 # quorum API. So corosync must be started first, and its state directory
 # /var/lib/corosync (plus the /run/corosync socket dir) must exist. The single-node
-# /etc/corosync/corosync.conf is written by the pve-cluster postinst.
+# /etc/corosync/corosync.conf is written by the pve-cluster postinst. supermox-hosts
+# is in Required-Start so /etc/hosts maps this node's own name to its own address
+# before pmxcfs starts and resolves it.
 
 . /lib/lsb/init-functions
 

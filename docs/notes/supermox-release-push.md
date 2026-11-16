@@ -34,3 +34,5 @@ tonight on the clean install: no cgroup2 mount (containers could not start) -> i
 seeds 'local'; wg routes not synced; Manager offered arm64 templates on amd64 (the real cause of CT start failures). 5/5 cold boots ready in
 69-76 s. Issues #10 (no update channel, blocker) and #11 (test harness) filed. Next: final clean install + release-check
 (build/final-*.txt), then ISO build (build-iso.sh --prepare-only, sudo chain with iso-pre-clean.sh), then boot-test the ISO.
+
+**f058 (2026-11-16):** the offline half of #8 is done: init.d/supermox-hosts maps the node hostname to its own non-loopback IP in /etc/hosts before pve-cluster starts (DHCP-safe, registered in config/init-scripts.txt, debian/rules and pve-cluster's Required-Start); the ISO build (`sudo lb build`) and the VM boot proof of #8 are still owed by rhY.
