@@ -12,7 +12,7 @@ Depends: supermox-ve,
          waydroid (>= 1.6.3),
          ${misc:Depends}
 Recommends: squashfs-tools
-Description: SuperMox Android layer (Waydroid container + Lawnchair)
+Description: SuperMox Android layer (Waydroid container + session)
  Runs a full Android system in a Waydroid LXC container on a SuperMox
  node, so the phone's own kernel and network stack stay in charge and
  Android is the userspace on top. Upstream waydroid only knows how to
@@ -22,3 +22,18 @@ Description: SuperMox Android layer (Waydroid container + Lawnchair)
  the binder mounts Android needs, and supermox-android-setup, which
  fetches the image, installs the pinned Lawnchair launcher (verified
  by sha256) and makes it the Android home app.
+ .
+ The one service script owns both halves of the Android layer under one
+ update-rc.d entry: the container (`waydroid container start`, pid
+ /run/waydroid-container.pid) and the session (`waydroid session start`,
+ pid /run/waydroid-session.pid), which bind-mounts the host Wayland
+ socket and serves the Android platform service. `start` proves the
+ container is RUNNING and never starts a session by itself.
+ `session-start` refuses unless the container is RUNNING and a Wayland
+ socket exists, naming the half that is missing; `stop` tears the
+ session down before the container, and `status` reports both halves.
+ .
+ Boundary: both halves and the handover between them are implemented
+ and tested offline (tests/test-waydroid-session.sh). Still unverified
+ on real hardware: `Session: RUNNING` on an amd64 VM with seatd and
+ weston, the Lawnchair install, and a compositor screenshot.

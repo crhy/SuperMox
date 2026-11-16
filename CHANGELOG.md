@@ -21,6 +21,16 @@
 - Daemon stderr reaches syslog under sysvinit (`scripts/supermox-logpipe`).
 - `scripts/check-overrides.sh`: offline check of `config/upstream-overrides.txt`.
 - Waydroid test VM and debugging notes for the Android layer.
+- `init.d/waydroid-container` owns both halves of the Android layer under
+  one `update-rc.d` entry: the container (`waydroid container start`,
+  pid `/run/waydroid-container.pid`) and the session (`waydroid session
+  start`, pid `/run/waydroid-session.pid`, the half that bind-mounts the
+  Wayland socket and serves `waydroid app install`). `start` proves the
+  container RUNNING and never starts a session; `session-start` refuses
+  unless the container is RUNNING and a Wayland socket exists, naming the
+  missing half; `stop` tears the session down first; `status` reports
+  both halves. `tests/test-waydroid-session.sh` covers start, stop,
+  reboot and the refusals offline (#7).
 - SuperMox Manager: page registry (one module per page), every module shipped and
   smoke-tested by the gate, live test harness (`tests/manager-live.sh`), and native pages
   for VM creation, container creation from templates, storage content, node
@@ -33,6 +43,9 @@
 
 ### Known limitations
 
+- Android session layer: the handover is implemented and tested offline,
+  but `Session: RUNNING` on a real amd64 VM with seatd and weston, the
+  Lawnchair install and a compositor screenshot are still unverified (#7).
 - Web UI still shows Proxmox branding (not yet rebranded in the running UI).
 - ZFS is opt-in (requires `zfs-dkms` built against the installed kernel).
 - WireGuard join verified end to end between network namespaces in the test VM

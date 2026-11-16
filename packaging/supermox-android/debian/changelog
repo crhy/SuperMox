@@ -8,6 +8,19 @@ supermox-android (0.1.0) unstable; urgency=medium
     `waydroid container start`. Upstream ships only a unit file for an
     init system we do not use, and the rootfs build drops unit files at
     install time, so nothing else started the container.
+  * The same script owns the session half under the one update-rc.d entry:
+    `session-start`, `session-stop` and `session-status`, with their own
+    pid file /run/waydroid-session.pid. `start` proves the container is
+    RUNNING (lxc-info, or waydroid's own status line where the lxc tools
+    are not installed) and never starts a session by itself. The
+    `session-start` subcommand refuses unless the container is RUNNING
+    and a Wayland socket exists, naming the half that is missing, because
+    the session layer bind-mounts the compositor socket; `stop` tears the
+    session down before the container, and `status` reports both halves
+    with an exit code naming which one is up. Both halves are covered
+    offline by tests/test-waydroid-session.sh; a real amd64 VM with seatd
+    and weston reporting `Session: RUNNING`, the Lawnchair install and a
+    compositor screenshot remain unverified on hardware.
   * /etc/modules-load.d/waydroid.conf: loads binder_linux with the
     binder/hwbinder/vndbinder device arguments Android's bind mounts need.
   * /usr/sbin/supermox-android-setup: idempotent setup, pinned Lawnchair
