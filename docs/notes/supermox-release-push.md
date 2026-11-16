@@ -18,6 +18,16 @@ Debian trixie isc-dhcp 4.4.3-P1-8 because Ceres dropped it and pve-container nee
 Issues filed: #5 LICENSE (blocker, rhY must pick licence), #6 arm64, #7 Android GUI, #8 ISO, #9 DHCP; crhy/spaced#401
 (xorg-server 21.1.25-1devuan1 source gone from Devuan pool; worked around with prebuilt debs from spaced-apt).
 
+**Port started (f079, first component of the #9 long-term fix):** packaging/supermox-dhcp-client ships
+/usr/sbin/dhclient (/sbin/dhclient, /sbin is a symlink to /usr/sbin on Devuan) as a POSIX sh adapter: it takes
+the pve-container/ifupdown2 command line (-pf/-lf/-sf/-r/-s/-n/-q/-1/--timeout/--release/--renew/--request),
+asks a maintained client for the binding (dhcpcd by default, udhcpc/udhcpc6 or a stand-in through
+SUPERMOX_DHCP_CLIENT) and exports the ISC dhclient-script contract (reason, interface, new_ip_address,
+router_count/router_N, new_domain_name_servers, pid) with every file written under $ROOTFS. It Provides/Replaces/Conflicts:
+isc-dhcp-client, so the fork stops needing re-pinning. Still open for #9: the Perl patch to PVE::LXC::manage_dhclient
+(upstream/ is git-ignored and absent here, tests/test-patches.sh prints SKIP offline) and the live test that creates
+an OCI app container with a host-managed network in the VM.
+
 ISO: rhY approved running the root ISO build (never store credentials anywhere). Worktree build/spaced-iso is a symlink to
 /media/rhy/data/supermox-spaced-iso (root disk only 16 GB free). build-iso.sh now swaps systemd-standalone-* for
 opensysusers, runs build/iso-pre-clean.sh (unmount chroot leftovers) before make prepare, and checks the chroot with

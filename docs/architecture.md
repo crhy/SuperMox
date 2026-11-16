@@ -27,8 +27,8 @@ anything SuperMox ships.
 - **No-systemd proof**: `scripts/check-no-systemd.sh` checks the source tree and a running
   system; [systemd-inventory.md](systemd-inventory.md) lists every systemd dependency that was
   replaced and how.
-- **Packages**: `supermox-ve` (meta-package), `supermox-tmpfiles`, `supermox-joind`, the
-  rebuilt PVE packages, and `supermox-manager` (the desktop client).
+- **Packages**: `supermox-ve` (meta-package), `supermox-tmpfiles`, `supermox-dhcp-client`,
+  `supermox-joind`, the rebuilt PVE packages, and `supermox-manager` (the desktop client).
 
 Verified on 2026-10-29: Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13,
 pve-container 6.1.15) built from source, running under sysvinit with no systemd, web UI on

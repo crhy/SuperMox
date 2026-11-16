@@ -1,0 +1,15 @@
+supermox-dhcp-client (0.1.0) unstable; urgency=medium
+
+  * Initial release: /usr/sbin/dhclient (which is /sbin/dhclient on Devuan,
+    where /sbin is a symlink to /usr/sbin) as a POSIX sh adapter that
+    implements the ISC dhclient command line and the dhclient-script contract
+    on top of a maintained DHCP client: dhcpcd by default, udhcpc/udhcpc6 or
+    a stand-in through SUPERMOX_DHCP_CLIENT.
+  * Provides/Replaces/Conflicts: isc-dhcp-client so pve-container's
+    dependency is satisfied without the Debian trixie isc-dhcp fork and
+    without re-pinning every upstream security update (crhy/SuperMox#9).
+  * Depends: dhcpcd-base | udhcpc | busybox-udhcpc - the clients Devuan
+    Ceres actually ships. No ISC source is copied and no systemd is pulled
+    in.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 12 Nov 2026 11:30:00 -0700

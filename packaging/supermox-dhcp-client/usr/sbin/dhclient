@@ -1,0 +1,466 @@
+#!/bin/sh
+# SuperMox dhclient adapter — ISC dhclient's contract on top of a maintained
+# DHCP client. POSIX sh; no bashisms. No ISC source is copied.
+#
+# pve-container's PVE::LXC::manage_dhclient runs
+#   /sbin/dhclient -pf <pidfile> -lf <leases> -sf /usr/share/lxc/hooks/dhclient-script <iface>
+# inside the container's network namespace, and that hook consumes the ISC contract
+# (reason, interface, new_ip_address, routers, DNS, pid). This adapter asks a
+# maintained client for the binding — dhcpcd by default (Devuan's dhcpcd-base,
+# Provides: dhcp-client), udhcpc/udhcpc6 or a stand-in through SUPERMOX_DHCP_CLIENT
+# — exports that contract, calls the -sf hook once per reason, and writes the pid
+# and lease files. When ROOTFS is set every file written here lands under that
+# prefix, and ROOTFS is exported so the hook writes under it too.
+#
+# Not implemented: the ISC daemon. -n/-1/-q/-d are accepted; nothing forks, so
+# the pid reported and written is this process.
+
+PROG=dhclient
+DEFAULT_SCRIPT=/usr/share/lxc/hooks/dhclient-script
+
+usage() {
+  printf 'usage: %s [-d] [-q] [-1] [-n] [-r request] [-s script] [-pf file] [-lf file] [-sf script] [--timeout secs] [--request request] [--release] [--renew] [--no-wait] [--quiet] [--script script] [--pidfile file] [--leases file] [--interface name] [--] [interface ...]\n' "$PROG" >&2
+}
+
+die_usage() {
+  printf '%s: unknown option: %s\n' "$PROG" "$1" >&2
+  usage
+  exit 2
+}
+
+need_value() {
+  # $1 = option that needs an argument, $2 = arguments left
+  if [ "$2" -lt 2 ]; then
+    printf '%s: %s needs an argument\n' "$PROG" "$1" >&2
+    usage
+    exit 2
+  fi
+}
+
+# --- options --------------------------------------------------------------
+pidfile=""
+leasesfile=""
+script=""
+script_given=0
+request=""
+mode=""
+nowait=0
+quiet=0
+one_shot=0
+timeout=""
+ifaces=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --)
+      shift
+      while [ $# -gt 0 ]; do
+        ifaces="$ifaces $1"
+        shift
+      done
+      break
+      ;;
+    -pf|-lf|-sf)
+      need_value "$1" "$#"
+      if [ "$1" = "-pf" ]; then
+        pidfile="$2"
+      elif [ "$1" = "-lf" ]; then
+        leasesfile="$2"
+      else
+        script="$2"
+        script_given=1
+      fi
+      shift 2
+      ;;
+    -r)
+      need_value "$1" "$#"
+      request="$2"
+      mode=request
+      shift 2
+      ;;
+    -s)
+      need_value "$1" "$#"
+      script="$2"
+      script_given=1
+      shift 2
+      ;;
+    -n) nowait=1; shift ;;
+    -q) quiet=1; shift ;;
+    -1) one_shot=1; shift ;;
+    -d) shift ;;
+    --timeout)
+      need_value "$1" "$#"
+      timeout="$2"
+      shift 2
+      ;;
+    --timeout=*) timeout="${1#--timeout=}"; shift ;;
+    --request)
+      need_value "$1" "$#"
+      request="$2"
+      mode=request
+      shift 2
+      ;;
+    --request=*)
+      request="${1#--request=}"
+      mode=request
+      shift
+      ;;
+    --release) mode=release; shift ;;
+    --renew)   mode=renew; shift ;;
+    --no-wait) nowait=1; shift ;;
+    --quiet)   quiet=1; shift ;;
+    --interface)
+      need_value "$1" "$#"
+      ifaces="$ifaces $2"
+      shift 2
+      ;;
+    --interface=*)
+      ifaces="$ifaces ${1#--interface=}"
+      shift
+      ;;
+    --script)
+      need_value "$1" "$#"
+      script="$2"
+      script_given=1
+      shift 2
+      ;;
+    --script=*)
+      script="${1#--script=}"
+      script_given=1
+      shift
+      ;;
+    --pidfile)
+      need_value "$1" "$#"
+      pidfile="$2"
+      shift 2
+      ;;
+    --pidfile=*)
+      pidfile="${1#--pidfile=}"
+      shift
+      ;;
+    --leases)
+      need_value "$1" "$#"
+      leasesfile="$2"
+      shift 2
+      ;;
+    --leases=*)
+      leasesfile="${1#--leases=}"
+      shift
+      ;;
+    -*) die_usage "$1" ;;
+    *)
+      ifaces="$ifaces $1"
+      shift
+      ;;
+  esac
+done
+
+# ISC defaults the hook only when -sf/-s was not given.
+if [ "$script_given" -eq 0 ]; then
+  script="$DEFAULT_SCRIPT"
+fi
+
+# --- files ---------------------------------------------------------------
+# ROOTFS is the container root LXC binds for the hook: prefix everything we
+# write with it, and export it so the hook writes under it too.
+rootfs="${ROOTFS:-}"
+if [ -n "$rootfs" ]; then
+  export ROOTFS="$rootfs"
+fi
+
+pfx() {
+  # $1 = absolute path as ISC would write it; the result lands under $ROOTFS.
+  if [ -n "$rootfs" ]; then
+    case "$1" in
+      /*)
+        printf '%s%s' "$rootfs" "$1"
+        return 0
+        ;;
+    esac
+  fi
+  printf '%s' "$1"
+}
+
+make_parent() {
+  # Only ever creates directories inside the ROOTFS prefix (pfx already applied).
+  parent="$(dirname "$1")"
+  [ -d "$parent" ] || mkdir -p "$parent"
+}
+
+# --- the maintained client ------------------------------------------------
+# SUPERMOX_DHCP_CLIENT selects the client (or a stand-in for tests); otherwise
+# dhcpcd, the DHCP client Devuan ships.
+client="${SUPERMOX_DHCP_CLIENT:-}"
+if [ -z "$client" ]; then
+  for cand in /usr/sbin/dhcpcd /sbin/dhcpcd; do
+    if [ -x "$cand" ]; then
+      client="$cand"
+      break
+    fi
+  done
+fi
+
+client_kind() {
+  case "$1" in
+    *udhcpc*) printf 'udhcpc' ;;
+    *dhcpcd*) printf 'dhcpcd' ;;
+    *)        printf 'generic' ;;
+  esac
+}
+
+# udhcpc and dhcpcd both run their -s script with the DHCP result exported
+# (ip / ip_address, subnet_mask, router, domain_name, domain_name_servers), so
+# dumping the environment is the portable way to read a binding out of either.
+reporter=""
+for cand in /usr/bin/env /bin/env; do
+  if [ -x "$cand" ]; then
+    reporter="$cand"
+    break
+  fi
+done
+
+query_client() {
+  # Prints the binding as key=value lines (or dhcpcd -G style) on stdout.
+  [ -n "$client" ] || return 1
+  kind="$(client_kind "$client")"
+  case "$kind" in
+    udhcpc)
+      if [ -z "$reporter" ]; then
+        printf '%s: no env dump for %s\n' "$PROG" "$client" >&2
+        return 1
+      fi
+      set -- -q -n -s "$reporter"
+      [ -n "$pidfile" ] && set -- "$@" -p "$(pfx "$pidfile")"
+      [ -n "$timeout" ] && set -- "$@" -t "$timeout"
+      for i in $ifaces; do
+        set -- "$@" -i "$i"
+      done
+      "$client" "$@"
+      ;;
+    dhcpcd)
+      set -- -n -o -q
+      [ -n "$timeout" ] && set -- "$@" -t "$timeout"
+      if [ -n "$reporter" ]; then
+        set -- "$@" -s "$reporter"
+      fi
+      for i in $ifaces; do
+        set -- "$@" "$i"
+      done
+      if "$client" "$@"; then
+        return 0
+      fi
+      # Some dhcpcd builds do not run the script in one-shot mode: fall back
+      # to -G, which prints "<interface> <address>".
+      set -- -n -o -q -G
+      for i in $ifaces; do
+        set -- "$@" "$i"
+      done
+      "$client" "$@"
+      ;;
+    *)
+      "$client" $ifaces
+      ;;
+  esac
+}
+
+# --- translate to the ISC contract ----------------------------------------
+interface=""
+ip=""
+subnet=""
+netmask=""
+routers=""
+names=""
+dnsservers=""
+
+add_words() {
+  # $1 = list so far, $2 = words to append; keeps order, drops duplicates.
+  out="$1"
+  for w in $2; do
+    dup=0
+    for e in $out; do
+      [ "$e" = "$w" ] && dup=1
+    done
+    if [ "$dup" -eq 0 ]; then
+      if [ -n "$out" ]; then
+        out="$out $w"
+      else
+        out="$w"
+      fi
+    fi
+  done
+  printf '%s' "$out"
+}
+
+raw=""
+query_status=0
+if raw="$(query_client)"; then
+  :
+else
+  query_status=1
+fi
+
+# Split the client output into lines; globbing off so a line stays literal.
+old_ifs="$IFS"
+set -f
+IFS='
+'
+set -- $raw
+IFS="$old_ifs"
+set +f
+
+for line in "$@"; do
+  case "$line" in
+    *=*)
+      key="${line%%=*}"
+      val="${line#*=}"
+      case "$key" in
+        interface)                  interface="$val" ;;
+        ip|ip_address|new_ip_address) ip="$val" ;;
+        subnet_mask|new_subnet_mask)  subnet="$val" ;;
+        network_mask|new_network_mask) netmask="$val" ;;
+        router|routers|new_routers)   routers="$(add_words "$routers" "$val")" ;;
+        domain|domain_name|new_domain_name) names="$val" ;;
+        server|servers|dns|dns_servers|domain_name_servers|new_domain_name_servers)
+          dnsservers="$(add_words "$dnsservers" "$val")"
+          ;;
+      esac
+      ;;
+    *)
+      # dhcpcd -G style: "<interface> <address>", or a bare address.
+      set -- $line
+      if [ "$#" -eq 2 ]; then
+        interface="$1"
+        ip="$2"
+      elif [ "$#" -eq 1 ] && [ -z "$ip" ]; then
+        ip="$1"
+      fi
+      ;;
+  esac
+done
+
+# The interface we report: the last one asked for, else what the client said.
+for i in $ifaces; do
+  interface="$i"
+done
+
+# --- the fail contract: never touch the pid or lease files -----------------
+if [ "$query_status" -ne 0 ] || [ -z "$ip" ]; then
+  reason=fail
+  interface="${interface:-eth0}"
+  pid="$$"
+  export reason interface pid
+  export new_ip_address="" new_subnet_mask="" new_network_mask=""
+  export new_domain_name="" new_domain_name_servers="" new_routers="" router_count=0
+  if [ "$quiet" -eq 0 ]; then
+    printf '%s: DHCP failed (client: %s)\n' "$PROG" "${client:-none}" >&2
+  fi
+  exit 1
+fi
+
+join_commas() {
+  # $1 = space separated list -> "a, b, c" (ISC writes DNS servers that way).
+  out=""
+  for w in $1; do
+    if [ -n "$out" ]; then
+      out="$out, $w"
+    else
+      out="$w"
+    fi
+  done
+  printf '%s' "$out"
+}
+
+export_contract() {
+  # $1 = reason (bind, renew, release, expire)
+  reason="$1"
+  pid="$$"
+  export reason interface pid
+  export new_ip_address="$ip" new_subnet_mask="$subnet" new_network_mask="$netmask"
+  export new_domain_name="$names"
+  n=0
+  for r in $routers; do
+    n=$((n + 1))
+    export "router_$n=$r"
+  done
+  export router_count="$n"
+  export new_routers="$routers"
+  dns_list="$(join_commas "$dnsservers")"
+  export new_domain_name_servers="$dns_list"
+}
+
+run_hook() {
+  # ISC runs the hook through the shell, so a non-executable hook still works.
+  if [ -x "$script" ]; then
+    "$script"
+  else
+    sh "$script"
+  fi
+}
+
+# --- files ---------------------------------------------------------------
+write_pid_file() {
+  [ -n "$pidfile" ] || return 0
+  target="$(pfx "$pidfile")"
+  if ! make_parent "$target"; then
+    printf '%s: cannot create %s\n' "$PROG" "$target" >&2
+    return 1
+  fi
+  if ! printf '%s\n' "$$" > "$target" 2>/dev/null; then
+    printf '%s: cannot write %s\n' "$PROG" "$target" >&2
+    return 1
+  fi
+}
+
+write_lease() {
+  [ -n "$leasesfile" ] || return 0
+  target="$(pfx "$leasesfile")"
+  if ! make_parent "$target"; then
+    printf '%s: cannot create %s\n' "$PROG" "$target" >&2
+    return 1
+  fi
+  {
+    printf '# Generated by %s using %s\n' "$PROG" "$client"
+    printf 'interface %s;\n' "$interface"
+    printf '  fixed-address %s;\n' "$ip"
+    printf '  subnet-mask %s;\n' "${subnet:-255.255.255.255}"
+    printf '  network-mask %s;\n' "${netmask:-255.255.255.255}"
+    printf '  domain-name "%s";\n' "$names"
+    for s in $dnsservers; do
+      printf '  domain-name-servers %s;\n' "$s"
+    done
+    for r in $routers; do
+      printf '  host-router %s;\n' "$r"
+    done
+  } > "$target"
+}
+
+write_pid_file
+write_lease
+
+# --- call the hook once per reason ----------------------------------------
+hook_status=0
+
+if [ "$mode" != "release" ]; then
+  export_contract bind
+  run_hook || hook_status=1
+fi
+
+case "$mode" in
+  request)
+    [ -n "$request" ] && export new_request_id="$request"
+    if [ "$one_shot" -eq 0 ] && [ "$nowait" -eq 0 ]; then
+      export_contract renew
+      run_hook || hook_status=1
+    fi
+    ;;
+  renew)
+    export_contract renew
+    run_hook || hook_status=1
+    ;;
+  release)
+    export_contract release
+    run_hook || hook_status=1
+    ;;
+esac
+
+exit "$hook_status"
