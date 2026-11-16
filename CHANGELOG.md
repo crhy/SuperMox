@@ -41,6 +41,10 @@
   secret (`src/supermox/locator.py`).
 - Daemon stderr reaches syslog under sysvinit (`scripts/supermox-logpipe`).
 - `scripts/check-overrides.sh`: offline check of `config/upstream-overrides.txt`.
+- `scripts/monthly-build.sh`: one monthly build command - the offline checks in registry
+  order with `OK`/`FAIL <code>`/`SKIP <reason>` per step, failures recorded without
+  stopping the run, the VM steps reported SKIP with the missing prerequisite, and the
+  logs plus `manifest.txt` kept under `build/monthly/<line>/` (`tests/test-monthly-build.sh`).
 - Waydroid test VM and debugging notes for the Android layer.
 - SuperMox Manager: page registry (one module per page), every module shipped and
   smoke-tested by the gate, live test harness (`tests/manager-live.sh`), and native pages

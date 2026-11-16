@@ -31,6 +31,45 @@ script, the shell and Python test suites, the no-systemd checks, the upstream-ov
 check, checks that every Manager module is listed in `config/shipped-scripts.txt`, and the
 Manager GUI smoke test (every registered page, headless).
 
+## Monthly build run
+
+```sh
+bash scripts/monthly-build.sh              # every step that works offline, VM steps reported SKIP
+bash scripts/monthly-build.sh --list       # the step registry, offline steps first, VM steps marked vm
+bash scripts/monthly-build.sh --only python-tests,repo-layout
+bash scripts/monthly-build.sh --dry-run    # prints the plan, touches nothing
+```
+
+One monthly build command, steps in registry order, one status per step: `OK`, `FAIL
+<exit code>` or `SKIP <reason>`. A failing step does not stop the run; the exit status
+is non-zero only after every step was attempted, so a failed month blocks the release
+and leaves evidence: each step's output in `build/monthly/<line>/<step>.log` plus
+`build/monthly/<line>/manifest.txt` (step, status, log path, and the line name, the
+PXVIRT commit pinned in `scripts/fetch-upstream.sh`, and a UTC timestamp). `<line>` is
+the month line from [AGENTS.md](../AGENTS.md) (`11.26`, and after `12.26` comes `1.27`);
+`--line NAME` and `--date YYYY-MM-DD` override it, `--state-dir DIR` moves the evidence.
+Nothing outside `build/` is written.
+
+| Step | Runs offline | Command |
+| --- | --- | --- |
+| `upstream-pins` | yes | `scripts/check-overrides.sh` |
+| `no-systemd` | yes | `scripts/check-no-systemd.sh --source .` |
+| `python-tests` | yes | `tests/test-python.sh` |
+| `init-scripts` | yes | `tests/test-init-scripts.sh` |
+| `repo-layout` | yes | `tests/test-repo-layout.sh` |
+| `iso-prepare` | where a Spaced checkout exists | `scripts/build-iso.sh --prepare-only` (`SUPERMOX_SPACED_REPO`; SKIPs naming it when absent) |
+| `vm-install` | no | `scripts/vm-test-install.sh` |
+| `web-admin` | no | `tests/manager-live.sh` |
+| `hardware-matrix` | no | `scripts/supermox-node-caps.sh` per profile |
+
+The last three need a VM and are reported `SKIP` with the concrete missing prerequisite
+(`sshpass` missing, `SUPERMOX_TEST_DIR` absent, `scripts/vm-status.sh` reporting no VM),
+never `OK`. `vm-install` also boots a nested-KVM test VM, so it only runs when the
+operator sets `SUPERMOX_MONTHLY_VM=1` (one VM at a time). The nested-KVM install, the
+web/API VM lifecycle and the hardware matrix are the next slices and stay open behind
+[#2](https://github.com/crhy/SuperMox/issues/2); the scheduled monthly trigger needs the
+runner and is not part of this slice either.
+
 ## Build and test VMs
 
 All PVE work happens in KVM virtual machines, never on the host.
@@ -101,6 +140,7 @@ symlink to it), which is why no machine-specific path appears anywhere in the re
 | `build-manager.sh` | The architecture-neutral `supermox-manager` package. |
 | `build-website.sh`, `branding-assets.sh` | Website and branding exports. |
 | `check.sh`, `check-no-systemd.sh`, `check-overrides.sh`, `inventory-systemd.sh`, `build-deps-report.sh` | Gate and audits. |
+| `monthly-build.sh` | One monthly build run: the offline checks in order, a status per step, the VM steps reported SKIP. |
 | `supermox-node-caps.sh` | Node capability tier probe (KVM / LXC / TCG). |
 | `supermox-android-setup.sh` | Prepare a node for the Android layer (Waydroid + Lawnchair). |
 | `supermox-onion-setup.sh` | Give a node a Tor onion service rendezvous for its join daemon. |
