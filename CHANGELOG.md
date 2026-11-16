@@ -2,13 +2,6 @@
 
 ## 11.26 (unreleased)
 
-### Changed
-
-- The Android layer now selects the Waydroid image by node architecture
-  (`supermox-android-setup --arch`: amd64 -> x86_64, arm64/armhf -> aarch64, riscv64/loong64
-  refused) and refuses to download the image when no `waydroid (>= 1.6.3)` package is
-  available on that node.
-
 ### Added
 
 - Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13, pve-container 6.1.15) built
@@ -29,10 +22,6 @@
 - PC edition: Spaced Linux desktop (MATE, Windows-XP panel, Flatpak, Calamares)
   with the SuperMox packages and branding. Built by `scripts/build-iso.sh`.
 - `supermox-ve` meta-package (it carries the `supermox-joind` join daemon) and `supermox-tmpfiles`.
-- `supermox-dhcp-client`: `/usr/sbin/dhclient` as a POSIX sh adapter that implements the ISC
-  dhclient contract on top of a maintained client (dhcpcd by default, udhcpc/udhcpc6 or a
-  stand-in via `SUPERMOX_DHCP_CLIENT`), satisfying pve-container's `isc-dhcp-client` dependency
-  without the ISC fork (`Provides/Replaces/Conflicts: isc-dhcp-client`, crhy/SuperMox#9).
 - `scripts/check-no-systemd.sh` verifies no systemd on the running system.
 - `scripts/supermox-node-caps.sh` reports node capability tier (KVM/LXC/TCG).
 
@@ -41,11 +30,17 @@
   secret (`src/supermox/locator.py`).
 - Daemon stderr reaches syslog under sysvinit (`scripts/supermox-logpipe`).
 - `scripts/check-overrides.sh`: offline check of `config/upstream-overrides.txt`.
-- `scripts/monthly-build.sh`: one monthly build command - the offline checks in registry
-  order with `OK`/`FAIL <code>`/`SKIP <reason>` per step, failures recorded without
-  stopping the run, the VM steps reported SKIP with the missing prerequisite, and the
-  logs plus `manifest.txt` kept under `build/monthly/<line>/` (`tests/test-monthly-build.sh`).
 - Waydroid test VM and debugging notes for the Android layer.
+- `init.d/waydroid-container` owns both halves of the Android layer under
+  one `update-rc.d` entry: the container (`waydroid container start`,
+  pid `/run/waydroid-container.pid`) and the session (`waydroid session
+  start`, pid `/run/waydroid-session.pid`, the half that bind-mounts the
+  Wayland socket and serves `waydroid app install`). `start` proves the
+  container RUNNING and never starts a session; `session-start` refuses
+  unless the container is RUNNING and a Wayland socket exists, naming the
+  missing half; `stop` tears the session down first; `status` reports
+  both halves. `tests/test-waydroid-session.sh` covers the handover and
+  the refusals offline (#7).
 - SuperMox Manager: page registry (one module per page), every module shipped and
   smoke-tested by the gate, live test harness (`tests/manager-live.sh`), and native pages
   for VM creation, container creation from templates, storage content, node
@@ -112,6 +107,9 @@
 
 ### Known limitations
 
+- Android session layer: the handover is implemented and tested offline,
+  but `Session: RUNNING` on a real amd64 VM with seatd and weston, the
+  Lawnchair install and a compositor screenshot are still unverified (#7).
 - The PC-edition ISO is built and boot-tested in a VM, but installing it to disk with
   its installer is not tested yet (issue #8).
 - Installed systems have no update channel yet (issue #10).
@@ -121,9 +119,6 @@
   before joining it, the member does not yet remove it again by itself.
 - amd64 only so far; arm64 and other architectures planned but untested.
 - Ceph storage built but untested.
-- Container DHCP: the `supermox-dhcp-client` adapter ships, but the pve-container `manage_dhclient`
-  patch and the live OCI-app-container host-managed-network test are not done yet, so the interim
-  isc-dhcp fork still has to be built and re-pinned (crhy/SuperMox#9).
 - Manager node shell window (copy/paste) and guest consoles are not finished yet
   (parked tasks t70b and t71).
 - The newest Manager pages are written by a local model and still await human review.

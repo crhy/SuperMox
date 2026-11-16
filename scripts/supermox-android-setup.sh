@@ -275,7 +275,12 @@ if [ "$want_lawnchair" -eq 1 ]; then
       # the session is not; seatd keeps weston's seat alive on a headless node.
       printf '   APK is staged at %s\n' "$apk"
       printf '   once a compositor is up, run:\n'
-      printf '     waydroid start\n'
+      # The session half belongs to the service script: session-start proves
+      # the container is RUNNING first, refuses while no Wayland socket exists,
+      # and records the session pid in /run/waydroid-session.pid, so `stop`
+      # can tear it down. Bare `waydroid start` would leave the service unable
+      # to find it.
+      printf '     /etc/init.d/waydroid-container session-start\n'
       printf '     waydroid app install %s\n' "$apk"
       printf '     waydroid prop set waydroid.active_apps %s\n' "$home_app"
     fi

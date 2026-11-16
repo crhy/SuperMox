@@ -5,7 +5,7 @@
 # Required-Stop:     $local_fs
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Short-Description: Waydroid Android container (the phone's UI layer)
+# Short-Description: Waydroid Android layer (container and session halves)
 ### END INIT INFO
 
 # Sysvinit service script for the Waydroid Android container. Upstream
@@ -24,6 +24,18 @@
 # The headless path deliberately skips the session layer's Wayland/pulse bind
 # mounts: only the GUI session needs a compositor, not the container.
 #
+# The session half (`waydroid session start`, the Android UI layer on top of
+# the container) has its own pidfile /run/waydroid-session.pid and its own
+# subcommands - session-start, session-stop, session-status - because the
+# package ships one update-rc.d entry (dh_installinit --name=waydroid-container),
+# so one script owns both halves. The handover is decided here rather than left
+# to chance: `start` brings the container up and PROVES it (the container must
+# reach RUNNING) and never starts a session by itself - a headless node would
+# park a dead session next to a live container and report success.
+# `session-start` refuses unless the container is already RUNNING and a Wayland
+# socket exists, naming the half that is missing. `stop` tears the session down
+# BEFORE the container; `restart` stays container-only.
+#
 # Refusing to start when the image is not initialized is deliberate:
 # without the image files under /var/lib/waydroid/images the container would
 # fail anyway (its LXC config loop-mounts them), and the daemon would still
@@ -37,6 +49,9 @@
 NAME=waydroid-container
 DAEMON=${WAYDROID_BIN:-/usr/bin/waydroid}
 PIDFILE=${WAYDROID_PIDFILE:-/run/waydroid-container.pid}
+# The session half (the Android UI layer) keeps its own pidfile, so stopping or
+# proving the container never mistakes the session for it, or the other way round.
+SESSION_PIDFILE=${WAYDROID_SESSION_PIDFILE:-/run/waydroid-session.pid}
 CONF=${WAYDROID_CONF:-/var/lib/waydroid/waydroid.cfg}
 IMG_DIR=${WAYDROID_IMG_DIR:-/var/lib/waydroid/images}
 LXC_DIR=${WAYDROID_LXC_DIR:-/var/lib/waydroid/lxc}
@@ -142,6 +157,94 @@ wait_container() {
   return 1
 }
 
+# --- the session half: the Android UI layer on top of the container ----------
+#
+# `waydroid session start` is not an LXC container: only waydroid knows about
+# it, so its state is the `Session:` line of `waydroid status`. Its LXC config
+# bind-mounts the host Wayland socket, so it needs a live compositor; the
+# container half does not, which is why start never touches it and why the
+# handover to it is an explicit session-start.
+session_state() {
+  "$DAEMON" status 2>/dev/null | sed -n 's/^Session:[[:space:]]*//p' |
+    head -1
+}
+
+# Prove the session half after forking it: the recorded pid must stay alive and
+# waydroid must report the session RUNNING. Same bound as the container wait -
+# a broken start is reported, never hidden behind a fixed sleep.
+wait_session() {
+  i=0
+  while [ "$i" -lt "$WAIT_SECS" ]; do
+    if [ -f "$SESSION_PIDFILE" ] &&
+      kill -0 "$(cat "$SESSION_PIDFILE")" 2>/dev/null &&
+      [ "$(session_state)" = "RUNNING" ]; then
+      return 0
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+# A live pid for a half: the pidfile first, else the half's own command line,
+# because /run is cleared on reboot while a daemon survives. The result carries
+# a trailing | when it was found without a pidfile, so status can say so.
+live_pid() {
+  if [ -f "$1" ] && kill -0 "$(cat "$1")" 2>/dev/null; then
+    cat "$1"
+    return 0
+  fi
+  orphan=$(pgrep -f "$DAEMON $2" | head -1)
+  if [ -n "$orphan" ]; then
+    printf '%s|\n' "$orphan"
+  fi
+  return 0
+}
+
+# Format a live_pid result for a status line.
+pid_note() {
+  case "$1" in
+    '') printf '' ;;
+    *'|') printf ' (pid %s, no pidfile)' "${1%|}" ;;
+    *) printf ' (pid %s)' "$1" ;;
+  esac
+}
+
+# Where the compositor socket is. The session layer bind-mounts it, so a
+# session started without one dies at once; refuse instead of pretending.
+wayland_socket() {
+  if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    for s in "$XDG_RUNTIME_DIR"/wayland-*.sock; do
+      [ -S "$s" ] && printf '%s\n' "$s" && return 0
+    done
+  fi
+  if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    # Set but not resolvable as a socket: still the compositor's name, and
+    # enough to know a compositor was asked for.
+    printf 'WAYLAND_DISPLAY=%s\n' "$WAYLAND_DISPLAY"
+  fi
+  return 0
+}
+
+# Tear the session half down. Never touches the container: stopping the UI
+# layer must not kill the Android userspace underneath it.
+stop_session() {
+  if [ -f "$SESSION_PIDFILE" ] &&
+    kill -0 "$(cat "$SESSION_PIDFILE")" 2>/dev/null; then
+    # TERM, the session's clean shutdown path; KILL only if it is stubborn.
+    start-stop-daemon --stop --quiet --retry=TERM/20/KILL/5 \
+      --pidfile "$SESSION_PIDFILE"
+    rc_session="$?"
+  else
+    # No live pid: /run is cleared on reboot while a session started by hand
+    # may still be up. Ask the manager; it is idempotent.
+    "$DAEMON" session stop >/dev/null 2>&1 || true
+    rc_session=0
+  fi
+  rm -f "$SESSION_PIDFILE"
+  return "$rc_session"
+}
+
 case "$1" in
   start)
     log_begin_msg "Starting $NAME"
@@ -188,10 +291,78 @@ case "$1" in
       stop_container
       exit 1
     fi
+    # The session half is deliberately NOT started here: it needs a Wayland
+    # compositor this boot may not have, and a headless node would park a dead
+    # session next to a live container and call that success. The handover to
+    # it is the explicit session-start below.
     log_end_msg 0
+    ;;
+  session-start)
+    log_begin_msg "Starting $NAME (session half)"
+    if [ ! -x "$DAEMON" ]; then
+      log_end_msg 1
+      exit 1
+    fi
+    # The handover is ordered and proven: (a) the container half must already
+    # be RUNNING, because the session mounts on top of it, and (b) a Wayland
+    # socket must exist, because the session's LXC config bind-mounts it. Each
+    # refusal names the half that is missing.
+    if ! container_running; then
+      printf '%s: session half refused, container half is %s (run start first)\n' \
+        "$NAME" "$(container_state)" >&2
+      log_end_msg 1
+      exit 1
+    fi
+    sock="$(wayland_socket)"
+    if [ -z "$sock" ]; then
+      printf '%s: session half refused, no Wayland socket (set WAYLAND_DISPLAY, or put wayland-*.sock in XDG_RUNTIME_DIR, once a compositor is up)\n' "$NAME" >&2
+      log_end_msg 1
+      exit 1
+    fi
+    start-stop-daemon --start --quiet --background --make-pidfile \
+      --pidfile "$SESSION_PIDFILE" --exec "$DAEMON" -- session start
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+      log_end_msg "$rc"
+      exit "$rc"
+    fi
+    if ! wait_session; then
+      printf '%s: session half failed to come up (pid %s, state %s)\n' \
+        "$NAME" "$(cat "$SESSION_PIDFILE" 2>/dev/null)" "$(session_state)" >&2
+      "$DAEMON" session stop >/dev/null 2>&1 || true
+      rm -f "$SESSION_PIDFILE"
+      log_end_msg 1
+      exit 1
+    fi
+    log_end_msg 0
+    ;;
+  session-stop)
+    log_begin_msg "Stopping $NAME (session half)"
+    stop_session
+    log_end_msg "$?"
+    ;;
+  session-status)
+    spid=$(live_pid "$SESSION_PIDFILE" "session start")
+    sstate=$(session_state)
+    case "$sstate" in
+      *RUNNING*)
+        printf '%s session is running%s\n' "$NAME" "$(pid_note "$spid")"
+        exit 0
+        ;;
+    esac
+    if [ -z "$spid" ] && [ -z "$sstate" ]; then
+      printf '%s session is not running\n' "$NAME"
+      exit 3
+    fi
+    printf '%s session is not running (state %s)\n' "$NAME" "${sstate:-no session state}"
+    exit 1
     ;;
   stop)
     log_begin_msg "Stopping $NAME"
+    # Session first: it holds the container's Wayland bind mount, and tearing
+    # the container down underneath it leaves the session daemon stranded.
+    stop_session
+    rc_session=$?
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
       # TERM, the daemon's clean shutdown path; KILL only if it is stubborn.
       start-stop-daemon --stop --quiet --retry=TERM/20/KILL/5 --pidfile "$PIDFILE"
@@ -207,9 +378,12 @@ case "$1" in
     fi
     stop_container
     rm -f "$PIDFILE"
+    [ "$rc_session" -ne 0 ] && rc="$rc_session"
     log_end_msg "$rc"
     ;;
   restart)
+    # Container only: start never assumes a compositor, so neither does restart.
+    # The session half returns when an explicit session-start runs with one.
     "$0" stop
     "$0" start
     ;;
@@ -226,13 +400,24 @@ case "$1" in
     state=$(container_state)
     running=0
     case "$state" in *RUNNING*) running=1 ;; esac
+    # The session half rides along as a report line; its own exit codes belong
+    # to session-status, so `status` keeps describing the container service.
+    spid=$(live_pid "$SESSION_PIDFILE" "session start")
+    sstate=$(session_state)
+    case "$sstate" in
+      *RUNNING*) sline="running$(pid_note "$spid")" ;;
+      '') sline="not running" ;;
+      *) sline="not running (state $sstate)" ;;
+    esac
     # Running means both halves: the manager daemon AND a RUNNING container.
     if [ -n "$daemon_pid" ] && [ "$running" = 1 ]; then
       printf '%s is running (daemon pid %s, container RUNNING)\n' "$NAME" "$daemon_pid"
+      printf '%s session half: %s\n' "$NAME" "$sline"
       exit 0
     fi
     if [ -z "$daemon_pid" ] && [ "$running" = 0 ]; then
       printf '%s is not running\n' "$NAME"
+      printf '%s session half: %s\n' "$NAME" "$sline"
       exit 3
     fi
     # Exactly one half is up (daemon without a container, or a container
@@ -241,10 +426,11 @@ case "$1" in
     # is the closest code for a service that is only partly up.
     [ -n "$state" ] || state="not RUNNING"
     printf '%s: daemon %s, container %s\n' "$NAME" "${daemon_pid:-not running}" "$state"
+    printf '%s session half: %s\n' "$NAME" "$sline"
     exit 1
     ;;
   *)
-    echo "Usage: $0 {start|stop|restart|status}" >&2
+    echo "Usage: $0 {start|stop|restart|status|session-start|session-stop|session-status}" >&2
     exit 2
     ;;
 esac
