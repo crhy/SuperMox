@@ -31,6 +31,22 @@
 - Documentation: `docs/README.md` index, `docs/architecture.md`, `docs/development.md`;
   Manager coverage updated.
 
+### Fixed
+
+- Python test harness (`tests/test-python.sh`) runs every `tests/py/test_*.py` module
+  in its own process, so a thread, socket or fd left behind by one module can neither
+  break a later module nor hide a real failure (SuperMox#11).
+- The websocket test server handles each connection in its own thread with its own
+  10 s read deadline, and `test_abandoned_connection_does_not_delay_the_next_one`
+  pins that an abandoned connection must not delay the next one.
+- `WS_DEBUG=1` logs the client socket's fd number, its peer and the elapsed read
+  time at connect, at each frame read and at close (stderr only, off by default,
+  never a cookie, ticket or request path).
+- `api.pinned_socket()` closes the socket it really owns when a pin check fails:
+  `wrap_socket()` detaches the plain socket, so the failed handshake used to leave
+  an open fd until garbage collection ran, closing an fd number that may by then
+  belong to another socket.
+
 ### Known limitations
 
 - Web UI still shows Proxmox branding (not yet rebranded in the running UI).

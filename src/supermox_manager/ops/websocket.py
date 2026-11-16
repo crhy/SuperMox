@@ -15,13 +15,45 @@ cookie is written. A pin mismatch never sends the cookie.
 import base64
 import hashlib
 import os
+import sys
 import threading
+import time
 
 from supermox_manager import api
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_FRAME = 16 * 1024 * 1024
 CHUNK = 4096
+
+# WS_DEBUG=1 turns on the handshake/read/close lines SuperMox#11 asks for:
+# the client socket's fd number, its peer and the elapsed read time, so a
+# full-suite loop can see whether an fd number is being reused. Off by default,
+# stderr only, and never a cookie, a ticket, a key or a request path.
+WS_DEBUG = os.environ.get("WS_DEBUG", "0") not in ("", "0")
+
+
+def _debug(message):
+    """One WS_DEBUG line on stderr. Never called unless WS_DEBUG is set."""
+    print("supermox websocket: " + message, file=sys.stderr)
+
+
+def _describe(sock):
+    """The fd number and peer of ``sock``, as used in a debug line.
+
+    The fd number is what makes fd reuse across test modules visible; a socket
+    whose fd is already gone reports fd=closed. Nothing here can be a secret.
+    """
+    try:
+        fileno = sock.fileno()
+    except OSError:
+        fileno = None
+    if fileno is None or fileno < 0:
+        return "fd=closed peer=?"
+    try:
+        peer = str(sock.getpeername())
+    except OSError:
+        peer = "?"
+    return "fd={} peer={}".format(fileno, peer)
 
 
 class WebSocketError(Exception):
@@ -88,18 +120,35 @@ def split_frames(payload, opcode=0x2, size=CHUNK):
 class FrameDecoder:
     """Turn a byte stream into whole messages: (opcode, payload)."""
 
-    def __init__(self, read, send_frame=None):
+    def __init__(self, read, send_frame=None, peer="?"):
         self._read = read
         self._send_frame = send_frame
+        self._peer = peer
 
     def _read_exact(self, count):
         parts = []
+        started = time.monotonic()
         while count > 0:
-            chunk = self._read(count)
-            if not chunk:
-                raise WebSocketError("The connection closed without a message.")
+            try:
+                chunk = self._read(count)
+                if not chunk:
+                    raise WebSocketError("The connection closed without a message.")
+            except Exception:
+                # The EPIPE SuperMox#11 saw surfaced here: name the fd, the peer
+                # and how long the read had been waiting. Only the exception's
+                # class is logged, never its text.
+                if WS_DEBUG:
+                    _debug("read {} bytes failed after {:.3f}s {} as {}".format(
+                        sum(len(part) for part in parts),
+                        time.monotonic() - started, self._peer,
+                        type(sys.exc_info()[1]).__name__))
+                raise
             parts.append(chunk)
             count -= len(chunk)
+        if WS_DEBUG:
+            _debug("read {} bytes in {:.3f}s {}".format(
+                sum(len(part) for part in parts), time.monotonic() - started,
+                self._peer))
         return b"".join(parts)
 
     def frame(self):
@@ -155,7 +204,9 @@ class WebSocket:
     def __init__(self, sock, timeout=15):
         self._sock = sock
         self._lock = threading.Lock()
-        self._decoder = FrameDecoder(sock.recv, self._write_frame)
+        self._peer = _describe(sock)
+        self._opened = time.monotonic()
+        self._decoder = FrameDecoder(sock.recv, self._write_frame, self._peer)
         self.closed = False
 
     def _write_frame(self, frame):
@@ -186,6 +237,9 @@ class WebSocket:
         if self.closed:
             return
         self.closed = True
+        if WS_DEBUG:
+            _debug("close {} open for {:.3f}s".format(
+                self._peer, time.monotonic() - self._opened))
         try:
             self._write_frame(encode_frame(b"", 0x8, os.urandom(4)))
         except OSError:
@@ -205,7 +259,12 @@ def connect(host, port, path, pin, cookie=None, timeout=15, subprotocol="binary"
     our key, and the negotiated subprotocol must be the one we asked for.
     """
     key = base64.b64encode(os.urandom(16)).decode("ascii")
+    started = time.monotonic()
     sock = api.pinned_socket(host, port, pin, timeout)
+    peer = _describe(sock)
+    if WS_DEBUG:
+        _debug("connect {} timeout={}s tls handshake {:.3f}s".format(
+            peer, timeout, time.monotonic() - started))
     lines = ["GET {} HTTP/1.1".format(path),
              "Host: {}:{}".format(host, port),
              "Upgrade: websocket",
@@ -242,6 +301,12 @@ def connect(host, port, path, pin, cookie=None, timeout=15, subprotocol="binary"
         if subprotocol and fields.get("sec-websocket-protocol", "") != subprotocol:
             raise WebSocketError("The node did not negotiate the binary subprotocol.")
     except Exception:
+        if WS_DEBUG:
+            _debug("handshake failed {} after {:.3f}s".format(
+                peer, time.monotonic() - started))
         sock.close()
         raise
+    if WS_DEBUG:
+        _debug("upgraded {} after {:.3f}s".format(
+            peer, time.monotonic() - started))
     return WebSocket(sock, timeout)

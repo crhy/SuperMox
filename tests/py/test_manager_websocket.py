@@ -14,6 +14,7 @@ import os
 import socket
 import ssl
 import threading
+import time
 import unittest
 
 from supermox_manager import api, logic
@@ -155,21 +156,35 @@ class FrameCodec(unittest.TestCase):
 class _EchoServer:
     """A TLS websocket server that echoes every message back unmasked.
 
+    Every accepted connection gets its own daemon thread and its own read
+    deadline (``timeout``, 10 s: the per-connection timeout the SuperMox#11
+    log showed), so an idle or abandoned connection can never sit in front of
+    the next connection the way an inline _handle did.
+
     refuse=True answers a plain 401 instead of upgrading; accept and subprotocol
     can be broken on purpose to check what the client insists on.
     """
 
-    def __init__(self, pem, key, accept=None, subprotocol="binary", refuse=False):
+    def __init__(self, pem, key, accept=None, subprotocol="binary", refuse=False,
+                 timeout=10):
         self.requests = []
         self.accept = accept
         self.subprotocol = subprotocol
         self.refuse = refuse
+        self.timeout = timeout
+        self._open = []
+        self._lock = threading.Lock()
+        self._stopping = False
         self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.context.load_cert_chain(pem, key)
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.bind(("127.0.0.1", 0))
         self.socket = self.context.wrap_socket(self.socket, server_side=True)
         self.socket.listen(8)
+        # accept() must not park forever: a closed listening socket does not
+        # always wake a thread already blocked in accept(), which is how a
+        # harness ends up waiting out a join timeout for every test.
+        self.socket.settimeout(0.5)
         self.thread = threading.Thread(target=self._serve, daemon=True)
         self.thread.start()
 
@@ -178,17 +193,38 @@ class _EchoServer:
         return self.socket.getsockname()[1]
 
     def _serve(self):
-        while True:
+        while not self._stopping:
             try:
                 connection, _address = self.socket.accept()
+            except socket.timeout:
+                continue
             except OSError:
                 return
-            try:
-                self._handle(connection)
-            except (OSError, websocket.WebSocketError):
-                pass
-            finally:
+            if self._stopping:
                 connection.close()
+                return
+            threading.Thread(target=self._serve_connection,
+                             args=(connection,), daemon=True).start()
+
+    def _serve_connection(self, connection):
+        """One connection, in its own thread, with its own read deadline.
+
+        The thread registers itself, so stop() can never join a thread that
+        has not started, and settimeout is inside the try because stop() may
+        close this connection at any moment.
+        """
+        with self._lock:
+            self._open.append((connection, threading.current_thread()))
+        try:
+            connection.settimeout(self.timeout)
+            self._handle(connection)
+        except (OSError, websocket.WebSocketError):
+            pass
+        finally:
+            with self._lock:
+                self._open = [item for item in self._open
+                              if item[0] is not connection]
+            connection.close()
 
     def _handle(self, connection):
         head = b""
@@ -222,9 +258,18 @@ class _EchoServer:
             connection.sendall(websocket.encode_frame(payload, 0x2, b""))
 
     def stop(self):
+        self._stopping = True
         self.socket.close()
-        if self.thread:
-            self.thread.join(timeout=5)
+        with self._lock:
+            pending = list(self._open)
+        for connection, _thread in pending:
+            try:
+                connection.close()
+            except OSError:
+                pass
+        for _connection, thread in pending:
+            thread.join(timeout=5)
+        self.thread.join(timeout=1)
 
 
 class Handshake(unittest.TestCase):
@@ -264,6 +309,37 @@ class Handshake(unittest.TestCase):
             connection.close()
         self.assertIn("GET /api2/json/nodes/atlas/vncwebsocket?port=5&vncticket=x HTTP/1.1",
                       server.requests)
+
+    def test_abandoned_connection_does_not_delay_the_next_one(self):
+        # A connection that finishes its handshake and then sends nothing - no
+        # frame, no close frame - must not be the thing standing in front of
+        # the next connection. The live round trip has to come back well inside
+        # the server's 10 s per-connection deadline, while the abandoned one is
+        # still open and is the one that ends in a timeout.
+        server = self.serve()
+        abandoned = websocket.connect("127.0.0.1", server.port, "/x", self.pin,
+                                      timeout=2)
+        try:
+            live = websocket.connect("127.0.0.1", server.port, "/x", self.pin,
+                                     timeout=4)
+            try:
+                started = time.monotonic()
+                live.send_text(TEXT)
+                answer = live.recv()
+                elapsed = time.monotonic() - started
+            finally:
+                live.close()
+            self.assertEqual(answer, (0x2, TEXT.encode("utf-8")))
+            self.assertLess(elapsed, 3.0, "the live round trip must finish inside "
+                            "3 s, while the abandoned connection is still open")
+            self.assertEqual(len(server.requests), 2,
+                             "both handshakes reached the server")
+            self.assertFalse(abandoned.closed,
+                             "the abandoned connection is still open")
+            with self.assertRaises(socket.timeout):
+                abandoned.recv()
+        finally:
+            abandoned.close()
 
     def test_ping_round_trip(self):
         server = self.serve()

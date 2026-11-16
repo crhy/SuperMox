@@ -88,6 +88,7 @@ def pinned_socket(host, port, pin, timeout=15):
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
     plain = socket.create_connection((host, port), timeout=timeout)
+    sock = None
     try:
         sock = context.wrap_socket(plain, server_hostname=host)
         cert = sock.getpeercert(binary_form=True)
@@ -95,7 +96,16 @@ def pinned_socket(host, port, pin, timeout=15):
             raise APIError("Certificate mismatch. No credentials were sent. "
                            "Verify the node fingerprint.")
     except Exception:
-        plain.close()
+        # wrap_socket() detaches ``plain``, so from that call the SSLSocket
+        # owns the fd: close whichever one still holds it. Leaving it open
+        # keeps the fd alive until garbage collection happens to run, and that
+        # finalizer then closes whatever socket owns the number by then.
+        for leftover in (sock, plain):
+            try:
+                if leftover is not None:
+                    leftover.close()
+            except OSError:
+                pass
         raise
     return sock
 
