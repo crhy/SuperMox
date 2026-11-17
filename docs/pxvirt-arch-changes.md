@@ -165,6 +165,16 @@ the upstream versions SuperMox builds. Each change is classified:
 | `src/Makefile` | Build changes | packaging |
 | `debian/changelog` | Changelog | branding |
 
+### SuperMox changes (patches/pve-container/)
+
+| Patch | File | Change | Class |
+|-------|------|--------|-------|
+| `0001-debian-sysvinit.patch` | `debian/rules`, `src/Makefile` | drops `dh_installsystemd` and the `pve-container@.service` units | packaging |
+| `0002-sysv-start.patch` | `src/PVE/LXC.pm` | `lxc-start -d` instead of `systemctl start pve-container@<vmid>` | other |
+| `0003-maintained-dhcp-client.patch` | `debian/control` | `isc-dhcp-client` → `udhcpc \| dhcpcd-base \| isc-dhcp-client` (Devuan Ceres ships no ISC DHCP client) | packaging |
+| `0003-maintained-dhcp-client.patch` | `src/PVE/LXC.pm` | `manage_dhclient` keeps `/sbin/dhclient` as the fallback and otherwise probes the image for `udhcpc6`/`udhcpc` and runs it one-shot (`-i <eth> -p <same pidfile> -q -n -s <adapter>`), `ROOTFS`/`LEASEFILE` through the environment | other |
+| `0003-maintained-dhcp-client.patch` | `src/pve-dhcp-client` (new), `src/Makefile` | new POSIX sh adapter installed in `/usr/share/lxc/hooks`: translates the client's environment into the `dhclient-script` contract (`reason`, `new_ip_address`, `new_subnet_mask`, `new_gateway`, `new_domain_name`, `new_dns_servers`, `new_lease_seconds`, `new_router_count`, `new_router_1..N`), keeps the lease record in the container hook dir, execs the hook | other |
+
 ## proxmox-ve
 
 - PXVIRT commit: `1fefdb6b25261ca3863f7acce3864834193f2f08`

@@ -1,0 +1,44 @@
+# SuperMox test fixture for tests/test-dhcp-client-port.sh.
+#
+# Verbatim excerpt of src/Makefile lines 38-70 of pve-container at
+# 7d99e4982438de5b2262a36ef2a32c0f48227ad2 (6.1.15), the pin recorded in
+# config/upstream-overrides.txt, with patches/pve-container/0001-debian-sysvinit.patch
+# applied (the state 0003-maintained-dhcp-client.patch sees: 0001 removed the
+# systemd unit installs from this same install target). The test compares
+# everything after the marker line below byte-for-byte against the pinned file
+# with 0001 applied whenever upstream/ is present, so this excerpt cannot rot
+# silently.
+# --- excerpt of src/Makefile lines 38-70 begins ---
+
+.PHONY: check
+check: test
+	make -C test
+
+.PHONY: install
+install: pct lxc-pve.conf pct.1 pct.conf.5 pct.bash-completion pct.zsh-completion \
+    pve-userns.seccomp \
+    lxc-pve-prestart-hook lxc-pve-autodev-hook lxc-pve-poststop-hook lxcnetaddbr
+	PVE_GENERATING_DOCS=1 perl -I. -T -e "use PVE::CLI::pct; PVE::CLI::pct->verify_api();"
+	install -d $(SBINDIR)
+	install -m 0755 pct $(SBINDIR)
+	install -d $(LXC_SCRIPT_DIR)
+	install -m 0755 lxcnetaddbr $(LXC_SCRIPT_DIR)
+	install -m 0755 pve-container-stop-wrapper $(LXC_SCRIPT_DIR)
+	install -d $(LXC_HOOK_DIR)
+	install -m 0755 lxc-pve-prestart-hook $(LXC_HOOK_DIR)
+	install -m 0755 lxc-pve-autodev-hook $(LXC_HOOK_DIR)
+	install -m 0755 lxc-pve-poststop-hook $(LXC_HOOK_DIR)
+	install -d $(LXC_CONFIG_DIR)
+	install -m 0644 pve-userns.seccomp $(LXC_CONFIG_DIR)/pve-userns.seccomp
+	install -d $(LXC_COMMON_CONFIG_DIR)
+	install -m 0644 lxc-pve.conf $(LXC_COMMON_CONFIG_DIR)/01-pve.conf
+	install -d $(LXC_USERNS_CONFIG_DIR)
+	install -m 0644 lxc-pve-userns.conf $(LXC_USERNS_CONFIG_DIR)/01-pve.conf
+	install -m 0644 -D pct.bash-completion $(BASHCOMPLDIR)/pct
+	install -m 0644 -D pct.zsh-completion $(ZSHCOMPLDIR)/_pct
+	make -C PVE install
+	install -d $(MAN1DIR)
+	install -d $(MAN5DIR)
+	install -m 0644 pct.1 $(MAN1DIR)
+	gzip -9 $(MAN1DIR)/pct.1
+	install -m 0644 pct.conf.5 $(MAN5DIR)

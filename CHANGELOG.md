@@ -30,6 +30,13 @@
   secret (`src/supermox/locator.py`).
 - Daemon stderr reaches syslog under sysvinit (`scripts/supermox-logpipe`).
 - `scripts/check-overrides.sh`: offline check of `config/upstream-overrides.txt`.
+- pve-container's host-managed container DHCP ported to a maintained client (#9):
+  `manage_dhclient` keeps `/sbin/dhclient` as the fallback and otherwise runs the
+  container image's busybox `udhcpc6`/`udhcpc` one-shot through the new
+  `/usr/share/lxc/hooks/pve-dhcp-client` adapter, which translates the client's
+  environment into the `dhclient-script` contract (`reason`, `new_ip_address`,
+  routers, DNS) and writes under `ROOTFS`; `patches/pve-container/0003-maintained-dhcp-client.patch`
+  and the adapter's contract are checked offline by `tests/test-dhcp-client-port.sh`.
 - Waydroid test VM and debugging notes for the Android layer.
 - `init.d/waydroid-container` owns both halves of the Android layer under
   one `update-rc.d` entry: the container (`waydroid container start`,
@@ -118,6 +125,9 @@
   physical machines. If a node fails after being admitted to the corosync cluster but
   before joining it, the member does not yet remove it again by itself.
 - amd64 only so far; arm64 and other architectures planned but untested.
+- Container DHCP (#9): the live test that creates an OCI application container with
+  a host-managed network in the test VM is still open, and the interim
+  `isc-dhcp-client` fork has not been dropped.
 - Ceph storage built but untested.
 - Manager node shell window (copy/paste) and guest consoles are not finished yet
   (parked tasks t70b and t71).
