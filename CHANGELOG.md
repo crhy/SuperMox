@@ -20,6 +20,13 @@
   secret (`src/supermox/locator.py`).
 - Daemon stderr reaches syslog under sysvinit (`scripts/supermox-logpipe`).
 - `scripts/check-overrides.sh`: offline check of `config/upstream-overrides.txt`.
+- pve-container's host-managed container DHCP ported to a maintained client (#9):
+  `manage_dhclient` keeps `/sbin/dhclient` as the fallback and otherwise runs the
+  container image's busybox `udhcpc6`/`udhcpc` one-shot through the new
+  `/usr/share/lxc/hooks/pve-dhcp-client` adapter, which translates the client's
+  environment into the `dhclient-script` contract (`reason`, `new_ip_address`,
+  routers, DNS) and writes under `ROOTFS`; `patches/pve-container/0003-maintained-dhcp-client.patch`
+  and the adapter's contract are checked offline by `tests/test-dhcp-client-port.sh`.
 - Waydroid test VM and debugging notes for the Android layer.
 - SuperMox Manager: page registry (one module per page), every module shipped and
   smoke-tested by the gate, live test harness (`tests/manager-live.sh`), and native pages
@@ -38,6 +45,9 @@
 - WireGuard join verified end to end between network namespaces in the test VM
   (`scripts/join-e2e.sh`, M3); not yet between two physical machines.
 - amd64 only so far; arm64 and other architectures planned but untested.
+- Container DHCP (#9): the live test that creates an OCI application container with
+  a host-managed network in the test VM is still open, and the interim
+  `isc-dhcp-client` fork has not been dropped.
 - Ceph storage built but untested.
 - Manager node shell window (copy/paste) and guest consoles are not finished yet
   (parked tasks t70b and t71).

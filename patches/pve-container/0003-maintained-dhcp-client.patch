@@ -1,0 +1,293 @@
+diff -ruN orig/debian/control new/debian/control
+--- a/debian/control	2026-11-16 16:40:35.396661391 -0800
++++ b/debian/control	2026-11-17 05:48:55.797078670 -0800
+@@ -23,7 +23,7 @@
+ Architecture: all
+ Depends: binutils,
+          file,
+-         isc-dhcp-client,
++         udhcpc | dhcpcd-base | isc-dhcp-client,
+          libpve-access-control (>= 9.0.7~),
+          libpve-cluster-perl,
+          libpve-common-perl (>= 9.1.18~),
+diff -ruN orig/src/Makefile new/src/Makefile
+--- a/src/Makefile	2026-11-17 05:46:00.254998375 -0800
++++ b/src/Makefile	2026-11-17 05:48:42.789149521 -0800
+@@ -43,7 +43,8 @@
+ .PHONY: install
+ install: pct lxc-pve.conf pct.1 pct.conf.5 pct.bash-completion pct.zsh-completion \
+     pve-userns.seccomp \
+-    lxc-pve-prestart-hook lxc-pve-autodev-hook lxc-pve-poststop-hook lxcnetaddbr
++    lxc-pve-prestart-hook lxc-pve-autodev-hook lxc-pve-poststop-hook lxcnetaddbr \
++    pve-dhcp-client
+ 	PVE_GENERATING_DOCS=1 perl -I. -T -e "use PVE::CLI::pct; PVE::CLI::pct->verify_api();"
+ 	install -d $(SBINDIR)
+ 	install -m 0755 pct $(SBINDIR)
+@@ -54,6 +55,7 @@
+ 	install -m 0755 lxc-pve-prestart-hook $(LXC_HOOK_DIR)
+ 	install -m 0755 lxc-pve-autodev-hook $(LXC_HOOK_DIR)
+ 	install -m 0755 lxc-pve-poststop-hook $(LXC_HOOK_DIR)
++	install -m 0755 pve-dhcp-client $(LXC_HOOK_DIR)
+ 	install -d $(LXC_CONFIG_DIR)
+ 	install -m 0644 pve-userns.seccomp $(LXC_CONFIG_DIR)/pve-userns.seccomp
+ 	install -d $(LXC_COMMON_CONFIG_DIR)
+diff -ruN orig/src/PVE/LXC.pm new/src/PVE/LXC.pm
+--- a/src/PVE/LXC.pm	2026-11-17 05:46:00.257446132 -0800
++++ b/src/PVE/LXC.pm	2026-11-17 05:49:15.524971214 -0800
+@@ -1312,6 +1312,51 @@
+     my $pidfile = "/var/lib/lxc/$vmid/hook/dhclient$ipversion-$eth.pid";
+     my $leasefile = "/var/lib/lxc/$vmid/hook/dhclient$ipversion-$eth.leases";
+     my $scriptfile = '/usr/share/lxc/hooks/dhclient-script';
++
++    # SuperMox (#9): ISC DHCP is end-of-life upstream and Devuan Ceres no longer
++    # ships isc-dhcp-client, so a container image usually has no /sbin/dhclient
++    # to run here. The ISC call below stays as the fallback for images that do
++    # provide it; otherwise run the maintained client the image has - busybox
++    # udhcpc6/udhcpc, Devuan's `udhcpc` package - one-shot through the
++    # pve-dhcp-client adapter installed next to the other LXC hooks, which
++    # translates the client's environment into the dhclient-script contract
++    # (reason, new_ip_address, routers, DNS). The pid file keeps upstream's
++    # name and location under /var/lib/lxc/$vmid/hook, which LXC bind-mounts
++    # into the container at the same path, so kill_dhclients still stops a
++    # managed client; ROOTFS and LEASEFILE reach the adapter through the
++    # environment instead of dhclient's -e/-lf.
++    # NOTE: the live test that creates an OCI application container with a
++    # host-managed network in the test VM is still open.
++    my $client = container_dhcp_client($vmid);
++
++    if ($client ne '/sbin/dhclient') {
++        my $adapter = '/usr/share/lxc/hooks/pve-dhcp-client';
++        local $ENV{ROOTFS} = $rootdir;
++        local $ENV{LEASEFILE} = $leasefile;
++        PVE::Tools::run_command([
++            'lxc-attach',
++            '-n',
++            $vmid,
++            '-s',
++            'NETWORK|UTSNAME',
++            '--',
++            'aa-exec',
++            '-p',
++            'unconfined',
++            $client,
++            '-i',
++            $eth,
++            '-p',
++            $pidfile,
++            '-q',
++            '-n',
++            ($action eq 'start' ? () : '-R'),
++            '-s',
++            $adapter,
++        ]);
++        return;
++    }
++
+     PVE::Tools::run_command([
+         'lxc-attach',
+         '-n',
+@@ -1337,6 +1382,32 @@
+     ]);
+ }
+ 
++sub container_dhcp_client {
++    my ($vmid) = @_;
++
++    # Which DHCP client exists is decided by the container image, not by the
++    # node, so the probe runs inside the container's namespace. ISC's dhclient
++    # keeps priority (unchanged behaviour for images that ship it), then busybox
++    # udhcpc6/udhcpc.
++    my $found;
++    PVE::Tools::run_command(
++        [
++            'lxc-attach',
++            '-n',
++            $vmid,
++            '--',
++            '/bin/sh',
++            '-c',
++            'for c in /sbin/dhclient /usr/sbin/udhcpc6 /sbin/udhcpc6 /usr/sbin/udhcpc /sbin/udhcpc; do command -v "$c" >/dev/null 2>&1 && { command -v "$c"; exit 0; }; done; exit 1',
++        ],
++        outfunc => sub { $found = PVE::Tools::trim(shift) },
++        noerr => 1,
++    );
++
++    die "no DHCP client (dhclient, udhcpc6 or udhcpc) in container $vmid\n" if !defined($found) || !$found;
++    return $found;
++}
++
+ sub kill_dhclients {
+     my ($vmid, $eth) = @_;
+ 
+diff -ruN orig/src/pve-dhcp-client new/src/pve-dhcp-client
+--- a/src/pve-dhcp-client	1969-12-31 16:00:00.000000000 -0800
++++ b/src/pve-dhcp-client	2026-11-17 05:48:32.361206321 -0800
+@@ -0,0 +1,168 @@
++#!/bin/sh
++# pve-dhcp-client - SuperMox DHCP client adapter (crhy/SuperMox#9).
++#
++# pve-container's PVE::LXC::manage_dhclient used to run ISC's /sbin/dhclient
++# inside the container's network namespace with
++#   -sf /usr/share/lxc/hooks/dhclient-script
++# and that hook consumes ISC's contract: reason, interface, new_ip_address,
++# new_subnet_mask, new_gateway, new_domain_name, new_dns_servers, new_lease_seconds,
++# new_router_count and new_router_1..N. ISC DHCP is end-of-life upstream and
++# Devuan no longer ships isc-dhcp-client, so manage_dhclient now runs the
++# maintained client the image has - busybox udhcpc6/udhcpc, Devuan's `udhcpc`
++# package - one-shot with -s pointing at this script.
++#
++# udhcpc runs its -s script once per DHCP event with the lease in its environment
++# ($interface, $ip, $subnet_mask, $router, $dns, $lease, ...); this adapter renames
++# those to the ISC names, execs the dhclient-script hook with the ISC reason for
++# the event (bound -> bind, renew -> renew, unbind -> unbind, deexp -> expire,
++# fail -> fail) and keeps the lease record upstream's -lf used to write in the
++# container hook directory, which LXC shares with the host at the same path.
++# ROOTFS is exported unchanged so the hook writes under it too; nothing else is
++# written anywhere. No address from the client means no files and a non-zero
++# exit, the way ISC's dhclient reported a failed lease.
++#
++# POSIX sh, no bashisms, no systemd.
++
++PROG=pve-dhcp-client
++HOOK=/usr/share/lxc/hooks/dhclient-script
++
++usage() {
++  printf 'usage: %s [interface]\n' "$PROG" >&2
++  printf 'run by udhcpc/udhcpc6 -s; the lease is read from the environment\n' >&2
++}
++
++# --- interface ------------------------------------------------------------
++# udhcpc passes no arguments to its script, so $interface is the lease's;
++# an argument is accepted for a direct call.
++iface=$1
++if [ "$#" -gt 1 ]; then
++  printf '%s: unexpected arguments\n' "$PROG" >&2
++  usage
++  exit 2
++fi
++[ -n "$iface" ] || iface=${interface:-}
++if [ -z "$iface" ]; then
++  printf '%s: no interface: pass it as an argument, or run under a client that exports $interface\n' "$PROG" >&2
++  usage
++  exit 2
++fi
++
++# --- the lease, as the client exported it ---------------------------------
++# busybox names these after the DHCP options ($ip, $subnet_mask, $router,
++# $dns, $lease, $domain, ...); ISC's dhclient used the new_* names. The first
++# name with a value wins, so the adapter also works when a client already
++# speaks the ISC contract.
++ip=${ip:-${ip_address:-${new_ip_address:-}}}
++subnet_mask=${subnet_mask:-${mask:-${subnet:-${new_subnet_mask:-}}}}
++network_mask=${network_mask:-${new_network_mask:-$subnet_mask}}
++domain=${domain:-${fqdn:-${new_domain_name:-}}}
++dns_servers=${dns_servers:-${dns:-${domain_name_servers:-${new_dns_servers:-}}}}
++lease_seconds=${lease_seconds:-${lease:-${new_lease_seconds:-}}}
++router_list=${router_list:-${routers:-${new_routers:-}}}
++reason=${reason:-}
++
++# a single $router (or BOOTP's $giaddr) is a one-element router list
++if [ -z "$router_list" ]; then
++  router_list=${router:-${giaddr:-}}
++fi
++
++# the gateway is the first router unless the client named one itself
++gateway=${new_gateway:-}
++[ -n "$gateway" ] || gateway=${giaddr:-}
++[ -n "$gateway" ] || gateway=${router:-}
++
++# --- no lease: report it, touch nothing, fail --------------------------------
++if [ -z "$reason" ]; then
++  printf '%s: %s: the client exported no reason\n' "$PROG" "$iface" >&2
++  exit 1
++fi
++if [ -z "$ip" ]; then
++  printf '%s: %s: the DHCP client obtained no address, not calling %s\n' "$PROG" "$iface" "$HOOK" >&2
++  exit 1
++fi
++
++# --- the ISC contract, as dhclient-script expects it ----------------------
++# The router list becomes the positional parameters, so the loop below can
++# export new_router_1 .. new_router_N without eval or indirect expansion.
++router_list=$(printf '%s' "$router_list" | tr ',' ' ')
++set -f
++set -- $router_list
++set +f
++
++case "$reason" in
++  bound) reason=bind ;;
++  deexp) reason=expire ;;
++esac
++
++export reason
++export interface="$iface"
++export new_ip_address="$ip"
++export new_subnet_mask="$subnet_mask"
++export new_network_mask="$network_mask"
++export new_gateway="$gateway"
++export new_domain_name="$domain"
++export new_dns_servers="$dns_servers"
++export new_domain_name_servers="$dns_servers"
++export new_lease_seconds="$lease_seconds"
++export new_routers="$router_list"
++
++n=0
++for r in "$@"; do
++  n=$((n + 1))
++  export "new_router_$n=$r"
++done
++export new_router_count="$n"
++
++# --- ROOTFS: exported unchanged; the hook writes under it ----------------
++if [ -n "${ROOTFS:-}" ]; then
++  export ROOTFS
++fi
++
++# --- the lease record upstream's -lf wrote, in the container hook dir ----
++# manage_dhclient passes the same path it used for ISC's -lf, under
++# /var/lib/lxc/<vmid>/hook, which LXC bind-mounts into the container at the
++# same path; kill_dhclients and the next renew therefore still see it.
++lease_file=${LEASEFILE:-}
++if [ -n "$lease_file" ]; then
++  case "$lease_file" in
++    /*) ;;
++    *)
++      printf '%s: LEASEFILE must be an absolute path: %s\n' "$PROG" "$lease_file" >&2
++      exit 1
++      ;;
++  esac
++  if mkdir -p "$(dirname "$lease_file")" 2>/dev/null; then
++    {
++      printf '# lease written by %s for %s\n' "$PROG" "$iface"
++      printf 'interface %s;\n' "$iface"
++      printf '  fixed-address %s;\n' "$ip"
++      printf '  subnet-mask %s;\n' "$subnet_mask"
++      printf '  network-mask %s;\n' "$network_mask"
++      printf '  router %s;\n' "$gateway"
++      printf '  domain-name "%s";\n' "$domain"
++      printf '  domain-name-servers %s;\n' "$dns_servers"
++      printf '  max-lease-seconds %s;\n' "$lease_seconds"
++    } > "$lease_file" 2>/dev/null || printf '%s: failed to write %s\n' "$PROG" "$lease_file" >&2
++  else
++    printf '%s: failed to create %s\n' "$PROG" "$(dirname "$lease_file")" >&2
++  fi
++fi
++
++# --- the hook ------------------------------------------------------------
++# Inside the container the hook sits at $HOOK; when the adapter is run against
++# a rootfs that is not mounted (the offline test), the same path under $ROOTFS
++# is used instead.
++hook=$HOOK
++if [ ! -f "$hook" ] && [ -n "${ROOTFS:-}" ] && [ -f "$ROOTFS$HOOK" ]; then
++  hook="$ROOTFS$HOOK"
++fi
++
++if [ ! -f "$hook" ]; then
++  printf '%s: DHCP hook not found: %s\n' "$PROG" "$HOOK" >&2
++  exit 1
++fi
++
++if [ -x "$hook" ]; then
++  exec "$hook"
++fi
++exec /bin/sh "$hook"
