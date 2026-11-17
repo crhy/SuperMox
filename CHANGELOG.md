@@ -20,6 +20,13 @@
   secret (`src/supermox/locator.py`).
 - Daemon stderr reaches syslog under sysvinit (`scripts/supermox-logpipe`).
 - `scripts/check-overrides.sh`: offline check of `config/upstream-overrides.txt`.
+- `patches/qemu-server/0004-bound-cpu-flag-probe.patch` bounds the QEMU CPU-flag
+  probe (SuperMox#12): the `query-cpu-model-expansion` QMP call gets a 30 s
+  `timeout` and `noerr`, and the probe VM is killed by pidfile (SIGTERM, then
+  SIGKILL) and force-stopped on every exit path, so pvestatd always returns to
+  its status cycle instead of stalling in `do_select` and filing no RRD history.
+  Verified offline by `tests/test-qmp-probe-bound.sh`; the first-boot-after-a-fresh-
+  install, bare-metal and ISO runs stay open on the issue.
 - Waydroid test VM and debugging notes for the Android layer.
 - SuperMox Manager: page registry (one module per page), every module shipped and
   smoke-tested by the gate, live test harness (`tests/manager-live.sh`), and native pages

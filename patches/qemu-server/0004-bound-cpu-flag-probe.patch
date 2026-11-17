@@ -1,0 +1,107 @@
+diff -ruN orig/src/PVE/QemuServer.pm new/src/PVE/QemuServer.pm
+--- a/src/PVE/QemuServer.pm	2026-11-16 16:47:44.787837371 -0800
++++ b/src/PVE/QemuServer.pm	2026-11-16 16:49:03.487003802 -0800
+@@ -2989,6 +2989,12 @@
+ # Returns: { kvm => [ flagX, flagY, ... ], tcg => [ flag1, flag2, ... ] }
+ # since kvm and tcg machines support different flags
+ #
++
++# SuperMox #12: bound for the CPU-flag probe's QMP query. pvestatd calls
++# query_supported_cpu_flags on startup and must return to its status cycle: an
++# unbounded wait here is what left it "running" while filing no RRD history.
++my $CPU_FLAG_PROBE_TIMEOUT = 30;
++
+ sub query_supported_cpu_flags {
+     my ($arch) = @_;
+ 
+@@ -3031,19 +3037,75 @@
+         }
+ 
+         my $rc = run_command($cmd, noerr => 1, quiet => 0);
+-        die "QEMU flag querying VM exited with code " . $rc if $rc;
+ 
+-        my $model = { name => $kvm ? 'host' : 'max' };
+-        $model->{props} = { 'hv-passthrough' => JSON::true } if $kvm && $arch eq 'x86_64';
++        # SuperMox #12: the probe VM must never outlive this call, and the QMP
++        # query must never wait without a bound. On the first boot after a fresh
++        # install the throwaway vmid -1 QEMU never answers on its QMP socket (our
++        # test node is itself a KVM guest, so the probe runs nested KVM) and pvestatd
++        # sits in do_select/core_sys_select forever: it reports "running", files no
++        # RRD history, and the probe QEMU lingers as a "[kvm] <defunct>" child still
++        # holding /var/run/qemu-server/-1.pid, which makes the next probe fail with
++        # "cannot create PID file". Upstream leaves mon_cmd unbounded and only tears
++        # the VM down if the QMP call returns. So: give the query the timeout qmp_cmd
++        # already supports, and run the teardown on every exit path, including the
++        # timeout path. A timed out accel must yield no entry in the result rather
++        # than an empty list: pvestatd reads a non-empty list as success, would
++        # broadcast an empty cpuflags-<accel> over the last good value in pmxcfs and
++        # skip its "CPU flag detection failed, will try again after delay" retry.
++        my $kill_probe_vm = sub {
++            my $pid;
++            if (my $pf = IO::File->new("<$pidfile")) {
++                my $line = <$pf>;
++                close($pf);
++                $pid = $1 if defined($line) && $line =~ m/^(\d+)$/;
++            }
++
++            # only kill what is actually running, a recycled pid must not be hit
++            if (defined($pid) && PVE::ProcFSTools::check_process_running($pid)) {
++                warn "warning: CPU flag probe VM (pid $pid) still running -"
++                    . " terminating now with SIGTERM\n";
++                kill 'TERM', $pid;
++
++                my $count = 0;
++                while ($count < 50 && PVE::ProcFSTools::check_process_running($pid)) {
++                    $count++;
++                    usleep(100000);
++                }
++
++                if (PVE::ProcFSTools::check_process_running($pid)) {
++                    warn "warning: CPU flag probe VM (pid $pid) ignored SIGTERM -"
++                        . " terminating now with SIGKILL\n";
++                    kill 'KILL', $pid;
++                    sleep 1;
++                }
++            }
++
++            # a stale pidfile is what makes the next probe die with "cannot create
++            # PID file: Cannot lock pid file", so drop it once its process is gone
++            unlink($pidfile)
++                if defined($pid) && !PVE::ProcFSTools::check_process_running($pid);
++        };
+ 
+         eval {
++            die "QEMU flag querying VM exited with code " . $rc if $rc;
++
++            my $model = { name => $kvm ? 'host' : 'max' };
++            $model->{props} = { 'hv-passthrough' => JSON::true } if $kvm && $arch eq 'x86_64';
++
+             my $cmd_result = mon_cmd(
+                 $fakevmid,
+                 'query-cpu-model-expansion',
+                 type => 'full',
+                 model => $model,
++                timeout => $CPU_FLAG_PROBE_TIMEOUT,
++                noerr => 1,
+             );
+ 
++            # noerr turns a QMP error or a timeout into a structured result instead
++            # of an exception; report it as a failed probe, not as empty flags.
++            die "probe VM did not answer: " . $cmd_result->{error} . "\n"
++                if !$cmd_result || $cmd_result->{error};
++
+             my $props = $cmd_result->{model}->{props};
+             foreach my $prop (keys %$props) {
+                 next if $props->{$prop} ne JSON::true;
+@@ -3054,7 +3116,10 @@
+         };
+         my $err = $@;
+ 
+-        # force stop with 10 sec timeout and 'nocheck', always stop, even if QMP failed
++        # force stop with 10 sec timeout and 'nocheck', always stop, even if QMP
++        # failed or timed out - and kill the probe VM by pid first, since a QEMU
++        # that never served QMP has no working 'stop'/'quit' path
++        $kill_probe_vm->();
+         vm_stop(undef, $fakevmid, 1, 1, 10, 0, 1);
+ 
+         die $err if $err;

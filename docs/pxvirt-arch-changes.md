@@ -129,6 +129,27 @@ the upstream versions SuperMox builds. Each change is classified:
 | `src/PVE/QemuServer/Makefile` | Build changes | packaging |
 | `src/usr/Makefile` | Build changes | packaging |
 
+### SuperMox deviation: bounded CPU-flag probe (#12)
+
+PXVIRT and upstream Proxmox leave `query_supported_cpu_flags` unbounded. SuperMox
+adds `patches/qemu-server/0004-bound-cpu-flag-probe.patch` on top of the table above:
+
+- the `query-cpu-model-expansion` QMP call gets `timeout => $CPU_FLAG_PROBE_TIMEOUT`
+  (30 s) and `noerr => 1`, both already supported by `PVE::QemuServer::Monitor::qmp_cmd`;
+- the probe VM is torn down on every exit path: the pid from
+  `/var/run/qemu-server/-1.pid` is killed (SIGTERM, then SIGKILL) and
+  `vm_stop(undef, -1, 1, 1, 10, 0, 1)` runs even when the QMP query timed out;
+- a timed out accel yields **no** entry in the `{ kvm => [...], tcg => [...] }` result
+  rather than an empty list, so pvestatd keeps the last good `cpuflags-<accel>` in
+  pmxcfs and takes its "try again after delay" retry instead of broadcasting nothing.
+
+This is what SuperMox#12 shows: pvestatd reporting "running" while stalled in
+`do_select`/`core_sys_select` on the probe's QMP socket and filing no RRD history,
+with a `[kvm] <defunct>` child left behind. Checked offline by
+`tests/test-qmp-probe-bound.sh` against
+`tests/fixtures/qemu-server-cpu-flag-probe.pl` (verbatim pinned excerpt of
+`src/PVE/QemuServer.pm` lines 2989-3062 at `71ea0ac7`, qemu-server 9.2.13).
+
 ## pve-common
 
 - PXVIRT commit: `abc46df3cb4fb22a438ae0192275a621b9899c97`
