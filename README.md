@@ -144,3 +144,10 @@ bash scripts/build-iso.sh
 SuperMox will be 100% open source: anyone can submit upgrades from anywhere in the world, be rewarded on the blockchain for their efforts, and help other users — for free or for incentivized rewards — in a radically organic path toward supplanting proprietary ecosystems.
 
 **Take ownership of your data, your devices, and your digital life.**
+
+## License
+
+SuperMox is licensed under the GNU Affero General Public License, version 3 or later
+(SPDX identifier `AGPL-3.0-or-later`), the same license as the PXVIRT / Proxmox VE
+code it is derived from; see [LICENSE](LICENSE). This matches the
+`License: AGPL-3.0-or-later` lines in the packaging/*/debian/copyright files.
