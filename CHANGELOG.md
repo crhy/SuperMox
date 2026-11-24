@@ -4,6 +4,9 @@
 
 ### Added
 
+- Top-level `LICENSE`: the full GNU Affero General Public License, version 3 or
+  later (`AGPL-3.0-or-later`) — the licence the repo's own
+  `packaging/*/debian/copyright` files already declare (#5).
 - Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13, pve-container 6.1.15) built
   from source on Devuan Ceres, running under sysvinit with zero systemd.
 - Web UI on port 8006, survives reboot.

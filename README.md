@@ -105,7 +105,9 @@ after 180 s with no `CORE_DONE` from the joiner. Unit tests cover both paths; th
 
 Not ready yet (open issues):
 
-- No LICENSE file; the fork's own licence terms are unsettled ([#5](https://github.com/crhy/SuperMox/issues/5)).
+- The licence is settled (AGPL v3 or later, see `LICENSE` and the `## License`
+  section below); closing [#5](https://github.com/crhy/SuperMox/issues/5) is a
+  human decision on crhy's side, not missing work here.
 - arm64 and other architectures unverified ([#6](https://github.com/crhy/SuperMox/issues/6)).
 - The Android GUI is not running on a phone yet ([#7](https://github.com/crhy/SuperMox/issues/7)).
 - The ISO is built and boot-tested in a VM but not yet installed to disk with its installer, nor published
@@ -172,3 +174,10 @@ bash scripts/build-iso.sh
 SuperMox will be 100% open source: anyone can submit upgrades from anywhere in the world, be rewarded on the blockchain for their efforts, and help other users — for free or for incentivized rewards — in a radically organic path toward supplanting proprietary ecosystems.
 
 **Take ownership of your data, your devices, and your digital life.**
+
+## License
+
+SuperMox is licensed under the GNU Affero General Public License, version 3 or later
+(SPDX identifier `AGPL-3.0-or-later`), the same license as the PXVIRT / Proxmox VE
+code it is derived from; see [LICENSE](LICENSE). This matches the
+`License: AGPL-3.0-or-later` lines in the packaging/*/debian/copyright files.
