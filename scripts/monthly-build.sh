@@ -45,6 +45,7 @@ STEPS=(
   'dhcp-client-port|bash tests/test-dhcp-client-port.sh|offline'
   'fetch-upstream|bash tests/test-fetch-upstream.sh|offline'
   'firewall-rules|bash tests/test-firewall-rules.sh|offline'
+  'install-checkout|bash tests/test-install-checkout.sh|offline'
   'join-e2e|bash tests/test-join-e2e.sh|offline'
   'lan-cluster-e2e|bash tests/test-lan-cluster-e2e.sh|offline'
   'local-env|bash tests/test-local-env.sh|offline'
@@ -117,6 +118,7 @@ prereq_check_sh() { return 0; }
 prereq_dhcp_client_port() { return 0; }
 prereq_fetch_upstream() { return 0; }
 prereq_firewall_rules() { return 0; }
+prereq_install_checkout() { return 0; }
 prereq_join_e2e() { return 0; }
 prereq_lan_cluster_e2e() { return 0; }
 prereq_local_env() { return 0; }
