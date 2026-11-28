@@ -63,6 +63,7 @@ STEPS=(
   'supermox-tmpfiles|bash tests/test-supermox-tmpfiles.sh|offline'
   'sync-live|bash tests/test-sync-live.sh|offline'
   'sysvservice|bash tests/test-sysvservice.sh|offline'
+  'upstream-drift-check|bash tests/test-upstream-drift-check.sh|offline'
   'vm-boot-iso|bash tests/test-vm-boot-iso.sh|offline'
   'vm-build-tooling|bash tests/test-vm-build-tooling.sh|offline'
   'vm-lan-pair|bash tests/test-vm-lan-pair.sh|offline'
@@ -136,6 +137,7 @@ prereq_supermox_manager() { return 0; }
 prereq_supermox_tmpfiles() { return 0; }
 prereq_sync_live() { return 0; }
 prereq_sysvservice() { return 0; }
+prereq_upstream_drift_check() { return 0; }
 prereq_vm_boot_iso() { return 0; }
 prereq_vm_build_tooling() { return 0; }
 prereq_vm_lan_pair() { return 0; }
