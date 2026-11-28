@@ -46,9 +46,11 @@ anything SuperMox ships.
   packages; `scripts/build-apt-repo.sh` publishes the suite with the same key.
 - **Packages**: `supermox-ve` (meta-package; it carries the join daemon
   `/usr/sbin/supermox-joind` and the `supermox-join` command — there is no
-  `supermox-joind` package), `supermox-tmpfiles`, `supermox-dhcp-client` (a POSIX sh
-  `dhclient` adapter that satisfies pve-container's `isc-dhcp-client` dependency from a
-  maintained client), `supermox-manager` (the desktop client), our own `rrdcached` and
+  `supermox-joind` package), `supermox-tmpfiles`, `supermox-dhcp-client` (a thin alias:
+  the one DHCP path is pve-container's patched `manage_dhclient` running the container
+  image's own client through its bundled `/usr/share/lxc/hooks/pve-dhcp-client`, so the
+  alias ships nothing and just depends on `pve-container`), `supermox-manager` (the
+  desktop client), our own `rrdcached` and
   `isc-dhcp-client` forks (see [pc-edition.md](pc-edition.md)), and the rebuilt PVE packages.
 
 Verified on 2026-10-29: Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13,

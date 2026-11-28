@@ -65,7 +65,18 @@
 
 - `rrdcached` and `isc-dhcp-client` are SuperMox's own packages, built from pinned Debian
   source: Devuan's `rrdcached` ships only systemd units, and Devuan dropped `isc-dhcp-client`,
-  which `pve-container` needs.
+  which `pve-container` used to depend on; the patched `pve-container` now wants
+  `udhcpc | dhcpcd-base | isc-dhcp-client` and the `supermox-ve` pin keeps the fork for
+  `/sbin/dhclient` on the host.
+- The two DHCP answers of #9 landed together and are now one path: the patched
+  `pve-container` one (`0003-maintained-dhcp-client.patch` runs the container image's
+  own client through the `pve-container`-shipped `/usr/share/lxc/hooks/pve-dhcp-client`
+  adapter) is what a host-managed container NIC calls directly, so
+  `supermox-dhcp-client` no longer ships `/usr/sbin/dhclient`: it is a thin alias
+  depending on `pve-container`, and without its old
+  `Provides/Replaces/Conflicts: isc-dhcp-client` the interim `isc-dhcp` fork (kept,
+  pins included) is the only package that can own `/usr/sbin/dhclient` until rhY
+  drops it. Checked offline by `tests/test-dhcp-one-path.sh`.
 - Every upstream component we rebuild carries a `+supermox1` version, and `supermox-ve`
   ships apt pins (`/etc/apt/preferences.d/supermox-origins`, `supermox-no-systemd`) so
   neither Proxmox's nor Devuan's builds can replace ours and systemd can never be pulled in.
