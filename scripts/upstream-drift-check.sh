@@ -4,22 +4,32 @@
 # version Proxmox's trixie pve-no-subscription repo ships *now*, so we rebuild
 # promptly when Proxmox moves instead of letting drift pile up.
 #
-# Output, one line per component:
-#   in-sync <component> <version>                       pinned version matches the index
-#   DRIFT <component> pinned <X> but trixie ships <Y>   the index ships a different version
-#   UNKNOWN <component> not found in the index          no Package:/Source: stanza matches
+# The Packages index lists EVERY version Proxmox has published (oldest first),
+# so for each component we take the HIGHEST version among all stanzas whose
+# Package: or Source: (name part) matches, ordered by dpkg version rules
+# (dpkg --compare-versions, python3 apt_pkg fallback) - never string order.
+# Components whose names are SOURCE package names that the index never spells
+# in a Source: field (pve-common & co, f265b) resolve by their binary package
+# names, recorded in config/upstream-source-binaries.txt.
 #
-# Exit: 0 no drift, 1 any drift, 2 usage error or malformed overrides line.
+# Output, one line per component:
+#   in-sync <component> <version>                                pin == newest in the index
+#   BEHIND <component> pinned <X> but trixie ships <Y>           pin < newest: the real drift
+#   AHEAD <component> pinned <X> but newest in the index is <Y>  pin > newest: say so, not an error
+#   UNKNOWN <component> not found in the index                   no Package:, Source: or alias match
+#
+# Exit: 0 no drift (in-sync/AHEAD/UNKNOWN), 1 any BEHIND, 2 usage error or malformed overrides line.
 # Offline for tests: --packages <file> reads the Packages index from disk;
 # without it the index is fetched from the pve-no-subscription repo.
 set -euo pipefail
 
 usage() {
-  printf 'usage: %s [--packages <Packages-file>] [--overrides <file>] [--list]\n' "${0##*/}" >&2
+  printf 'usage: %s [--packages <Packages-file>] [--overrides <file>] [--source-binaries <file>] [--list]\n' "${0##*/}" >&2
 }
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 overrides_file="$repo_root/config/upstream-overrides.txt"
+mapping_file="$repo_root/config/upstream-source-binaries.txt"
 packages_file=""
 list_only=0
 
@@ -43,6 +53,15 @@ while [ "$#" -gt 0 ]; do
         exit 2
       fi
       overrides_file="$2"
+      shift 2
+      ;;
+    --source-binaries)
+      if [ "$#" -lt 2 ]; then
+        printf 'ERROR: --source-binaries requires a file\n' >&2
+        usage
+        exit 2
+      fi
+      mapping_file="$2"
       shift 2
       ;;
     --list)
@@ -170,7 +189,11 @@ BEGIN { RS = ""; FS = "\n" }
     else if ($i ~ /^Source: /) src = substr($i, 9)
   }
   if (pkg != "" && ver != "") print "B", pkg, ver
-  if (src != "") { split(src, a, " "); if (a[1] != pkg) print "S", a[1], a[2] }
+  if (src != "") {
+    gsub(/[()]/, "", src)
+    split(src, a, " ")
+    if (a[1] != "" && a[2] != "" && a[1] != pkg) print "S", a[1], a[2]
+  }
 }
 ' "$index" > "$tmp_digest"; then
   printf 'ERROR: cannot digest the Packages index\n' >&2
@@ -178,15 +201,77 @@ BEGIN { RS = ""; FS = "\n" }
   exit 2
 fi
 
-declare -A pkg_ver src_ver
+# Debian version ordering: dpkg first, python3's apt_pkg as a fallback. Never
+# plain string order: "6.0.6-1" sorts BELOW "6.0.6~rc1-1" bytewise, the exact
+# opposite of dpkg's rule.
+ver_kind=""
+if command -v dpkg >/dev/null 2>&1; then
+  ver_kind="dpkg"
+elif python3 -c 'import apt_pkg' >/dev/null 2>&1; then
+  ver_kind="apt_pkg"
+else
+  printf 'ERROR: comparing versions needs dpkg or python3 apt_pkg\n' >&2
+  cleanup
+  exit 2
+fi
+
+# ver_cmp a b -> echoes lt, eq or gt for a vs b in Debian version order.
+ver_cmp() {
+  local a="$1" b="$2"
+  if [ "$a" = "$b" ]; then
+    printf 'eq'
+    return
+  fi
+  case "$ver_kind" in
+    dpkg)
+      if dpkg --compare-versions "$a" lt "$b"; then
+        printf 'lt'
+      elif dpkg --compare-versions "$a" gt "$b"; then
+        printf 'gt'
+      else
+        printf 'eq'
+      fi
+      ;;
+    apt_pkg)
+      python3 -c 'import apt_pkg, sys
+apt_pkg.init_system()
+c = apt_pkg.version_compare(sys.argv[1], sys.argv[2])
+print("lt" if c < 0 else "gt" if c > 0 else "eq")' "$a" "$b"
+      ;;
+  esac
+}
+
+# One entry per name: the HIGHEST version among all stanzas whose Package: or
+# Source: name matches (the index lists every version, oldest first, so the
+# first match is the OLDEST - that is the bug this reduces away).
+declare -A best_ver
 while read -r kind name version; do
-  [ -n "${name:-}" ] || continue
+  [ -n "${name:-}" ] && [ -n "${version:-}" ] || continue
   case "$kind" in
-    B) [ -z "${pkg_ver[$name]+x}" ] && pkg_ver[$name]="$version" ;;
-    S) [ -z "${src_ver[$name]+x}" ] && src_ver[$name]="$version" ;;
+    B | S)
+      if [ -z "${best_ver[$name]+x}" ]; then
+        best_ver[$name]="$version"
+      elif [ "$(ver_cmp "$version" "${best_ver[$name]}")" = "gt" ]; then
+        best_ver[$name]="$version"
+      fi
+      ;;
   esac
 done < "$tmp_digest"
 cleanup
+
+# Source-only components (f265b): their names are SOURCE package names, and the
+# live binary Packages index carries "Source:" fields only on foreign entries
+# (lvm2, apparmor, ceph), never on the libpve-*-perl stanzas - and the repo
+# publishes no source/Sources index (404). They resolve by their binary
+# package names, recorded one line per component in --source-binaries.
+declare -A comp_alias
+if [ -f "$mapping_file" ]; then
+  while read -r comp bins; do
+    [ -n "${comp:-}" ] || continue
+    case "$comp" in '#'*) continue ;; esac
+    comp_alias[$comp]="$bins"
+  done < "$mapping_file"
+fi
 
 # Normalize a version for comparison: strip the epoch and the Debian revision
 # (everything after the last hyphen), so the recorded "9.2.5" matches the index
@@ -206,20 +291,35 @@ drift=0
 for i in "${!ov_comp[@]}"; do
   comp="${ov_comp[$i]}"
   pinned="${ov_ver[$i]}"
-  idx=""
-  if [ -n "${pkg_ver[$comp]+x}" ]; then
-    idx="${pkg_ver[$comp]}"
-  elif [ -n "${src_ver[$comp]+x}" ]; then
-    idx="${src_ver[$comp]}"
+  key="$comp"
+  if [ -z "${best_ver[$key]+x}" ] && [ -n "${comp_alias[$comp]+x}" ]; then
+    for cand in ${comp_alias[$comp]}; do
+      if [ -n "${best_ver[$cand]+x}" ]; then
+        key="$cand"
+        break
+      fi
+    done
   fi
-  if [ -z "$idx" ]; then
+  if [ -z "${best_ver[$key]+x}" ]; then
     printf 'UNKNOWN %s not found in the index\n' "$comp"
-  elif [ "$(norm_ver "$pinned")" = "$(norm_ver "$idx")" ]; then
-    printf 'in-sync %s %s\n' "$comp" "$pinned"
-  else
-    printf 'DRIFT %s pinned %s but trixie ships %s\n' "$comp" "$pinned" "$idx"
-    drift=1
+    continue
   fi
+  newest="${best_ver[$key]}"
+  # The pins carry no Debian revision ("9.2.5" vs the index "9.2.5-1"), so
+  # compare the normalized versions.
+  rel="$(ver_cmp "$(norm_ver "$pinned")" "$(norm_ver "$newest")")"
+  case "$rel" in
+    lt)
+      printf 'BEHIND %s pinned %s but trixie ships %s\n' "$comp" "$pinned" "$newest"
+      drift=1
+      ;;
+    gt)
+      printf 'AHEAD %s pinned %s but newest in the index is %s\n' "$comp" "$pinned" "$newest"
+      ;;
+    *)
+      printf 'in-sync %s %s\n' "$comp" "$pinned"
+      ;;
+  esac
 done
 
 exit "$drift"

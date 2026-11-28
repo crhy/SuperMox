@@ -1,0 +1,14 @@
+# Source-only components from config/upstream-overrides.txt (f265b): their names
+# are SOURCE package names, and the live binary Packages index carries no
+# "Source:" field on their stanzas (only foreign entries like lvm2 carry one),
+# and the repo publishes no source/Sources index (404). scripts/upstream-drift-check.sh
+# resolves them by their binary package names:
+#   <component> <binary-package-name> [<another> ...]
+# Only components without a matching Package: stanza belong here; components
+# with their own stanza (pve-manager, pve-cluster, pve-container, pve-firewall,
+# pve-ha-manager, qemu-server, proxmox-ve, librados2-perl) resolve directly.
+proxmox-perl-rs libpve-rs-perl
+pve-common libpve-common-perl
+pve-access-control libpve-access-control
+pve-guest-common libpve-guest-common-perl
+pve-storage libpve-storage-perl
