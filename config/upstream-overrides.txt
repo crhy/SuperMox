@@ -1,17 +1,20 @@
 # Pin a component to an upstream commit other than the one PXVIRT's submodule records.
 # Format: <component> <git-url> <commit>  # <reason>   (a line without a "# reason" is an error)
-# Milestone 1 (first target amd64; all architectures) builds each component at the version Proxmox's trixie repo ships (2026-10-28),
-# so every component, pve-rs and Proxmox's Rust crates agree. PXVIRT's pins lag upstream by about a year.
-proxmox-perl-rs https://git.proxmox.com/git/proxmox-perl-rs c6b798f72a7e9f1063d75b144835d63781006ef4  # pve-rs 0.15.3, matches Proxmox's current crates
-pve-common https://git.proxmox.com/git/pve-common.git 1fc3a09b6456c487d37e602fcd85b7082a32bc50  # 9.2.5, as in Proxmox's trixie repo
-pve-cluster https://git.proxmox.com/git/pve-cluster.git 66c87e0e7587a247f879f6f59e3bb5f3dd008e1f  # 9.1.7, as in Proxmox's trixie repo
-pve-access-control https://git.proxmox.com/git/pve-access-control.git dff26b458651b4e1141ff0a41a296d2904b16228  # 9.1.2, as in Proxmox's trixie repo
-pve-guest-common https://git.proxmox.com/git/pve-guest-common.git 191c23e385e5dbed1938b2d1d322196831ef9331  # 6.0.5, as in Proxmox's trixie repo
-pve-storage https://git.proxmox.com/git/pve-storage.git 75b36a49f57fa7119a45bb69118c8c6eb58102d7  # 9.1.13, as in Proxmox's trixie repo
-pve-firewall https://git.proxmox.com/git/pve-firewall.git 9480dd1739669a1abb3551d42922c2691967ea8f  # 6.0.6, as in Proxmox's trixie repo
-pve-container https://git.proxmox.com/git/pve-container.git 7d99e4982438de5b2262a36ef2a32c0f48227ad2  # 6.1.15, as in Proxmox's trixie repo
-pve-ha-manager https://git.proxmox.com/git/pve-ha-manager.git c73364c19d5317e6df5bb1c1b727d080a5e897ef  # 5.2.5, as in Proxmox's trixie repo
-qemu-server https://git.proxmox.com/git/qemu-server.git 71ea0ac7192bb935f63cb64beb59e87d6cecd3bf  # 9.2.13, as in Proxmox's trixie repo
-pve-manager https://git.proxmox.com/git/pve-manager.git 66bc407c6d90a67aa15caed394bb294af174b6e1  # 9.2.24, as in Proxmox's trixie repo
-proxmox-ve https://git.proxmox.com/git/proxmox-ve.git 339b52bbec418a0978c187b1e95eea5b098b9322  # 9.2.0, as in Proxmox's trixie repo
+# Milestone 1 (first target amd64; all architectures) builds each component at the version Proxmox's trixie repo ships
+# (2026-11-28 drift check, task smx03), so every component, pve-rs and Proxmox's Rust crates agree. PXVIRT's pins lag
+# upstream by about a year.
+proxmox-perl-rs https://git.proxmox.com/git/proxmox-perl-rs 34cfa65acf5176fb54d6042acb1f732bc7e48c0f  # pve-rs 0.16.8, as shipped by Proxmox's trixie repo
+pve-common https://git.proxmox.com/git/pve-common.git 54925b0ac565c164355f154b7f97d9cc031005cc  # 9.2.15, as shipped by Proxmox's trixie repo
+pve-cluster https://git.proxmox.com/git/pve-cluster.git 2a8bc69a99a399771d746d7a76e42ab3ff75cc0e  # 9.1.17, as shipped by Proxmox's trixie repo
+pve-access-control https://git.proxmox.com/git/pve-access-control.git 7596eb2310938e19cb64b61e1d0544f5eaeab264  # 9.2.3, as shipped by Proxmox's trixie repo
+pve-guest-common https://git.proxmox.com/git/pve-guest-common.git 17c2695a747051d10641392c3608046046197d13  # 6.0.15, as shipped by Proxmox's trixie repo
+pve-storage https://git.proxmox.com/git/pve-storage.git 3ac027fd9fcd8fdfe6bb3acb1e4b58e8cd1cfde8  # 9.1.26, as shipped by Proxmox's trixie repo
+pve-firewall https://git.proxmox.com/git/pve-firewall.git 8381d964b9f1f546a6df59fe4f9975f8eca148ef  # 6.0.9, as shipped by Proxmox's trixie repo
+pve-container https://git.proxmox.com/git/pve-container.git ae86a25d9f58daa0f2fa316d134d88f66f804d0d  # 6.1.28, as shipped by Proxmox's trixie repo
+pve-ha-manager https://git.proxmox.com/git/pve-ha-manager.git c86bca477f4e10763c470526ca33f8e2d656593b  # 5.2.8, as shipped by Proxmox's trixie repo
+qemu-server https://git.proxmox.com/git/qemu-server.git 2f13e34784c5e0fee0df5d7e9669e732f57ef359  # 9.2.24, as shipped by Proxmox's trixie repo
+pve-manager https://git.proxmox.com/git/pve-manager.git 4cbab754a7da645d3da52ceb5f5276f03d38a126  # 9.3.1, as shipped by Proxmox's trixie repo
+# proxmox-ve's 9.3.0 changelog bump is not in the public git (master's newest commit still carries 9.2.0), so pin the
+# newest public master, the tree 9.3.0 was built from.
+proxmox-ve https://git.proxmox.com/git/proxmox-ve.git 75f62ea5d89734fbe27920991a9e5569378c87ee  # 9.3.0, trixie ships it but the bump commit is not public; newest public master
 librados2-perl https://git.proxmox.com/git/librados2-perl.git a9f0d562b20b47d51e2271f05541da494eb39e36  # 1.5.1, as in Proxmox's trixie repo; Proxmox's build is tied to Perl 5.40
