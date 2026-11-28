@@ -30,6 +30,42 @@ STEPS=(
   'init-scripts|bash tests/test-init-scripts.sh|offline'
   'repo-layout|bash tests/test-repo-layout.sh|offline'
   'iso-prepare|bash scripts/build-iso.sh --prepare-only|offline'
+  # f250: the newer 11.26 offline checks, every offline tests/test-*.sh that a
+  # step above does not already run. init-* are covered by the init-scripts
+  # step; the three environment FAILs (test-build-iso.sh, test-init-sync.sh,
+  # test-supermox-ve.sh) stay out until their build prerequisites exist.
+  'android-setup|bash tests/test-android-setup.sh|offline'
+  'apt-repo|bash tests/test-apt-repo.sh|offline'
+  'arch|bash tests/test-arch.sh|offline'
+  'branding|bash tests/test-branding.sh|offline'
+  'build-deps-report|bash tests/test-build-deps-report.sh|offline'
+  'build-rootfs|bash tests/test-build-rootfs.sh|offline'
+  'check-services|bash tests/test-check-services.sh|offline'
+  'check-sh|bash tests/test-check-sh.sh|offline'
+  'dhcp-client-port|bash tests/test-dhcp-client-port.sh|offline'
+  'fetch-upstream|bash tests/test-fetch-upstream.sh|offline'
+  'firewall-rules|bash tests/test-firewall-rules.sh|offline'
+  'join-e2e|bash tests/test-join-e2e.sh|offline'
+  'lan-cluster-e2e|bash tests/test-lan-cluster-e2e.sh|offline'
+  'local-env|bash tests/test-local-env.sh|offline'
+  'monthly-build-selftest|bash tests/test-monthly-build.sh|offline'
+  'node-caps|bash tests/test-node-caps.sh|offline'
+  'patches|bash tests/test-patches.sh|offline'
+  'proxmox-systemd-crate|bash tests/test-proxmox-systemd-crate.sh|offline'
+  'proxmox-systemd-pkg|bash tests/test-proxmox-systemd-pkg.sh|offline'
+  'pve-manager-sources|bash tests/test-pve-manager-sources.sh|offline'
+  'reap-orphans|bash tests/test-reap-orphans.sh|offline'
+  'release-check|bash tests/test-release-check.sh|offline'
+  'supermox-binfmt|bash tests/test-supermox-binfmt.sh|offline'
+  'supermox-dhcp-client|bash tests/test-supermox-dhcp-client.sh|offline'
+  'supermox-manager|bash tests/test-supermox-manager.sh|offline'
+  'supermox-tmpfiles|bash tests/test-supermox-tmpfiles.sh|offline'
+  'sync-live|bash tests/test-sync-live.sh|offline'
+  'sysvservice|bash tests/test-sysvservice.sh|offline'
+  'vm-boot-iso|bash tests/test-vm-boot-iso.sh|offline'
+  'vm-build-tooling|bash tests/test-vm-build-tooling.sh|offline'
+  'vm-lan-pair|bash tests/test-vm-lan-pair.sh|offline'
+  'vm-scripts|bash tests/test-vm-scripts.sh|offline'
   'vm-install|bash scripts/vm-test-install.sh|vm'
   'web-admin|bash tests/manager-live.sh|vm'
   'hardware-matrix|bash scripts/supermox-node-caps.sh|vm'
@@ -65,6 +101,43 @@ prereq_no_systemd() { return 0; }
 prereq_python_tests() { return 0; }
 prereq_init_scripts() { return 0; }
 prereq_repo_layout() { return 0; }
+
+# The f250 offline checks need nothing beyond the checkout: each test skips
+# honestly inside when its own extra prerequisite is missing (no upstream
+# tree, no xorriso, no syncthing, no VM), so the probe succeeds and the
+# recorded line stays whatever the test really measured.
+prereq_android_setup() { return 0; }
+prereq_apt_repo() { return 0; }
+prereq_arch() { return 0; }
+prereq_branding() { return 0; }
+prereq_build_deps_report() { return 0; }
+prereq_build_rootfs() { return 0; }
+prereq_check_services() { return 0; }
+prereq_check_sh() { return 0; }
+prereq_dhcp_client_port() { return 0; }
+prereq_fetch_upstream() { return 0; }
+prereq_firewall_rules() { return 0; }
+prereq_join_e2e() { return 0; }
+prereq_lan_cluster_e2e() { return 0; }
+prereq_local_env() { return 0; }
+prereq_monthly_build_selftest() { return 0; }
+prereq_node_caps() { return 0; }
+prereq_patches() { return 0; }
+prereq_proxmox_systemd_crate() { return 0; }
+prereq_proxmox_systemd_pkg() { return 0; }
+prereq_pve_manager_sources() { return 0; }
+prereq_reap_orphans() { return 0; }
+prereq_release_check() { return 0; }
+prereq_supermox_binfmt() { return 0; }
+prereq_supermox_dhcp_client() { return 0; }
+prereq_supermox_manager() { return 0; }
+prereq_supermox_tmpfiles() { return 0; }
+prereq_sync_live() { return 0; }
+prereq_sysvservice() { return 0; }
+prereq_vm_boot_iso() { return 0; }
+prereq_vm_build_tooling() { return 0; }
+prereq_vm_lan_pair() { return 0; }
+prereq_vm_scripts() { return 0; }
 
 # SUPERMOX_SPACED_REPO and SUPERMOX_TEST_DIR come from scripts/local-env.sh
 # (exported value > config/local.env > the portable default under build/), the
