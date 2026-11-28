@@ -1,0 +1,8 @@
+# SuperMox monthly build (f250): run scripts/monthly-build.sh (the orchestrator
+# of every offline build check, VM steps recorded as honest SKIPs) once a month.
+# Quiet hour: day 1 at 03:00 with a small random delay, mirroring the style of
+# cron/pve-daily-update. The orchestrator finds its own repo root, so the only
+# path here is the checkout; point it at wherever the checkout is deployed.
+# Install as a crontab file:
+#   install -m 0644 cron/supermox-monthly-build /etc/cron.d/supermox-monthly-build
+0 3 1 * * root sleep $(shuf -i 0-3600 -n 1); /srv/supermox/scripts/monthly-build.sh
