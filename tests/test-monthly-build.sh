@@ -110,7 +110,7 @@ while IFS= read -r l; do
     upstream-pins | no-systemd | python-tests | init-scripts | repo-layout | iso-prepare | \
     android-setup | apt-repo | arch | branding | build-deps-report | build-rootfs | \
     check-services | check-sh | dhcp-client-port | fetch-upstream | firewall-rules | \
-    install-checkout | upstream-drift-check | \
+    install-checkout | uninstall-checkout | upstream-drift-check | \
     join-e2e | lan-cluster-e2e | local-env | monthly-build-selftest | node-caps | \
     patches | proxmox-systemd-crate | proxmox-systemd-pkg | pve-manager-sources | \
     reap-orphans | release-check | supermox-binfmt | supermox-dhcp-client | \
@@ -141,8 +141,8 @@ done <<< "$out"
 if [ "$order_bad" -ne 0 ]; then
   fail=1
 fi
-if [ "$(printf '%s\n' "$out" | grep -cE '^[a-z0-9-]+ ')" -ne 43 ]; then
-  echo "FAIL: --list did not print the 43 registry steps"
+if [ "$(printf '%s\n' "$out" | grep -cE '^[a-z0-9-]+ ')" -ne 44 ]; then
+  echo "FAIL: --list did not print the 44 registry steps"
   printf '%s\n' "$out"
   fail=1
 fi
@@ -159,6 +159,7 @@ assert_has "DRY-RUN hardware-matrix (vm):"
 assert_has "DRY-RUN dhcp-client-port (offline): bash tests/test-dhcp-client-port.sh"
 assert_has "DRY-RUN local-env (offline): bash tests/test-local-env.sh"
 assert_has "DRY-RUN install-checkout (offline): bash tests/test-install-checkout.sh"
+assert_has "DRY-RUN uninstall-checkout (offline): bash tests/test-uninstall-checkout.sh"
 assert_has "DRY-RUN upstream-drift-check (offline): bash tests/test-upstream-drift-check.sh"
 assert_has "DRY-RUN reap-orphans (offline): bash tests/test-reap-orphans.sh"
 assert_has "DRY-RUN supermox-tmpfiles (offline): bash tests/test-supermox-tmpfiles.sh"
@@ -276,7 +277,7 @@ fi
 for other in upstream-pins no-systemd python-tests init-scripts iso-prepare \
   android-setup apt-repo arch branding build-deps-report build-rootfs \
   check-services check-sh dhcp-client-port fetch-upstream firewall-rules \
-  install-checkout \
+  install-checkout uninstall-checkout \
   join-e2e lan-cluster-e2e local-env monthly-build-selftest node-caps \
   patches proxmox-systemd-crate proxmox-systemd-pkg pve-manager-sources \
   reap-orphans release-check supermox-binfmt supermox-dhcp-client \
@@ -323,4 +324,4 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-echo "OK: monthly-build.sh lists the 43-step registry (f082's 9 plus 11.26's newer offline checks plus f253's install-checkout) with the offline steps before the vm-marked ones, dry-runs without running or writing anything, names the month line 12.26 -> 1.27, records FAIL with the exit code and still runs the later steps, SKIPs each VM step naming the missing prerequisite, writes manifest.txt with a status and an existing log path per step, and --only runs just that step"
+echo "OK: monthly-build.sh lists the 44-step registry (f082's 9 plus 11.26's newer offline checks plus f253's install-checkout and f259's uninstall-checkout) with the offline steps before the vm-marked ones, dry-runs without running or writing anything, names the month line 12.26 -> 1.27, records FAIL with the exit code and still runs the later steps, SKIPs each VM step naming the missing prerequisite, writes manifest.txt with a status and an existing log path per step, and --only runs just that step"
