@@ -28,12 +28,26 @@ STEPS=(
   'no-systemd|bash scripts/check-no-systemd.sh --source .|offline'
   'python-tests|bash tests/test-python.sh|offline'
   'init-scripts|bash tests/test-init-scripts.sh|offline'
+  # f289: the init-scripts step above is only a LINT (sh -n, LSB header fields,
+  # start/stop cases, no bare systemd text). The behavioural init-* steps below
+  # actually exercise each service script's behaviour offline against fake
+  # helpers under build/, so a whole month cannot drift while a service script
+  # regresses. The three environment FAILs (test-build-iso.sh,
+  # test-init-sync.sh, test-supermox-ve.sh) stay out until their build
+  # prerequisites exist; test-init-sync.sh is not test-init-sync-flags.sh.
+  'init-cgroups|bash tests/test-init-cgroups.sh|offline'
+  'init-corosync|bash tests/test-init-corosync.sh|offline'
+  'init-hosts|bash tests/test-init-hosts.sh|offline'
+  'init-joind|bash tests/test-init-joind.sh|offline'
+  'init-networking|bash tests/test-init-networking.sh|offline'
+  'init-pve-cluster|bash tests/test-init-pve-cluster.sh|offline'
+  'init-waydroid|bash tests/test-init-waydroid.sh|offline'
+  'init-wg|bash tests/test-init-wg.sh|offline'
+  'init-sync-flags|bash tests/test-init-sync-flags.sh|offline'
   'repo-layout|bash tests/test-repo-layout.sh|offline'
   'iso-prepare|bash scripts/build-iso.sh --prepare-only|offline'
   # f250: the newer 11.26 offline checks, every offline tests/test-*.sh that a
-  # step above does not already run. init-* are covered by the init-scripts
-  # step; the three environment FAILs (test-build-iso.sh, test-init-sync.sh,
-  # test-supermox-ve.sh) stay out until their build prerequisites exist.
+  # step above does not already run.
   'android-setup|bash tests/test-android-setup.sh|offline'
   'waydroid-session|bash tests/test-waydroid-session.sh|offline'
   'apt-repo|bash tests/test-apt-repo.sh|offline'
@@ -107,6 +121,19 @@ prereq_upstream_pins() { return 0; }
 prereq_no_systemd() { return 0; }
 prereq_python_tests() { return 0; }
 prereq_init_scripts() { return 0; }
+
+# f289: the behavioural init-* steps run each service script offline against fake
+# helpers under build/, so each probe just succeeds (offline, like the other
+# offline probes); the recorded line stays whatever the test really measured.
+prereq_init_cgroups() { return 0; }
+prereq_init_corosync() { return 0; }
+prereq_init_hosts() { return 0; }
+prereq_init_joind() { return 0; }
+prereq_init_networking() { return 0; }
+prereq_init_pve_cluster() { return 0; }
+prereq_init_waydroid() { return 0; }
+prereq_init_wg() { return 0; }
+prereq_init_sync_flags() { return 0; }
 prereq_repo_layout() { return 0; }
 
 # The f250 offline checks need nothing beyond the checkout: each test skips

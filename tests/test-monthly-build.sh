@@ -108,6 +108,8 @@ while IFS= read -r l; do
   esac
   case "$name" in
     upstream-pins | no-systemd | python-tests | init-scripts | repo-layout | iso-prepare | \
+    init-cgroups | init-corosync | init-hosts | init-joind | init-networking | \
+    init-pve-cluster | init-waydroid | init-wg | init-sync-flags | \
     android-setup | waydroid-session | apt-repo | arch | branding | build-deps-report | build-rootfs | \
     check-services | check-sh | check-overrides | dhcp-client-port | fetch-upstream | firewall-rules | \
     install-checkout | uninstall-checkout | update-checkout | drift-sync | upstream-drift-check | \
@@ -141,8 +143,8 @@ done <<< "$out"
 if [ "$order_bad" -ne 0 ]; then
   fail=1
 fi
-if [ "$(printf '%s\n' "$out" | grep -cE '^[a-z0-9-]+ ')" -ne 48 ]; then
-  echo "FAIL: --list did not print the 48 registry steps"
+if [ "$(printf '%s\n' "$out" | grep -cE '^[a-z0-9-]+ ')" -ne 57 ]; then
+  echo "FAIL: --list did not print the 57 registry steps"
   printf '%s\n' "$out"
   fail=1
 fi
@@ -152,6 +154,16 @@ rm -f "$root/calls"
 run_path --line dryrun --dry-run
 assert_rc 0
 assert_has "DRY-RUN upstream-pins (offline): bash scripts/check-overrides.sh"
+# f289: the behavioural init-* service steps run each service script offline.
+assert_has "DRY-RUN init-cgroups (offline): bash tests/test-init-cgroups.sh"
+assert_has "DRY-RUN init-corosync (offline): bash tests/test-init-corosync.sh"
+assert_has "DRY-RUN init-hosts (offline): bash tests/test-init-hosts.sh"
+assert_has "DRY-RUN init-joind (offline): bash tests/test-init-joind.sh"
+assert_has "DRY-RUN init-networking (offline): bash tests/test-init-networking.sh"
+assert_has "DRY-RUN init-pve-cluster (offline): bash tests/test-init-pve-cluster.sh"
+assert_has "DRY-RUN init-waydroid (offline): bash tests/test-init-waydroid.sh"
+assert_has "DRY-RUN init-wg (offline): bash tests/test-init-wg.sh"
+assert_has "DRY-RUN init-sync-flags (offline): bash tests/test-init-sync-flags.sh"
 assert_has "DRY-RUN vm-install (vm): bash scripts/vm-test-install.sh"
 assert_has "DRY-RUN web-admin (vm): bash tests/manager-live.sh"
 assert_has "DRY-RUN hardware-matrix (vm):"
@@ -279,6 +291,8 @@ if [ "$(step_lines "$state_one/manifest.txt")" -ne 1 ]; then
   fail=1
 fi
 for other in upstream-pins no-systemd python-tests init-scripts iso-prepare \
+  init-cgroups init-corosync init-hosts init-joind init-networking \
+  init-pve-cluster init-waydroid init-wg init-sync-flags \
   android-setup apt-repo arch branding build-deps-report build-rootfs \
   check-services check-sh dhcp-client-port fetch-upstream firewall-rules \
   install-checkout uninstall-checkout update-checkout \
@@ -328,4 +342,4 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-echo "OK: monthly-build.sh lists the 48-step registry (f082's 9 plus 11.26's newer offline checks plus f253's install-checkout, f259's uninstall-checkout, f262's update-checkout, f280's drift-sync, f284's check-overrides and f286's waydroid-session) with the offline steps before the vm-marked ones, dry-runs without running or writing anything, names the month line 12.26 -> 1.27, records FAIL with the exit code and still runs the later steps, SKIPs each VM step naming the missing prerequisite, writes manifest.txt with a status and an existing log path per step, and --only runs just that step"
+echo "OK: monthly-build.sh lists the 57-step registry (f082's 9 plus 11.26's newer offline checks plus f253's install-checkout, f259's uninstall-checkout, f262's update-checkout, f280's drift-sync, f284's check-overrides, f286's waydroid-session and f289's nine behavioural init-* service steps, one per service script) with the offline steps before the vm-marked ones, dry-runs without running or writing anything, names the month line 12.26 -> 1.27, records FAIL with the exit code and still runs the later steps, SKIPs each VM step naming the missing prerequisite, writes manifest.txt with a status and an existing log path per step, and --only runs just that step"
