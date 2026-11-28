@@ -285,7 +285,7 @@ stage_debs "$DEB_DIR"
 # newest build/supermox-manager_*.deb so it wins over any older copy in DEB_DIR.
 stage_manager() {
   local newest
-  newest="$(ls -1t "$repo_root"/build/supermox-manager_*.deb 2>/dev/null | head -1)"
+  newest="$(ls -1t "$repo_root"/build/supermox-manager_*.deb 2>/dev/null | head -1; exit 0)"
   [ -n "$newest" ] || { step "WARN: no build/supermox-manager_*.deb (run build-manager.sh first)"; return 0; }
   step "stage Manager: ${newest##*/} (newest from build/, overrides DEB_DIR copy)"
   run rm -f "$WORKTREE/build/local-packages/supermox-manager_"*.deb

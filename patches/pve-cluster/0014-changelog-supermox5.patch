@@ -1,0 +1,17 @@
+diff -ruN orig/debian/changelog post/debian/changelog
+--- a/debian/changelog	2026-11-28 04:19:40.895027894 -0800
++++ b/debian/changelog	2026-11-28 04:19:40.903997736 -0800
+@@ -1,3 +1,13 @@
++pve-cluster (9.1.17+supermox5) trixie; urgency=medium
++
++  * src/PVE/CLI/pvecm.pm: the new cluster-CA renewal code drives pveproxy on
++    every other node through ssh. SuperMox nodes run sysvinit, so the
++    "systemctl reload-or-restart pveproxy" it issues there does not exist:
++    the remote call now runs /etc/init.d/pveproxy restart, and the closing
++    hint names the same command.
++
++ -- SuperMox <noreply@supermox.me>  Fri, 27 Nov 2026 18:00:00 -0800
++
+ pve-cluster (9.1.17+supermox4) trixie; urgency=medium
+ 
+   * init.d/pve-cluster: stop, status and restart find pmxcfs by its executable,

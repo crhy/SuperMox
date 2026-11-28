@@ -1,7 +1,7 @@
 # SuperMox test fixture for tests/test-dhcp-client-port.sh.
 #
 # Verbatim excerpt of src/Makefile lines 38-70 of pve-container at
-# 7d99e4982438de5b2262a36ef2a32c0f48227ad2 (6.1.15), the pin recorded in
+# ae86a25d9f58daa0f2fa316d134d88f66f804d0d (6.1.28), the pin recorded in
 # config/upstream-overrides.txt, with patches/pve-container/0001-debian-sysvinit.patch
 # applied (the state 0003-maintained-dhcp-client.patch sees: 0001 removed the
 # systemd unit installs from this same install target). The test compares

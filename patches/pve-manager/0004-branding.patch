@@ -1,7 +1,7 @@
-diff -ruN a/PVE/Service/pveproxy.pm b/PVE/Service/pveproxy.pm
---- a/PVE/Service/pveproxy.pm	2026-10-28 13:16:12.760373444 -0700
-+++ b/PVE/Service/pveproxy.pm	2026-11-04 11:29:59.856870675 -0800
-@@ -91,6 +91,7 @@
+diff -ruN orig/PVE/Service/pveproxy.pm new/PVE/Service/pveproxy.pm
+--- a/PVE/Service/pveproxy.pm	2026-11-28 04:07:56.093955134 -0800
++++ b/PVE/Service/pveproxy.pm	2026-11-28 04:31:11.381406811 -0800
+@@ -92,6 +92,7 @@
      add_dirs($dirs, '/pwt/css/' => "$basedirs->{widgettoolkit}/css/");
      add_dirs($dirs, '/pwt/images/' => "$basedirs->{widgettoolkit}/images/");
      add_dirs($dirs, '/pwt/themes/' => "$basedirs->{widgettoolkit}/themes/");
@@ -9,7 +9,7 @@ diff -ruN a/PVE/Service/pveproxy.pm b/PVE/Service/pveproxy.pm
      add_dirs($dirs, '/xtermjs/' => "$basedirs->{xtermjs}/");
      add_dirs($dirs, '/yew-mobile/', "$basedirs->{yew_mobile}/");
      add_dirs($dirs, '/yew-mobile/i18n/', "$basedirs->{i18n_yew}/");
-@@ -209,7 +210,8 @@
+@@ -210,7 +211,8 @@
      my $lang;
      my $username;
      my $token = 'null';
@@ -19,9 +19,9 @@ diff -ruN a/PVE/Service/pveproxy.pm b/PVE/Service/pveproxy.pm
  
      if (my $cookie = $r->header('Cookie')) {
          if (my $newlang = ($cookie =~ /(?:^|\s)PVELangCookie=([^;]*)/)[0]) {
-diff -ruN a/www/index.html.tpl b/www/index.html.tpl
---- a/www/index.html.tpl	2026-10-28 13:16:12.761278289 -0700
-+++ b/www/index.html.tpl	2026-11-04 11:29:59.856971514 -0800
+diff -ruN orig/www/index.html.tpl new/www/index.html.tpl
+--- a/www/index.html.tpl	2026-11-28 04:07:56.097821287 -0800
++++ b/www/index.html.tpl	2026-11-28 04:31:11.381507851 -0800
 @@ -4,9 +4,9 @@
      <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
      <meta http-equiv="X-UA-Compatible" content="IE=edge">
@@ -35,10 +35,22 @@ diff -ruN a/www/index.html.tpl b/www/index.html.tpl
      <link rel="stylesheet" type="text/css" href="/pve2/ext6/theme-crisp/resources/theme-crisp-all.css?ver=7.0.0" />
      <link rel="stylesheet" type="text/css" href="/pve2/ext6/crisp/resources/charts-all.css?ver=7.0.0" />
      <link rel="stylesheet" type="text/css" href="/pve2/fa/css/font-awesome.css" />
-diff -ruN a/www/manager6/dc/Config.js b/www/manager6/dc/Config.js
---- a/www/manager6/dc/Config.js	2026-10-28 13:16:12.765278269 -0700
-+++ b/www/manager6/dc/Config.js	2026-11-04 11:30:29.195795671 -0800
-@@ -179,7 +179,7 @@
+diff -ruN orig/www/manager6/dc/ClusterEdit.js new/www/manager6/dc/ClusterEdit.js
+--- a/www/manager6/dc/ClusterEdit.js	2026-11-28 04:07:56.101821264 -0800
++++ b/www/manager6/dc/ClusterEdit.js	2026-11-28 04:31:16.314131480 -0800
+@@ -229,7 +229,7 @@
+                     local[0] < cluster[0] || (local[0] === cluster[0] && local[1] < cluster[1]);
+                 let text = Ext.String.format(
+                     gettext(
+-                        'This node runs Proxmox VE {0}, but the newest cluster node runs Proxmox VE {1}.',
++                        'This node runs SuperMox {0}, but the newest cluster node runs SuperMox {1}.',
+                     ),
+                     Ext.htmlEncode(localVersion),
+                     Ext.htmlEncode(clusterVersion),
+diff -ruN orig/www/manager6/dc/Config.js new/www/manager6/dc/Config.js
+--- a/www/manager6/dc/Config.js	2026-11-28 04:07:56.101821264 -0800
++++ b/www/manager6/dc/Config.js	2026-11-28 04:31:11.381590500 -0800
+@@ -188,7 +188,7 @@
              iconCls: 'fa fa-key',
              itemId: 'tfa',
              yubicoEnabled: true,
@@ -47,11 +59,23 @@ diff -ruN a/www/manager6/dc/Config.js b/www/manager6/dc/Config.js
          });
  
          if (caps.dc['Sys.Audit']) {
-diff -ruN a/www/manager6/node/StatusView.js b/www/manager6/node/StatusView.js
---- a/www/manager6/node/StatusView.js	2026-10-28 13:16:12.765278269 -0700
-+++ b/www/manager6/node/StatusView.js	2026-11-04 11:30:29.191795677 -0800
+diff -ruN orig/www/manager6/dc/SAN.js new/www/manager6/dc/SAN.js
+--- a/www/manager6/dc/SAN.js	2026-11-28 04:07:56.101821264 -0800
++++ b/www/manager6/dc/SAN.js	2026-11-28 04:31:16.313966361 -0800
+@@ -388,7 +388,7 @@
+                                 Ext.String.format(
+                                     gettext(
+                                         // TRANSLATORS: {0} is the label of the Remove Entry button.
+-                                        'How the map of the LUN is managed: by an explicit entry, which stays until it is removed with "{0}", by a storage with Multipath enabled, natively for NVMe, or "Unmanaged" if Proxmox VE did not set it up.',
++                                        'How the map of the LUN is managed: by an explicit entry, which stays until it is removed with "{0}", by a storage with Multipath enabled, natively for NVMe, or "Unmanaged" if SuperMox did not set it up.',
+                                     ),
+                                     gettext('Remove Entry'),
+                                 ),
+diff -ruN orig/www/manager6/node/StatusView.js new/www/manager6/node/StatusView.js
+--- a/www/manager6/node/StatusView.js	2026-11-28 04:07:56.105821238 -0800
++++ b/www/manager6/node/StatusView.js	2026-11-28 04:31:11.381681390 -0800
 @@ -160,7 +160,7 @@
-         me.items.push({
+         me.items = me.items.concat({
              xtype: 'pmxNodeInfoRepoStatus',
              itemId: 'repositoryStatus',
 -            product: 'Proxmox VE',
@@ -59,9 +83,21 @@ diff -ruN a/www/manager6/node/StatusView.js b/www/manager6/node/StatusView.js
              repoLink: `#${repoLink}`,
          });
  
-diff -ruN a/www/manager6/storage/CephFSEdit.js b/www/manager6/storage/CephFSEdit.js
---- a/www/manager6/storage/CephFSEdit.js	2026-10-28 04:35:06.039011765 -0700
-+++ b/www/manager6/storage/CephFSEdit.js	2026-11-04 11:30:29.195795671 -0800
+diff -ruN orig/www/manager6/panel/GuestIdentity.js new/www/manager6/panel/GuestIdentity.js
+--- a/www/manager6/panel/GuestIdentity.js	2026-11-28 04:07:56.105821238 -0800
++++ b/www/manager6/panel/GuestIdentity.js	2026-11-28 04:31:16.313861021 -0800
+@@ -35,7 +35,7 @@
+         let pendingText = nodeTooOld
+             ? Ext.String.format(
+                   gettext(
+-                      'Assigned with the next configuration change on a node with Proxmox VE {0} or newer',
++                      'Assigned with the next configuration change on a node with SuperMox {0} or newer',
+                   ),
+                   minVersion,
+               )
+diff -ruN orig/www/manager6/storage/CephFSEdit.js new/www/manager6/storage/CephFSEdit.js
+--- a/www/manager6/storage/CephFSEdit.js	2026-11-16 16:39:55.443936766 -0800
++++ b/www/manager6/storage/CephFSEdit.js	2026-11-28 04:31:11.381752169 -0800
 @@ -128,7 +128,7 @@
                  uncheckedValue: 0,
                  submitValue: false,
@@ -71,10 +107,10 @@ diff -ruN a/www/manager6/storage/CephFSEdit.js b/www/manager6/storage/CephFSEdit
              },
          ];
  
-diff -ruN a/www/manager6/storage/RBDEdit.js b/www/manager6/storage/RBDEdit.js
---- a/www/manager6/storage/RBDEdit.js	2026-10-28 04:35:06.039011765 -0700
-+++ b/www/manager6/storage/RBDEdit.js	2026-11-04 11:30:29.195795671 -0800
-@@ -228,7 +228,7 @@
+diff -ruN orig/www/manager6/storage/RBDEdit.js new/www/manager6/storage/RBDEdit.js
+--- a/www/manager6/storage/RBDEdit.js	2026-11-28 04:07:56.112273675 -0800
++++ b/www/manager6/storage/RBDEdit.js	2026-11-28 04:31:11.381821209 -0800
+@@ -232,7 +232,7 @@
                  uncheckedValue: 0,
                  submitValue: false,
                  hidden: !me.isCreate,
@@ -83,10 +119,10 @@ diff -ruN a/www/manager6/storage/RBDEdit.js b/www/manager6/storage/RBDEdit.js
              },
          ];
  
-diff -ruN a/www/manager6/Utils.js b/www/manager6/Utils.js
---- a/www/manager6/Utils.js	2026-10-28 13:16:12.761278289 -0700
-+++ b/www/manager6/Utils.js	2026-11-04 11:30:29.191795677 -0800
-@@ -797,7 +797,7 @@
+diff -ruN orig/www/manager6/Utils.js new/www/manager6/Utils.js
+--- a/www/manager6/Utils.js	2026-11-28 04:07:56.097821287 -0800
++++ b/www/manager6/Utils.js	2026-11-28 04:31:11.381952538 -0800
+@@ -835,7 +835,7 @@
                  pwchange: true,
              },
              pve: {
@@ -95,9 +131,9 @@ diff -ruN a/www/manager6/Utils.js b/www/manager6/Utils.js
                  ipanel: 'pveAuthBasePanel',
                  add: false,
                  tfa: true,
-diff -ruN a/www/manager6/window/GuestImport.js b/www/manager6/window/GuestImport.js
---- a/www/manager6/window/GuestImport.js	2026-10-28 13:16:12.774600362 -0700
-+++ b/www/manager6/window/GuestImport.js	2026-11-04 11:30:29.195795671 -0800
+diff -ruN orig/www/manager6/window/GuestImport.js new/www/manager6/window/GuestImport.js
+--- a/www/manager6/window/GuestImport.js	2026-11-28 04:07:56.113610258 -0800
++++ b/www/manager6/window/GuestImport.js	2026-11-28 04:31:11.382141247 -0800
 @@ -338,7 +338,7 @@
                  get('isOva')
                      ? gettext('Starts a VM and imports the disks in the background')
@@ -107,9 +143,9 @@ diff -ruN a/www/manager6/window/GuestImport.js b/www/manager6/window/GuestImport
                        ),
          },
      },
-diff -ruN a/www/manager6/window/LoginWindow.js b/www/manager6/window/LoginWindow.js
---- a/www/manager6/window/LoginWindow.js	2026-10-28 13:16:12.774600362 -0700
-+++ b/www/manager6/window/LoginWindow.js	2026-11-04 11:31:31.883702300 -0800
+diff -ruN orig/www/manager6/window/LoginWindow.js new/www/manager6/window/LoginWindow.js
+--- a/www/manager6/window/LoginWindow.js	2026-11-28 04:07:56.113610258 -0800
++++ b/www/manager6/window/LoginWindow.js	2026-11-28 04:31:11.382251327 -0800
 @@ -169,7 +169,7 @@
  
              if (resp.failureType === 'connect') {
@@ -128,9 +164,21 @@ diff -ruN a/www/manager6/window/LoginWindow.js b/www/manager6/window/LoginWindow
  
      defaultFocus: 'usernameField',
      defaultButton: 'loginButton',
-diff -ruN a/www/manager6/Workspace.js b/www/manager6/Workspace.js
---- a/www/manager6/Workspace.js	2026-10-28 13:16:12.761278289 -0700
-+++ b/www/manager6/Workspace.js	2026-11-04 11:30:29.191795677 -0800
+diff -ruN orig/www/manager6/window/Migrate.js new/www/manager6/window/Migrate.js
+--- a/www/manager6/window/Migrate.js	2026-11-28 04:07:56.113610258 -0800
++++ b/www/manager6/window/Migrate.js	2026-11-28 04:31:16.313552423 -0800
+@@ -254,7 +254,7 @@
+ 
+             let text = Ext.String.format(
+                 gettext(
+-                    'The selected target node runs Proxmox VE {0}, but keeping the guest identity requires {1} or newer. Upgrade the target node first.',
++                    'The selected target node runs SuperMox {0}, but keeping the guest identity requires {1} or newer. Upgrade the target node first.',
+                 ),
+                 unsupported.version,
+                 unsupported['required-version'],
+diff -ruN orig/www/manager6/Workspace.js new/www/manager6/Workspace.js
+--- a/www/manager6/Workspace.js	2026-11-28 04:07:56.097821287 -0800
++++ b/www/manager6/Workspace.js	2026-11-28 04:31:11.382341086 -0800
 @@ -9,7 +9,7 @@
  Ext.define('PVE.Workspace', {
      extend: 'Ext.container.Viewport',
@@ -140,19 +188,25 @@ diff -ruN a/www/manager6/Workspace.js b/www/manager6/Workspace.js
  
      loginData: null, // Data from last login call
  
-@@ -207,9 +207,9 @@
+@@ -214,7 +214,7 @@
+         let ui = me.query('#versioninfo')[0];
  
-         if (PVE.VersionInfo) {
-             let version = PVE.VersionInfo.version;
--            ui.update('Virtual Environment ' + version);
-+            ui.update('SuperMox ' + version);
-         } else {
+         if (!PVE.VersionInfo && !versionInfo) {
 -            ui.update('Virtual Environment');
 +            ui.update('SuperMox');
+             ui.updateLayout();
+             return;
          }
+@@ -222,7 +222,7 @@
+         // keep showing the first reported version until the page is reloaded
+         PVE.VersionInfo ??= versionInfo;
+ 
+-        ui.update('Virtual Environment ' + PVE.VersionInfo.version);
++        ui.update('SuperMox ' + PVE.VersionInfo.version);
          ui.updateLayout();
-     },
-@@ -339,13 +339,14 @@
+ 
+         // compare the versions the backend reports with the ones this page was loaded with
+@@ -369,13 +369,14 @@
                      margin: '2 0 2 5',
                      items: [
                          {

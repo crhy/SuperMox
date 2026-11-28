@@ -1,6 +1,6 @@
-diff -ruN orig/configs/Makefile new/configs/Makefile
---- a/configs/Makefile	2026-10-28 13:16:12.760373444 -0700
-+++ b/configs/Makefile	2026-10-28 13:31:06.851419054 -0700
+diff -ruN bak/configs/Makefile tree/configs/Makefile
+--- a/configs/Makefile	2026-11-28 04:07:56.093955134 -0800
++++ b/configs/Makefile	2026-11-28 04:12:50.934199984 -0800
 @@ -9,7 +9,6 @@
  	install -D -m 0644 pve-blacklist.conf $(DESTDIR)/etc/modprobe.d/pve-blacklist.conf
  	install -D -m 0644 vzdump.conf $(DESTDIR)/etc/vzdump.conf
@@ -9,10 +9,10 @@ diff -ruN orig/configs/Makefile new/configs/Makefile
  	install -D -m 0644 virtual-function-pinning.rules $(DESTDIR)/usr/lib/udev/rules.d/70-virtual-function-pinning.rules
  	install -D -m 0755 virtual-function-pinning-helper $(DESTDIR)/usr/lib/udev/virtual-function-naming-helper
  
-diff -ruN orig/debian/control new/debian/control
---- a/debian/control	2026-10-28 13:16:12.761278289 -0700
-+++ b/debian/control	2026-10-28 13:29:35.077257877 -0700
-@@ -98,7 +98,6 @@
+diff -ruN bak/debian/control tree/debian/control
+--- a/debian/control	2026-11-28 04:07:56.097821287 -0800
++++ b/debian/control	2026-11-28 04:12:50.934314853 -0800
+@@ -99,7 +99,6 @@
           rsync,
           spiceterm,
           sqv,
@@ -20,10 +20,10 @@ diff -ruN orig/debian/control new/debian/control
           vncterm (>= 1.9.2~),
           wget,
           zstd,
-diff -ruN orig/debian/postinst new/debian/postinst
---- a/debian/postinst	2026-10-28 13:16:12.761278289 -0700
-+++ b/debian/postinst	2026-10-28 13:30:52.928866335 -0700
-@@ -92,24 +92,11 @@
+diff -ruN bak/debian/postinst tree/debian/postinst
+--- a/debian/postinst	2026-11-28 04:07:56.097821287 -0800
++++ b/debian/postinst	2026-11-28 04:13:00.704085579 -0800
+@@ -92,15 +92,9 @@
  }
  
  update_ceph_conf() {
@@ -38,6 +38,11 @@ diff -ruN orig/debian/postinst new/debian/postinst
 -    fi
  }
  
+ # TODO: remove with PVE 10
+@@ -128,13 +122,6 @@
+     fi
+ }
+ 
 -# Copied from dh_installtmpfiles/13.24.2
 -if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
 -       if [ -x "$(command -v systemd-tmpfiles)" ]; then
@@ -48,7 +53,7 @@ diff -ruN orig/debian/postinst new/debian/postinst
  case "$1" in
    triggered)
      # We don't print a status message here, as dpkg already said
-@@ -123,11 +110,11 @@
+@@ -148,11 +135,11 @@
      # the ExecStartPre doesn't triggers on service reload, so just in case
      pvecm updatecerts --silent || true
  
@@ -65,7 +70,7 @@ diff -ruN orig/debian/postinst new/debian/postinst
  
      exit 0;;
  
-@@ -143,28 +130,6 @@
+@@ -168,28 +155,6 @@
          pveam update || true
      fi
  
@@ -94,7 +99,7 @@ diff -ruN orig/debian/postinst new/debian/postinst
      BETA_SOURCES="/etc/apt/sources.list.d/pve-test-for-beta.sources"
      if test -f "$BETA_SOURCES" && dpkg --compare-versions "$2" 'lt' '9.0.1' && dpkg --compare-versions "$2" 'gt' '9.0~~'; then
          printf "\nNOTE: Remove the pve-test repository, which was added during the beta phase.\nYou can (re-)add repositories on the web UI (Node -> Repositories)\n\n"
-@@ -184,15 +149,13 @@
+@@ -209,15 +174,13 @@
      fi
  
      if test ! -e /proxmox_install_mode; then
@@ -117,16 +122,16 @@ diff -ruN orig/debian/postinst new/debian/postinst
              fi
          done
      fi
-diff -ruN orig/debian/pve-manager.cron.d new/debian/pve-manager.cron.d
+diff -ruN bak/debian/pve-manager.cron.d tree/debian/pve-manager.cron.d
 --- a/debian/pve-manager.cron.d	1969-12-31 16:00:00.000000000 -0800
-+++ b/debian/pve-manager.cron.d	2026-10-28 13:31:06.852410048 -0700
++++ b/debian/pve-manager.cron.d	2026-11-28 04:12:50.934539282 -0800
 @@ -0,0 +1,3 @@
 +# Replaces the pve-daily-update timer unit (OnCalendar=*-*-* 1:00, RandomizedDelaySec=5h).
 +# Runs the pve-daily-update ExecStart once a day at 01:00, with a random delay.
 +0 1 * * * root sleep $(shuf -i 0-18000 -n 1); /usr/bin/pveupdate
-diff -ruN orig/debian/rules new/debian/rules
---- a/debian/rules	2026-10-28 04:35:06.025500495 -0700
-+++ b/debian/rules	2026-10-28 13:31:06.852873196 -0700
+diff -ruN bak/debian/rules tree/debian/rules
+--- a/debian/rules	2026-11-16 16:39:55.426622448 -0800
++++ b/debian/rules	2026-11-28 04:12:50.934593082 -0800
 @@ -14,3 +14,18 @@
  
  override_dh_fixperms:
@@ -146,31 +151,27 @@ diff -ruN orig/debian/rules new/debian/rules
 +	dh_installinit -ppve-manager --name=pvebanner --no-start
 +	dh_installinit -ppve-manager --name=pvenetcommit --no-start
 +	dh_installinit -ppve-manager --name=pve-guests --no-start
-diff -ruN orig/debian/tmpfiles new/debian/tmpfiles
---- a/debian/tmpfiles	2026-10-28 04:35:06.025807383 -0700
+diff -ruN bak/debian/tmpfiles tree/debian/tmpfiles
+--- a/debian/tmpfiles	2026-11-16 16:39:55.426950207 -0800
 +++ b/debian/tmpfiles	1969-12-31 16:00:00.000000000 -0800
 @@ -1,2 +0,0 @@
 -#Type Path     Mode User Group     Age Argument
 -d     /run/pve 0750 root www-data  -   -
-diff -ruN orig/services/Makefile new/services/Makefile
---- a/services/Makefile	2026-10-28 13:16:12.761278289 -0700
-+++ b/services/Makefile	2026-10-28 13:31:06.853263803 -0700
-@@ -19,18 +19,6 @@
+diff -ruN bak/services/Makefile tree/services/Makefile
+--- a/services/Makefile	2026-11-28 04:07:56.097821287 -0800
++++ b/services/Makefile	2026-11-28 04:13:00.704156218 -0800
+@@ -19,14 +19,6 @@
  
  .PHONY: install
  install: $(SERVICES)
 -	install -d $(SERVICEDIR)
 -	install -m 0644 $(SERVICES) $(SERVICEDIR)
--	install -d $(SERVICEDIR)/ceph-mon@.service.d
--	install -m 0644 ceph-after-pve-cluster.conf $(SERVICEDIR)/ceph-mon@.service.d
--	install -d $(SERVICEDIR)/ceph-mgr@.service.d
--	install -m 0644 ceph-after-pve-cluster.conf $(SERVICEDIR)/ceph-mgr@.service.d
--	install -d $(SERVICEDIR)/ceph-osd@.service.d
--	install -m 0644 ceph-after-pve-cluster.conf $(SERVICEDIR)/ceph-osd@.service.d
--	install -d $(SERVICEDIR)/ceph-volume@.service.d
--	install -m 0644 ceph-after-pve-cluster.conf $(SERVICEDIR)/ceph-volume@.service.d
--	install -d $(SERVICEDIR)/ceph-mds@.service.d
--	install -m 0644 ceph-after-pve-cluster.conf $(SERVICEDIR)/ceph-mds@.service.d
+-	install -d $(SERVICEDIR)/ceph-.service.d
+-	install -m 0644 ceph-after-pve-cluster.conf $(SERVICEDIR)/ceph-.service.d
+-	install -d $(SERVICEDIR)/rbdmap.service.d
+-	install -m 0644 ceph-after-pve-cluster.conf $(SERVICEDIR)/rbdmap.service.d
+-	install -d $(SERVICEDIR)/cephfs-mirror@.service.d
+-	install -m 0644 ceph-after-pve-cluster.conf $(SERVICEDIR)/cephfs-mirror@.service.d
  	install -d $(DESTDIR)/usr/share/doc/$(PACKAGE)/examples/
  
  .PHONY: clean

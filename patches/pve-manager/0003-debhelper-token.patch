@@ -1,16 +1,16 @@
-diff -ruN orig/debian/postinst new/debian/postinst
---- a/debian/postinst	2026-10-28 20:22:46.002372446 -0700
-+++ b/debian/postinst	2026-10-28 20:22:56.558577369 -0700
-@@ -176,4 +176,6 @@
+diff -ruN bak/debian/postinst tree/debian/postinst
+--- a/debian/postinst	2026-11-28 04:13:00.879691643 -0800
++++ b/debian/postinst	2026-11-28 04:13:00.909336303 -0800
+@@ -205,4 +205,6 @@
       exit 0;;
  esac
  
 +#DEBHELPER#
 +
  exit 0
-diff -ruN orig/debian/prerm new/debian/prerm
---- a/debian/prerm	2026-10-28 04:35:06.025500495 -0700
-+++ b/debian/prerm	2026-10-28 20:22:56.558577369 -0700
+diff -ruN bak/debian/prerm tree/debian/prerm
+--- a/debian/prerm	2026-11-16 16:39:55.426622448 -0800
++++ b/debian/prerm	2026-11-28 04:13:00.909457872 -0800
 @@ -21,4 +21,6 @@
       exit 0;;
  esac

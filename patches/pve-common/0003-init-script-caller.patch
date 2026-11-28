@@ -1,7 +1,7 @@
-diff -ruN orig/src/PVE/Daemon.pm new/src/PVE/Daemon.pm
---- a/src/PVE/Daemon.pm	2026-10-28 16:24:56.410089009 -0700
-+++ b/src/PVE/Daemon.pm	2026-10-28 16:25:24.662423669 -0700
-@@ -570,8 +570,11 @@
+diff -ruN bak/src/PVE/Daemon.pm tree/src/PVE/Daemon.pm
+--- a/src/PVE/Daemon.pm	2026-11-28 04:14:19.273124072 -0800
++++ b/src/PVE/Daemon.pm	2026-11-28 04:14:19.281837444 -0800
+@@ -569,8 +569,11 @@
  };
  
  # checks if the process was started by systemd

@@ -234,7 +234,7 @@ if [ "$n" -ne 13 ]; then
   printf '%s\n' "$list_out"
   fail=1
 fi
-for want in "pve-manager 9.2.24" "proxmox-perl-rs 0.15.3" "librados2-perl 1.5.1"; do
+for want in "pve-manager 9.3.1" "proxmox-perl-rs 0.16.8" "librados2-perl 1.5.1"; do
   if ! printf '%s\n' "$list_out" | grep -qxF -- "$want"; then
     echo "FAIL: --list did not print: $want"
     printf '%s\n' "$list_out"

@@ -1,8 +1,8 @@
-diff -ruN orig/debian/changelog new/debian/changelog
---- a/debian/changelog	2026-11-04 15:01:35.363637791 -0800
-+++ b/debian/changelog	2026-11-05 07:34:36.245756004 -0800
+diff -ruN bak/debian/changelog tree/debian/changelog
+--- a/debian/changelog	2026-11-28 04:07:54.317832154 -0800
++++ b/debian/changelog	2026-11-28 04:14:35.835376622 -0800
 @@ -1,3 +1,19 @@
-+qemu-server (9.2.13+supermox2) trixie; urgency=medium
++qemu-server (9.2.24+supermox2) trixie; urgency=medium
 +
 +  * cpu flags: bound the throwaway probe VM query_supported_cpu_flags starts
 +    with a 30 second run_command timeout, and force-stop the probe on every
@@ -18,13 +18,13 @@ diff -ruN orig/debian/changelog new/debian/changelog
 +
 + -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 07:20:39 -0800
 +
- qemu-server (9.2.13) trixie; urgency=medium
+ qemu-server (9.2.24) trixie; urgency=medium
  
-   * migrate: wait for the 'failing' migration status introduced with QEMU 11.0
-diff -ruN orig/src/PVE/QemuServer.pm new/src/PVE/QemuServer.pm
---- a/src/PVE/QemuServer.pm	2026-11-05 07:34:22.739003157 -0800
-+++ b/src/PVE/QemuServer.pm	2026-11-05 07:34:30.193765187 -0800
-@@ -3030,8 +3030,26 @@
+   * persist a generated MAC address for network devices without one when
+diff -ruN bak/src/PVE/QemuServer.pm tree/src/PVE/QemuServer.pm
+--- a/src/PVE/QemuServer.pm	2026-11-28 04:14:25.706775031 -0800
++++ b/src/PVE/QemuServer.pm	2026-11-28 04:14:25.739072066 -0800
+@@ -3024,8 +3024,26 @@
              push @$cmd, '-cpu', 'host';
          }
  
@@ -53,7 +53,7 @@ diff -ruN orig/src/PVE/QemuServer.pm new/src/PVE/QemuServer.pm
  
          my $model = { name => $kvm ? 'host' : 'max' };
          $model->{props} = { 'hv-passthrough' => JSON::true } if $kvm && $arch eq 'x86_64';
-@@ -3054,9 +3065,11 @@
+@@ -3048,9 +3066,11 @@
          };
          my $err = $@;
  

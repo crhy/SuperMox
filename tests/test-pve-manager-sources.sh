@@ -86,12 +86,12 @@ fi
 
 # 5. Version suffix: our changelog entry must be the top one, so apply-patches.sh
 #    does not stack a second +supermox1 entry on top of it (that would make the
-#    built deb 9.2.24+supermox2+supermox1, which dpkg orders below the deb we
+#    built deb 9.3.1+supermox2+supermox1, which dpkg orders below the deb we
 #    already shipped).
 cl="$out/pve-manager/pve-manager/debian/changelog"
 ver="$(dpkg-parsechangelog -l "$cl" -S Version)"
-if [ "$ver" != "9.2.24+supermox2" ]; then
-  echo "FAIL: patched pve-manager version is $ver, expected 9.2.24+supermox2"
+if [ "$ver" != "9.3.1+supermox2" ]; then
+  echo "FAIL: patched pve-manager version is $ver, expected 9.3.1+supermox2"
   fail=1
 fi
 if printf '%s\n' "$ver" | grep -qE '\+supermox[0-9]+\+supermox'; then

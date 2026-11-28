@@ -1,6 +1,6 @@
-diff -ruN orig/bin/pveupdate new/bin/pveupdate
---- a/bin/pveupdate	2026-10-28 13:16:12.760373444 -0700
-+++ b/bin/pveupdate	2026-11-04 05:12:40.192877434 -0800
+diff -ruN bak/bin/pveupdate tree/bin/pveupdate
+--- a/bin/pveupdate	2026-11-28 04:07:56.093955134 -0800
++++ b/bin/pveupdate	2026-11-28 04:11:15.310584593 -0800
 @@ -18,6 +18,7 @@
  use PVE::RPCEnvironment;
  use PVE::SafeSyslog;
@@ -9,18 +9,18 @@ diff -ruN orig/bin/pveupdate new/bin/pveupdate
  
  use PVE::API2::ACME;
  use PVE::API2::APT;
-@@ -130,7 +131,7 @@
-         PVE::Cluster::Setup::gen_pve_ssl_cert(1, $nodename, $ip);
+@@ -154,7 +155,7 @@
+         print "Renewed PVE certificate is valid until $expiry\n";
  
          print "Restarting pveproxy after renewing certificate\n";
 -        PVE::Tools::run_command(['systemctl', 'reload-or-restart', 'pveproxy']);
 +        PVE::SysvService::reload_or_restart('pveproxy');
      };
  
-     if (PVE::Certificate::check_expiry($certpath)) {
-diff -ruN orig/PVE/API2/ACME.pm new/PVE/API2/ACME.pm
---- a/PVE/API2/ACME.pm	2026-10-28 04:35:06.018103433 -0700
-+++ b/PVE/API2/ACME.pm	2026-11-04 05:12:40.192999343 -0800
+     my $status = eval { PVE::Cluster::Setup::pve_ssl_cert_status($nodename) };
+diff -ruN bak/PVE/API2/ACME.pm tree/PVE/API2/ACME.pm
+--- a/PVE/API2/ACME.pm	2026-11-28 04:07:56.089821337 -0800
++++ b/PVE/API2/ACME.pm	2026-11-28 04:11:07.235333394 -0800
 @@ -10,6 +10,7 @@
  use PVE::JSONSchema qw(get_standard_option);
  use PVE::NodeConfig;
@@ -38,7 +38,7 @@ diff -ruN orig/PVE/API2/ACME.pm new/PVE/API2/ACME.pm
              };
              PVE::CertHelpers::cert_lock(10, $code);
              die "$@\n" if $@;
-@@ -300,7 +301,7 @@
+@@ -302,7 +303,7 @@
                  PVE::CertHelpers::set_cert_files($cert, $key, $cert_prefix, 1);
  
                  print "Restarting pveproxy\n";
@@ -47,7 +47,7 @@ diff -ruN orig/PVE/API2/ACME.pm new/PVE/API2/ACME.pm
              };
              PVE::CertHelpers::cert_lock(10, $code);
              die "$@\n" if $@;
-@@ -375,7 +376,7 @@
+@@ -377,7 +378,7 @@
                  unlink "${cert_prefix}.key";
  
                  print "Restarting pveproxy to revert to self-signed certificates\n";
@@ -56,9 +56,9 @@ diff -ruN orig/PVE/API2/ACME.pm new/PVE/API2/ACME.pm
              };
  
              PVE::CertHelpers::cert_lock(10, $code);
-diff -ruN orig/PVE/API2/Certificates.pm new/PVE/API2/Certificates.pm
---- a/PVE/API2/Certificates.pm	2026-10-28 04:35:06.018653700 -0700
-+++ b/PVE/API2/Certificates.pm	2026-11-04 05:12:40.193087253 -0800
+diff -ruN bak/PVE/API2/Certificates.pm tree/PVE/API2/Certificates.pm
+--- a/PVE/API2/Certificates.pm	2026-11-28 04:07:56.089821337 -0800
++++ b/PVE/API2/Certificates.pm	2026-11-28 04:11:07.235422253 -0800
 @@ -9,6 +9,7 @@
  use PVE::Exception qw(raise_param_exc);
  use PVE::JSONSchema qw(get_standard_option);
@@ -67,7 +67,7 @@ diff -ruN orig/PVE/API2/Certificates.pm new/PVE/API2/Certificates.pm
  
  use base qw(PVE::RESTHandler);
  
-@@ -149,7 +150,7 @@
+@@ -150,7 +151,7 @@
  
              if ($param->{restart}) {
                  print "Restarting pveproxy\n";
@@ -76,7 +76,7 @@ diff -ruN orig/PVE/API2/Certificates.pm new/PVE/API2/Certificates.pm
              }
          };
  
-@@ -198,7 +199,7 @@
+@@ -199,7 +200,7 @@
  
              if ($param->{restart}) {
                  print "Restarting pveproxy\n";
@@ -85,9 +85,9 @@ diff -ruN orig/PVE/API2/Certificates.pm new/PVE/API2/Certificates.pm
              }
          };
  
-diff -ruN orig/PVE/API2/Services.pm new/PVE/API2/Services.pm
---- a/PVE/API2/Services.pm	2026-10-28 13:16:12.760373444 -0700
-+++ b/PVE/API2/Services.pm	2026-11-04 05:12:40.193172592 -0800
+diff -ruN bak/PVE/API2/Services.pm tree/PVE/API2/Services.pm
+--- a/PVE/API2/Services.pm	2026-11-28 04:07:56.093955134 -0800
++++ b/PVE/API2/Services.pm	2026-11-28 04:11:07.235517022 -0800
 @@ -12,6 +12,7 @@
  use PVE::RPCEnvironment;
  use PVE::JSONSchema qw(get_standard_option);
@@ -96,7 +96,7 @@ diff -ruN orig/PVE/API2/Services.pm new/PVE/API2/Services.pm
  use IO::File;
  
  use base qw(PVE::RESTHandler);
-@@ -57,17 +58,7 @@
+@@ -58,17 +59,7 @@
  
      $service = $unit_extra_names->{$service} if $unit_extra_names->{$service};
  
@@ -115,7 +115,7 @@ diff -ruN orig/PVE/API2/Services.pm new/PVE/API2/Services.pm
  };
  
  my $static_service_list;
-@@ -108,7 +99,16 @@
+@@ -109,7 +100,16 @@
          die "invalid service cmd '$service $cmd': refusing to stop essential service!\n";
      }
  
@@ -133,7 +133,7 @@ diff -ruN orig/PVE/API2/Services.pm new/PVE/API2/Services.pm
  };
  
  my $service_state = sub {
-@@ -120,14 +120,10 @@
+@@ -121,14 +121,10 @@
      if (my $err = $@) {
          return $res;
      }

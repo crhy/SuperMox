@@ -1,8 +1,8 @@
-diff -ruN orig/debian/changelog new/debian/changelog
---- a/debian/changelog
-+++ b/debian/changelog
+diff -ruN bak/debian/changelog tree/debian/changelog
+--- a/debian/changelog	2026-11-28 04:07:45.565885583 -0800
++++ b/debian/changelog	2026-11-28 04:13:49.949948038 -0800
 @@ -1,3 +1,16 @@
-+pve-cluster (9.1.7+supermox2) trixie; urgency=medium
++pve-cluster (9.1.17+supermox2) trixie; urgency=medium
 +
 +  * debian: init.d/pve-cluster seeds /etc/pve/storage.cfg. pmxcfs creates that
 +    file empty and no package in this tree ever fills it, so a clean node booted
@@ -15,6 +15,29 @@ diff -ruN orig/debian/changelog new/debian/changelog
 +
 + -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 05:50:46 -0800
 +
- pve-cluster (9.1.7) trixie; urgency=medium
+ pve-cluster (9.1.17) trixie; urgency=medium
  
-   * pmxcfs: transfer IPC responses larger than 1 MiB in chunks. In very large
+   * api: join info: rename the 'pve_version' property that 9.1.16 added to
+diff -ruN bak/debian/changelog.rej tree/debian/changelog.rej
+--- a/debian/changelog.rej	1969-12-31 16:00:00.000000000 -0800
++++ b/debian/changelog.rej	2026-11-28 04:13:42.730756464 -0800
+@@ -0,0 +1,19 @@
++--- debian/changelog
+++++ debian/changelog
++@@ -1,3 +1,16 @@
+++pve-cluster (9.1.7+supermox2) trixie; urgency=medium
+++
+++  * debian: init.d/pve-cluster seeds /etc/pve/storage.cfg. pmxcfs creates that
+++    file empty and no package in this tree ever fills it, so a clean node booted
+++    with no storage defined at all: `pct create`, the web UI's Create CT and
+++    `pvesm list local` then failed with "volume 'local:...' does not exist" or
+++    "unknown storage". The script writes the single-node `dir: local` stanza
+++    under /var/lib/vz once, only after /etc/pve is mounted and only while no
+++    storage is defined yet, so an admin's or a cluster's storage.cfg is never
+++    touched.
+++
+++ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 05:50:46 -0800
+++
++ pve-cluster (9.1.7) trixie; urgency=medium
++ 
++   * pmxcfs: transfer IPC responses larger than 1 MiB in chunks. In very large

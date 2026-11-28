@@ -1,6 +1,6 @@
-diff -ruN orig/debian/control new/debian/control
---- a/debian/control	2026-11-16 16:40:35.396661391 -0800
-+++ b/debian/control	2026-11-17 05:48:55.797078670 -0800
+diff -ruN bak/debian/control tree/debian/control
+--- a/debian/control	2026-11-28 04:07:51.449849662 -0800
++++ b/debian/control	2026-11-28 04:14:50.058337863 -0800
 @@ -23,7 +23,7 @@
  Architecture: all
  Depends: binutils,
@@ -8,11 +8,11 @@ diff -ruN orig/debian/control new/debian/control
 -         isc-dhcp-client,
 +         udhcpc | dhcpcd-base | isc-dhcp-client,
           libpve-access-control (>= 9.0.7~),
-          libpve-cluster-perl,
+          libpve-cluster-perl (>= 9.1.10),
           libpve-common-perl (>= 9.1.18~),
-diff -ruN orig/src/Makefile new/src/Makefile
---- a/src/Makefile	2026-11-17 05:46:00.254998375 -0800
-+++ b/src/Makefile	2026-11-17 05:48:42.789149521 -0800
+diff -ruN bak/src/Makefile tree/src/Makefile
+--- a/src/Makefile	2026-11-28 04:14:45.019397785 -0800
++++ b/src/Makefile	2026-11-28 04:14:45.085814258 -0800
 @@ -43,7 +43,8 @@
  .PHONY: install
  install: pct lxc-pve.conf pct.1 pct.conf.5 pct.bash-completion pct.zsh-completion \
@@ -31,10 +31,10 @@ diff -ruN orig/src/Makefile new/src/Makefile
  	install -d $(LXC_CONFIG_DIR)
  	install -m 0644 pve-userns.seccomp $(LXC_CONFIG_DIR)/pve-userns.seccomp
  	install -d $(LXC_COMMON_CONFIG_DIR)
-diff -ruN orig/src/PVE/LXC.pm new/src/PVE/LXC.pm
---- a/src/PVE/LXC.pm	2026-11-17 05:46:00.257446132 -0800
-+++ b/src/PVE/LXC.pm	2026-11-17 05:49:15.524971214 -0800
-@@ -1312,6 +1312,51 @@
+diff -ruN bak/src/PVE/LXC.pm tree/src/PVE/LXC.pm
+--- a/src/PVE/LXC.pm	2026-11-28 04:14:45.052797326 -0800
++++ b/src/PVE/LXC.pm	2026-11-28 04:14:45.086076166 -0800
+@@ -1296,6 +1296,51 @@
      my $pidfile = "/var/lib/lxc/$vmid/hook/dhclient$ipversion-$eth.pid";
      my $leasefile = "/var/lib/lxc/$vmid/hook/dhclient$ipversion-$eth.leases";
      my $scriptfile = '/usr/share/lxc/hooks/dhclient-script';
@@ -86,7 +86,7 @@ diff -ruN orig/src/PVE/LXC.pm new/src/PVE/LXC.pm
      PVE::Tools::run_command([
          'lxc-attach',
          '-n',
-@@ -1337,6 +1382,32 @@
+@@ -1321,6 +1366,32 @@
      ]);
  }
  
@@ -119,9 +119,9 @@ diff -ruN orig/src/PVE/LXC.pm new/src/PVE/LXC.pm
  sub kill_dhclients {
      my ($vmid, $eth) = @_;
  
-diff -ruN orig/src/pve-dhcp-client new/src/pve-dhcp-client
+diff -ruN bak/src/pve-dhcp-client tree/src/pve-dhcp-client
 --- a/src/pve-dhcp-client	1969-12-31 16:00:00.000000000 -0800
-+++ b/src/pve-dhcp-client	2026-11-17 05:48:32.361206321 -0800
++++ b/src/pve-dhcp-client	2026-11-28 04:14:45.086393514 -0800
 @@ -0,0 +1,168 @@
 +#!/bin/sh
 +# pve-dhcp-client - SuperMox DHCP client adapter (crhy/SuperMox#9).

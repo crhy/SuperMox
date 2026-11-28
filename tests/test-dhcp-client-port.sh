@@ -284,8 +284,8 @@ else
     awk '/^# --- .* begins ---$/{f=1;next} f{print}' "$1"
   }
 
-  if ! diff -q <(fixture_body "$fix_lxc") <(sed -n '1300,1405p' "$up/src/PVE/LXC.pm") > /dev/null; then
-    error "$fix_lxc no longer matches src/PVE/LXC.pm lines 1300-1405 at the pinned commit"
+  if ! diff -q <(fixture_body "$fix_lxc") <(sed -n '1292,1400p' "$up/src/PVE/LXC.pm") > /dev/null; then
+    error "$fix_lxc no longer matches src/PVE/LXC.pm lines 1292-1400 at the pinned commit"
   fi
   if ! diff -q <(fixture_body "$fix_control") "$up/debian/control" > /dev/null; then
     error "$fix_control no longer matches debian/control at the pinned commit"

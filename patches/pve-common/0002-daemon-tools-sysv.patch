@@ -1,6 +1,6 @@
-diff -ruN orig/src/PVE/Daemon.pm new/src/PVE/Daemon.pm
---- a/src/PVE/Daemon.pm	2026-10-28 13:16:11.305285486 -0700
-+++ b/src/PVE/Daemon.pm	2026-10-28 13:25:17.386553895 -0700
+diff -ruN bak/src/PVE/Daemon.pm tree/src/PVE/Daemon.pm
+--- a/src/PVE/Daemon.pm	2026-11-28 04:07:44.393892737 -0800
++++ b/src/PVE/Daemon.pm	2026-11-28 04:14:17.594641359 -0800
 @@ -20,6 +20,7 @@
  
  use PVE::SafeSyslog;
@@ -9,7 +9,7 @@ diff -ruN orig/src/PVE/Daemon.pm new/src/PVE/Daemon.pm
  
  use POSIX ":sys_wait_h";
  use Fcntl ':flock';
-@@ -656,7 +657,7 @@
+@@ -655,7 +656,7 @@
              if (&$init_ppid() || $param->{debug}) {
                  $self->start($param->{debug});
              } else {
@@ -18,7 +18,7 @@ diff -ruN orig/src/PVE/Daemon.pm new/src/PVE/Daemon.pm
              }
  
              return undef;
-@@ -707,8 +708,11 @@
+@@ -706,8 +707,11 @@
              if (&$init_ppid()) {
                  &$reload_daemon($self, $use_hup);
              } else {
@@ -32,7 +32,7 @@ diff -ruN orig/src/PVE/Daemon.pm new/src/PVE/Daemon.pm
              }
  
              return undef;
-@@ -764,7 +768,7 @@
+@@ -763,7 +767,7 @@
              if (&$init_ppid()) {
                  $self->stop();
              } else {
@@ -41,10 +41,10 @@ diff -ruN orig/src/PVE/Daemon.pm new/src/PVE/Daemon.pm
              }
  
              return undef;
-diff -ruN orig/src/PVE/Tools.pm new/src/PVE/Tools.pm
---- a/src/PVE/Tools.pm	2026-10-28 13:16:11.305285486 -0700
-+++ b/src/PVE/Tools.pm	2026-10-28 13:26:15.818260021 -0700
-@@ -838,12 +838,53 @@
+diff -ruN bak/src/PVE/Tools.pm tree/src/PVE/Tools.pm
+--- a/src/PVE/Tools.pm	2026-11-28 04:07:44.393892737 -0800
++++ b/src/PVE/Tools.pm	2026-11-28 04:14:17.594848138 -0800
+@@ -885,12 +885,53 @@
          $limit--;
      };
  

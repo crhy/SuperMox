@@ -1,7 +1,7 @@
-diff -ruN a/PVE/API2/Network.pm b/PVE/API2/Network.pm
---- a/PVE/API2/Network.pm	2026-10-31 07:56:04.892833084 -0700
-+++ b/PVE/API2/Network.pm	2026-10-31 07:56:04.899656888 -0700
-@@ -876,7 +876,7 @@
+diff -ruN bak/PVE/API2/Network.pm tree/PVE/API2/Network.pm
+--- a/PVE/API2/Network.pm	2026-11-28 04:07:56.093955134 -0800
++++ b/PVE/API2/Network.pm	2026-11-28 04:13:13.978235494 -0800
+@@ -959,7 +959,7 @@
      my ($v, $pve, $v_str) = ifupdown2_version();
      die
          "incompatible 'ifupdown2' package version '$v_str'! Did you install from Proxmox repositories?\n"

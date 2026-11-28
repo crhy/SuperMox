@@ -1,0 +1,21 @@
+diff -ruN orig/src/PVE/CLI/pvecm.pm post/src/PVE/CLI/pvecm.pm
+--- a/src/PVE/CLI/pvecm.pm	2026-11-28 04:19:23.082023215 -0800
++++ b/src/PVE/CLI/pvecm.pm	2026-11-28 04:19:23.088835489 -0800
+@@ -737,7 +737,7 @@
+                 my $cmd = [@$ssh, 'pvecm', 'updatecerts', '--force'];
+                 run_command($cmd, outfunc => sub { }, timeout => 120);
+                 run_command(
+-                    [@$ssh, 'systemctl', 'reload-or-restart', 'pveproxy'],
++                    [@$ssh, '/etc/init.d/pveproxy', 'restart'],
+                     timeout => 60,
+                 );
+             };
+@@ -753,7 +753,7 @@
+ 
+         if (scalar(@$failed)) {
+             my $failed_list = join(', ', @$failed);
+-            die "Run 'pvecm updatecerts --force' and 'systemctl reload-or-restart pveproxy' on"
++            die "Run 'pvecm updatecerts --force' and '/etc/init.d/pveproxy restart' on"
+                 . " $failed_list. Up-to-date nodes also do so on their own with the next start of"
+                 . " pveproxy or the daily update.\n";
+         }

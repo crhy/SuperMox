@@ -1,7 +1,7 @@
-diff -ruN orig/src/PVE/QemuServer.pm new/src/PVE/QemuServer.pm
---- a/src/PVE/QemuServer.pm	2026-10-28 13:16:12.501279574 -0700
-+++ b/src/PVE/QemuServer.pm	2026-10-28 19:50:26.043492520 -0700
-@@ -3166,7 +3166,23 @@
+diff -ruN bak/src/PVE/QemuServer.pm tree/src/PVE/QemuServer.pm
+--- a/src/PVE/QemuServer.pm	2026-11-28 04:07:54.317832154 -0800
++++ b/src/PVE/QemuServer.pm	2026-11-28 04:14:23.988427253 -0800
+@@ -3160,7 +3160,23 @@
  
      my $machine_type = PVE::QemuServer::Machine::get_vm_machine($conf, $forcemachine);
      my $machine_version = extract_version($machine_type, $kvmver);
