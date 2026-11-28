@@ -108,7 +108,7 @@ while IFS= read -r l; do
   esac
   case "$name" in
     upstream-pins | no-systemd | python-tests | init-scripts | repo-layout | iso-prepare | \
-    android-setup | apt-repo | arch | branding | build-deps-report | build-rootfs | \
+    android-setup | waydroid-session | apt-repo | arch | branding | build-deps-report | build-rootfs | \
     check-services | check-sh | check-overrides | dhcp-client-port | fetch-upstream | firewall-rules | \
     install-checkout | uninstall-checkout | update-checkout | drift-sync | upstream-drift-check | \
     join-e2e | lan-cluster-e2e | local-env | monthly-build-selftest | node-caps | \
@@ -141,8 +141,8 @@ done <<< "$out"
 if [ "$order_bad" -ne 0 ]; then
   fail=1
 fi
-if [ "$(printf '%s\n' "$out" | grep -cE '^[a-z0-9-]+ ')" -ne 47 ]; then
-  echo "FAIL: --list did not print the 47 registry steps"
+if [ "$(printf '%s\n' "$out" | grep -cE '^[a-z0-9-]+ ')" -ne 48 ]; then
+  echo "FAIL: --list did not print the 48 registry steps"
   printf '%s\n' "$out"
   fail=1
 fi
@@ -163,6 +163,7 @@ assert_has "DRY-RUN uninstall-checkout (offline): bash tests/test-uninstall-chec
 assert_has "DRY-RUN update-checkout (offline): bash tests/test-update-checkout.sh"
 assert_has "DRY-RUN check-overrides (offline): bash tests/test-check-overrides.sh"
 assert_has "DRY-RUN drift-sync (offline): bash tests/test-drift-sync.sh"
+assert_has "DRY-RUN waydroid-session (offline): bash tests/test-waydroid-session.sh"
 assert_has "DRY-RUN upstream-drift-check (offline): bash tests/test-upstream-drift-check.sh"
 assert_has "DRY-RUN reap-orphans (offline): bash tests/test-reap-orphans.sh"
 assert_has "DRY-RUN supermox-tmpfiles (offline): bash tests/test-supermox-tmpfiles.sh"
@@ -284,7 +285,7 @@ for other in upstream-pins no-systemd python-tests init-scripts iso-prepare \
   join-e2e lan-cluster-e2e local-env monthly-build-selftest node-caps \
   patches proxmox-systemd-crate proxmox-systemd-pkg pve-manager-sources \
   reap-orphans release-check supermox-binfmt supermox-dhcp-client \
-  supermox-manager supermox-tmpfiles sync-live sysvservice drift-sync upstream-drift-check check-overrides \
+  supermox-manager supermox-tmpfiles sync-live sysvservice drift-sync upstream-drift-check check-overrides waydroid-session \
   vm-boot-iso vm-build-tooling vm-lan-pair vm-scripts; do
   if [ -f "$state_one/$other.log" ]; then
     echo "FAIL: --only repo-layout also ran $other"
@@ -327,4 +328,4 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-echo "OK: monthly-build.sh lists the 47-step registry (f082's 9 plus 11.26's newer offline checks plus f253's install-checkout, f259's uninstall-checkout, f262's update-checkout, f280's drift-sync and f284's check-overrides) with the offline steps before the vm-marked ones, dry-runs without running or writing anything, names the month line 12.26 -> 1.27, records FAIL with the exit code and still runs the later steps, SKIPs each VM step naming the missing prerequisite, writes manifest.txt with a status and an existing log path per step, and --only runs just that step"
+echo "OK: monthly-build.sh lists the 48-step registry (f082's 9 plus 11.26's newer offline checks plus f253's install-checkout, f259's uninstall-checkout, f262's update-checkout, f280's drift-sync, f284's check-overrides and f286's waydroid-session) with the offline steps before the vm-marked ones, dry-runs without running or writing anything, names the month line 12.26 -> 1.27, records FAIL with the exit code and still runs the later steps, SKIPs each VM step naming the missing prerequisite, writes manifest.txt with a status and an existing log path per step, and --only runs just that step"

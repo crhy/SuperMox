@@ -35,6 +35,7 @@ STEPS=(
   # step; the three environment FAILs (test-build-iso.sh, test-init-sync.sh,
   # test-supermox-ve.sh) stay out until their build prerequisites exist.
   'android-setup|bash tests/test-android-setup.sh|offline'
+  'waydroid-session|bash tests/test-waydroid-session.sh|offline'
   'apt-repo|bash tests/test-apt-repo.sh|offline'
   'arch|bash tests/test-arch.sh|offline'
   'branding|bash tests/test-branding.sh|offline'
@@ -113,6 +114,7 @@ prereq_repo_layout() { return 0; }
 # tree, no xorriso, no syncthing, no VM), so the probe succeeds and the
 # recorded line stays whatever the test really measured.
 prereq_android_setup() { return 0; }
+prereq_waydroid_session() { return 0; }
 prereq_apt_repo() { return 0; }
 prereq_arch() { return 0; }
 prereq_branding() { return 0; }
