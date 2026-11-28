@@ -47,6 +47,7 @@ STEPS=(
   'firewall-rules|bash tests/test-firewall-rules.sh|offline'
   'install-checkout|bash tests/test-install-checkout.sh|offline'
   'uninstall-checkout|bash tests/test-uninstall-checkout.sh|offline'
+  'update-checkout|bash tests/test-update-checkout.sh|offline'
   'join-e2e|bash tests/test-join-e2e.sh|offline'
   'lan-cluster-e2e|bash tests/test-lan-cluster-e2e.sh|offline'
   'local-env|bash tests/test-local-env.sh|offline'
@@ -139,6 +140,7 @@ prereq_supermox_tmpfiles() { return 0; }
 prereq_sync_live() { return 0; }
 prereq_sysvservice() { return 0; }
 prereq_uninstall_checkout() { return 0; }
+prereq_update_checkout() { return 0; }
 prereq_upstream_drift_check() { return 0; }
 prereq_vm_boot_iso() { return 0; }
 prereq_vm_build_tooling() { return 0; }
