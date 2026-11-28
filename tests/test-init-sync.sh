@@ -84,6 +84,13 @@ if [ "$checked" -eq 0 ]; then
   exit 1
 fi
 
+# One service must be shipped by exactly one package: two lines mapping the
+# same /etc/init.d/<svc> make dpkg refuse the second package at install time.
+for svc in $(awk '!/^[[:space:]]*($|#)/ {print $3}' config/init-scripts.txt | sort | uniq -d); do
+  echo "FAIL: config/init-scripts.txt maps service '$svc' more than once"
+  fail=1
+done
+
 rm -rf "$tmp"
 
 if [ "$fail" -ne 0 ]; then

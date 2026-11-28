@@ -15,6 +15,7 @@ from supermox_manager.app import Manager, GLib, Gtk
 from gi.repository import Gdk
 
 errors = []
+stage = [0]
 
 
 def failed(kind, error, traceback):
@@ -38,11 +39,21 @@ def check():
     if manager.busy:
         return True
     assert manager.resources, "Preview never loaded"
-    for page in ("Machines", "Nodes", "Storage", *manager.pages, "Full management", "Overview"):
-        manager.navigate(None, page)
-        assert manager.current == page
-        assert manager.nav[page].get_active()
-    manager.navigate(None, "Machines")
+    if stage[0] == 0:
+        # A freshly launched app has no client, so its first render draws no
+        # machine table; the first operation that finishes must still be able
+        # to call refresh_actions() (this crashed before t79).
+        fresh = Manager("https://127.0.0.1:8006/")
+        assert fresh.action_buttons == []
+        fresh.refresh_actions()
+        fresh.window.destroy()
+        for page in ("Machines", "Nodes", "Storage", *manager.pages, "Full management", "Overview"):
+            manager.navigate(None, page)
+            assert manager.current == page
+            assert manager.nav[page].get_active()
+        manager.navigate(None, "Machines")
+        stage[0] = 1
+        return True  # let the history box fetch before touching the table
     tree = next(w for w in descendants(manager.content) if isinstance(w, Gtk.TreeView))
     tree.get_selection().select_path(Gtk.TreePath.new_from_string("0"))
     assert manager.selected is not None
@@ -54,12 +65,16 @@ def check():
     assert len(tree.get_model()) == 1
     tree.get_selection().select_path(Gtk.TreePath.new_from_string("0"))
     assert str(manager.selected["vmid"]) == selected_id
+    if manager.busy:
+        return True
     search.set_text("no matching machine")
     search.emit("search-changed")
     assert len(tree.get_model()) == 0
     assert manager.selected is None
     assert not any(w.get_sensitive() for w in manager.action_buttons)
     manager.navigate(None, "Tasks")
+    assert manager.action_buttons == [], "render() must drop the old buttons"
+    manager.refresh_actions()
     GLib.timeout_add(100, finish)
     return False
 

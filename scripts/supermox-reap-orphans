@@ -1,0 +1,91 @@
+#!/bin/sh
+# supermox-reap-orphans NAME [PIDFILE]
+#
+# Reap orphaned worker processes left behind when a PVE forking daemon's master
+# process dies without its children.
+#
+# Why: pveproxy, pvedaemon and spiceproxy fork worker processes whose full
+# command line is exactly "<name> worker". When the master is killed (kill -9,
+# a crash, OOM), those workers survive, reparented to init (pid 1), and keep
+# the service's listening socket bound. The daemon's own `stop` only signals
+# the pidfile master, so it cannot reach the orphans, and the next `start`
+# fails inside the daemon ("unable to create socket - Address already in use")
+# while the init script still reports success. systemd hid this because a unit's
+# cgroup holds every process and `systemctl stop` kills them all; sysvinit has
+# no cgroup, so our init scripts must do it.
+#
+# Safety:
+#   * Only acts when the master is gone: if PIDFILE names a live pid, do nothing.
+#   * Matches the FULL command line EXACTLY (`pgrep -x -f "NAME worker"`): never
+#     a prefix match, never by user. A process named "NAME worker2" or "NAME"
+#     is left alone.
+#   * Only kills processes whose parent is pid 1 (init). While a master is alive
+#     its workers' parent is the master, so a healthy service is never touched.
+#     SUPERMOX_REAP_PARENT overrides the expected parent pid (used by the offline
+#     test, where a setsid child may reparent to a subreaper rather than pid 1).
+#
+# Sends SIGTERM, waits 5s, then SIGKILL any survivor. Prints each pid it kills.
+
+set -eu
+
+if [ "$#" -lt 1 ]; then
+  echo "usage: supermox-reap-orphans NAME [PIDFILE]" >&2
+  exit 2
+fi
+
+name=$1
+pidfile=${2:-}
+
+# Expected parent pid of an orphan (init). Overridable for the offline test.
+parent=${SUPERMOX_REAP_PARENT:-1}
+
+# Guard: if the pidfile names a live master, this is not an orphan situation.
+if [ -n "$pidfile" ] && [ -f "$pidfile" ]; then
+  master=$(tr -cd '0-9' < "$pidfile" 2>/dev/null || true)
+  if [ -n "$master" ] && kill -0 "$master" 2>/dev/null; then
+    exit 0
+  fi
+fi
+
+pattern="$name worker"
+
+# Collect candidate pids: full cmdline exactly "NAME worker".
+pids=$(pgrep -x -f "$pattern" 2>/dev/null || true)
+
+# Keep only those whose parent is the expected orphan parent.
+live=""
+for pid in $pids; do
+  [ -d "/proc/$pid" ] || continue
+  ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+  [ "$ppid" = "$parent" ] || continue
+  live="$live $pid"
+done
+
+[ -n "$live" ] || exit 0
+
+# TERM, wait 5s, then KILL survivors.
+# shellcheck disable=SC2085  # $live is a whitespace-separated pid list, word-split on purpose.
+for pid in $live; do
+  echo "supermox-reap-orphans: TERM $pid ($pattern)" >&2
+  kill -TERM "$pid" 2>/dev/null || true
+done
+
+i=0
+while [ "$i" -lt 50 ]; do
+  alive=0
+  for pid in $live; do
+    kill -0 "$pid" 2>/dev/null && alive=1
+  done
+  [ "$alive" -eq 1 ] || break
+  sleep 0.1
+  i=$((i + 1))
+done
+
+for pid in $live; do
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "supermox-reap-orphans: KILL $pid ($pattern)" >&2
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+done
+
+exit 0

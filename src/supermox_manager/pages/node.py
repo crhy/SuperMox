@@ -17,6 +17,7 @@ from gi.repository import Gtk
 
 from .. import api
 from ..ops import node as nodeops
+from . import graphs
 
 TITLE = "Node"
 SUBTITLE = "This node's health, services, log, updates and settings."
@@ -312,6 +313,9 @@ def render(manager, content):
         results.set_vexpand(True)
         page.pack_start(results, True, True, 0)
         manager.node_results[name] = results
+        if name == "Summary":
+            page.pack_start(graphs.graphs_box(manager, _node(manager), owner=TITLE),
+                            True, True, 0)
         notebook.add(page)
         notebook.set_tab_label_text(page, name)
     content.pack_start(notebook, True, True, 0)

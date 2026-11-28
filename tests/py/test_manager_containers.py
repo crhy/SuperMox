@@ -38,6 +38,21 @@ class TemplateOps(unittest.TestCase):
                                  "os": "alpine", "architecture": "amd64", "section": "system",
                                  "headline": "Alpine Linux 3.24", "package": "appliance-alpine-3.24"}])
 
+    def test_node_architecture_maps_the_kernel_machine(self):
+        for machine, want in (("x86_64", "amd64"), ("aarch64", "arm64"), ("sparc", "")):
+            client = FakeClient([{"current-kernel": {"machine": machine}}])
+            self.assertEqual(ct.node_architecture(client, "pve"), want)
+        self.assertEqual(client.calls[-1][:2], ("GET", "/nodes/pve/status"))
+
+    def test_available_templates_leaves_out_other_architectures(self):
+        """An arm64 template can never start on an amd64 node: do not offer it."""
+        client = FakeClient([[
+            {"template": "alpine-3.24-default_20260714_amd64.tar.xz", "architecture": "amd64"},
+            {"template": "alpine-3.24-default_20260803_arm64.tar.xz", "architecture": "arm64"},
+            {"template": "custom.tar.xz"}]])
+        self.assertEqual([r["template"] for r in ct.available_templates(client, "pve", "amd64")],
+                         ["alpine-3.24-default_20260714_amd64.tar.xz", "custom.tar.xz"])
+
     def test_available_templates_skips_nameless_rows(self):
         client = FakeClient([[{"os": "alpine"}, {"template": "debian-12.tar.xz"}]])
         self.assertEqual([r["template"] for r in ct.available_templates(client, "pve")],

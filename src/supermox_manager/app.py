@@ -9,6 +9,7 @@ from gi.repository import GLib, Gtk
 
 from . import api, logic, pages
 from .ops import create as create_ops, guests, tasks
+from .pages import graphs as history
 
 CSS = b"""
 window, dialog { background: #092b32; color: #eef5ef; }
@@ -37,6 +38,13 @@ def label(text, style=None):
     widget = Gtk.Label(label=text, xalign=0)
     if style:
         widget.get_style_context().add_class(style)
+    if style == "subtitle":
+        # A non-wrapping label's minimum width is its whole text, so long help
+        # text would force the window wider than the screen. Subtitles and page
+        # help text wrap instead.
+        widget.set_line_wrap(True)
+        widget.set_xalign(0)
+        widget.set_max_width_chars(72)
     return widget
 
 
@@ -64,6 +72,7 @@ class Manager:
         self.current = "Overview"
         self.navigating = False
         self.selected = None
+        self.action_buttons = []
         self.closed = False
         self.busy = False
         self.generation = 0
@@ -98,17 +107,28 @@ class Manager:
         sidebar.pack_start(label("MANAGER", "subtitle"), False, False, 12)
         self.nav = {}
         self.pages = {page.TITLE: page for page in pages.load()}
+        # The nav buttons live in a scrolled column: 16 buttons would otherwise
+        # force the window ~1211 px tall, and the list never shrinks back.
+        nav_scroll = Gtk.ScrolledWindow()
+        nav_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        nav_list = box(spacing=6)
         for name in dict.fromkeys(("Overview", "Machines", "Nodes", "Storage", "Tasks",
                                    *self.pages, "Full management")):
             nav = Gtk.ToggleButton(label=name)
             nav.set_halign(Gtk.Align.FILL)
             nav.connect("clicked", self.navigate, name)
-            sidebar.pack_start(nav, False, False, 0)
+            nav_list.pack_start(nav, False, False, 0)
             self.nav[name] = nav
+        nav_scroll.add(nav_list)
+        sidebar.pack_start(nav_scroll, True, True, 0)
         sidebar.pack_end(label("Your infrastructure.\nYour control.", "subtitle"), False, False, 12)
         body.pack_start(sidebar, False, False, 0)
         self.content = box(margin=28, spacing=18)
-        body.pack_start(self.content, True, True, 0)
+        content_scroll = Gtk.ScrolledWindow()
+        content_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        content_scroll.add(self.content)
+        content_scroll.set_hexpand(True)
+        body.pack_start(content_scroll, True, True, 0)
         self.status = label("Ready", "status")
         self.status.set_ellipsize(3)
         root.pack_end(self.status, False, False, 0)
@@ -141,6 +161,7 @@ class Manager:
             if self.closed or generation != self.generation:
                 return False
             self.busy = False
+            self.refresh_actions()
             if error:
                 self.status.set_text(error)
                 self.message("Could not complete the operation", error)
@@ -295,13 +316,15 @@ class Manager:
             self.content.remove(child)
             child.destroy()
         self.selected = None
+        self.action_buttons = []
+        self.machine_graphs = None
         self.content.pack_start(label(self.current, "title"), False, False, 0)
         subtitles = {
             "Overview": "A clear view of your cluster, from desktop to edge.",
             "Machines": "Virtual machines and containers, together in one place.",
             "Nodes": "The devices powering your infrastructure.",
             "Storage": "Capacity and content across your cluster.",
-            "Tasks": "Recent operations and their results.",
+            "Tasks": "Every node's operations in one answer, newest first.",
             "Full management": "Complete server interface, inside the desktop app.",
         }
         page = self.pages.get(self.current)
@@ -392,12 +415,30 @@ class Manager:
             self.action_buttons.append(widget)
             actions.pack_start(widget, False, False, 0)
         self.content.pack_start(actions, False, False, 0)
+        self.content.pack_start(label("History of the selected machine", "subtitle"),
+                                False, False, 0)
+        self.machine_graphs = history.graphs_box(self, owner="Machines",
+                                                 pick=self.machine_target)
+        self.content.pack_start(self.machine_graphs, True, True, 0)
+
+    def machine_target(self):
+        """Where the history box should read from: the selected machine's node."""
+        guest = self.selected
+        if not guest:
+            return None
+        return (guest["node"], guest["type"], guest["vmid"], None)
+
+    def refresh_actions(self):
+        """Action buttons follow the selection and the busy flag."""
+        for widget in self.action_buttons:
+            widget.set_sensitive(self.selected is not None and not self.busy)
 
     def select_guest(self, selection):
         model, iterator = selection.get_selected()
         self.selected = self.guest_map.get(model[iterator][0]) if iterator else None
-        for widget in self.action_buttons:
-            widget.set_sensitive(self.selected is not None and not self.busy)
+        self.refresh_actions()
+        if self.machine_graphs is not None:
+            self.machine_graphs.reload()
 
     def resource_table(self):
         if self.current == "Machines":
@@ -567,6 +608,10 @@ class Manager:
                 self.task_detail(task)
         tree.connect("row-activated", activated)
         self.content.pack_start(label("Double-click a task to read its current status and log.", "subtitle"), False, False, 0)
+        self.content.pack_start(label(
+            "This is /cluster/tasks: one answer covering every node in the "
+            "cluster, newest first. The endpoint has no limit parameter, so the "
+            "node decides how far back it goes.", "subtitle"), False, False, 0)
 
     def show_tasks(self, rows):
         if self.current != "Tasks":
@@ -630,7 +675,7 @@ class Manager:
 
     def about(self):
         dialog = Gtk.AboutDialog(transient_for=self.window, modal=True,
-                                program_name="SuperMox Manager", version="10.26.1",
+                                program_name="SuperMox Manager", version="11.26.2",
                                 logo_icon_name="supermox-manager",
                                 comments="Native desktop management for SuperMox.\nBased on the Proxmox VE / PXVIRT ecosystem (AGPL-3.0).",
                                 website="https://supermox.me", license_type=Gtk.License.AGPL_3_0)

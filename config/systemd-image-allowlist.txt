@@ -1,0 +1,5 @@
+# Allowlist for --image: installed package names that may contain "systemd"
+# because SuperMox ships them itself. Format, as in config/systemd-allowlist.txt:
+#   <package name>  # <reason>
+# A non-comment line without a "# reason" is an error (exit 2).
+librust-proxmox-systemd-dev  # our own copy of the proxmox-systemd crate (see config/systemd-allowlist.txt): Rust sources only, libsystemd FFI calls replaced by stubs in src/sys.rs, no unit files, no daemon binaries

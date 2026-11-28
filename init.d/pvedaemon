@@ -23,14 +23,34 @@ NAME=pvedaemon
 case "$1" in
   start)
     log_begin_msg "Starting $NAME"
+    # A crashed master leaves `pvedaemon worker` orphans (parent pid 1); free
+    # them before starting a new master.
+    /usr/lib/supermox/supermox-reap-orphans "$NAME" "$PIDFILE"
     install -d -m 0750 -o root -g www-data /run/pve
     /usr/lib/supermox/supermox-logpipe "$NAME" "$DAEMON" start
-    log_end_msg $?
+    rc=$?
+    # pvedaemon's own start can return 0 yet leave no live master; confirm the
+    # pidfile pid is alive within 10s, else report failure.
+    if [ "$rc" -eq 0 ]; then
+      i=0
+      while [ "$i" -lt 100 ]; do
+        mpid=$(tr -cd '0-9' < "$PIDFILE" 2>/dev/null || true)
+        if [ -n "$mpid" ] && kill -0 "$mpid" 2>/dev/null; then break; fi
+        sleep 0.1
+        i=$((i + 1))
+      done
+      mpid=$(tr -cd '0-9' < "$PIDFILE" 2>/dev/null || true)
+      if [ -z "$mpid" ] || ! kill -0 "$mpid" 2>/dev/null; then rc=1; fi
+    fi
+    log_end_msg "$rc"
     ;;
   stop)
     log_begin_msg "Stopping $NAME"
     "$DAEMON" stop
-    log_end_msg $?
+    rc=$?
+    # Reap any worker the master's stop did not reach (orphaned to pid 1).
+    /usr/lib/supermox/supermox-reap-orphans "$NAME" "$PIDFILE"
+    log_end_msg "$rc"
     ;;
   restart)
     "$0" stop

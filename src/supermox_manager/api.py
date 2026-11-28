@@ -7,7 +7,9 @@ Every request verifies the leaf on the actual connection before sending data.
 import hashlib
 import http.client
 import json
+import math
 import random
+import time
 import re
 import socket
 import ssl
@@ -15,7 +17,14 @@ from urllib.parse import quote, urlencode, urlsplit
 
 
 class APIError(Exception):
-    """A safe, user-facing connection or API failure."""
+    """A safe, user-facing connection or API failure.
+
+    status is the HTTP status when the node answered with an error, else None.
+    """
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 def fingerprint(value):
@@ -75,6 +84,20 @@ def guest_path(guest):
         segment(guest["node"]), guest["type"], int(guest["vmid"]))
 
 
+# pveproxy answers plain HTTP when the first bytes on the wire are not a
+# TLS hello (see _transport_error). A ClientHello that reaches it in pieces
+# -- the shape tests/manager-live.sh measured through a forwarding tunnel --
+# is read as a plain request and answered in the clear, and the handshake
+# then fails with WRONG_VERSION_NUMBER. Nothing of ours has been written
+# at that point, so a fresh socket is safe to try again; a pin that really
+# does not match raises on the first try and is never retried.
+HANDSHAKE_TRIES = 4
+# Bound at import so the retry keeps catching the genuine exception class even
+# where a test shims the ssl namespace (tests/py/test_manager_api.py replaces
+# api.ssl with a Mock, and `except <Mock attribute>` is a TypeError).
+_SSLError = ssl.SSLError
+
+
 def pinned_socket(host, port, pin, timeout=15):
     """Return a connected TLS socket whose leaf certificate matches ``pin``.
 
@@ -83,21 +106,50 @@ def pinned_socket(host, port, pin, timeout=15):
     with the SHA256 fingerprint before the socket is handed back. No redirects
     and no proxy environment variables: credentials never leave this origin.
     api.Client and the terminal websocket share this one check.
+
+    A handshake the node answered in the clear is retried on a new socket
+    (HANDSHAKE_TRIES tries in total); every other error, including a pin
+    mismatch, is raised as it is.
     """
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
-    plain = socket.create_connection((host, port), timeout=timeout)
-    try:
-        sock = context.wrap_socket(plain, server_hostname=host)
-        cert = sock.getpeercert(binary_form=True)
-        if not cert or hashlib.sha256(cert).hexdigest() != fingerprint(pin):
-            raise APIError("Certificate mismatch. No credentials were sent. "
-                           "Verify the node fingerprint.")
-    except Exception:
-        plain.close()
-        raise
-    return sock
+    last = None
+    for _ in range(HANDSHAKE_TRIES):
+        plain = socket.create_connection((host, port), timeout=timeout)
+        sock = None
+        try:
+            sock = context.wrap_socket(plain, server_hostname=host)
+            cert = sock.getpeercert(binary_form=True)
+            if not cert or hashlib.sha256(cert).hexdigest() != fingerprint(pin):
+                raise APIError("Certificate mismatch. No credentials were sent. "
+                               "Verify the node fingerprint.")
+            return sock
+        except _SSLError as exc:
+            # Close the TLS wrapper, not just the plain socket: the wrapper is
+            # a separate object sharing the fd, and leaving it unclosed leaks
+            # a socket object per failed pin check in a long-running process.
+            (sock if sock is not None else plain).close()
+            last = exc
+        except Exception:
+            (sock if sock is not None else plain).close()
+            raise
+    raise last
+
+
+def _transport_error(exc):
+    """How the API reports a connection that never got a response.
+
+    The exception's own words are our client's (a TLS alert name, an errno),
+    not text the node sent, so they are safe to show. Without them a handshake
+    the node answered over plain HTTP -- pveproxy accepts both on 8006 and
+    answers a redirect when the first bytes are not a TLS hello -- reads
+    exactly like a dead socket, and a flaky test transport cannot be told
+    apart from a broken pin.
+    """
+    reason = " ".join(str(exc).split())[:120]
+    detail = "{} ({})".format(type(exc).__name__, reason) if reason else type(exc).__name__
+    return "Cannot reach the node over HTTPS: {}".format(detail)
 
 
 class Client:
@@ -151,16 +203,24 @@ class Client:
             raise APIError("Sign in again: the session expired or the credentials were rejected.")
         if response.status == 403:
             raise APIError("Your account does not have permission for this operation.")
+        if not 200 <= response.status < 300:
+            # Do not echo server text: it can contain request parameters or
+            # secrets, and a proxy error page is not JSON. The status code is
+            # always reported, so a 500 from a proxy never reads as a protocol
+            # error.
+            try:
+                decoded = json.loads(payload)
+            except (ValueError, UnicodeError):
+                decoded = None
+            fields = decoded.get("errors", {}) if isinstance(decoded, dict) else {}
+            names = ", ".join(str(k) for k in fields) if isinstance(fields, dict) else ""
+            raise APIError("Operation failed (HTTP {}).{}".format(
+                response.status, " Check fields: " + names if names else ""),
+                status=response.status)
         try:
             decoded = json.loads(payload)
         except (ValueError, UnicodeError):
             raise APIError("The node returned an invalid API response.") from None
-        if not 200 <= response.status < 300:
-            # Do not echo server text: it can contain request parameters or secrets.
-            fields = decoded.get("errors", {}) if isinstance(decoded, dict) else {}
-            names = ", ".join(str(k) for k in fields) if isinstance(fields, dict) else ""
-            raise APIError("Operation failed (HTTP {}).{}".format(
-                response.status, " Check fields: " + names if names else ""))
         if not isinstance(decoded, dict) or "data" not in decoded:
             raise APIError("The node returned an invalid API response.")
         return decoded["data"]
@@ -191,7 +251,7 @@ class Client:
             finally:
                 connection.close()
         except (OSError, http.client.HTTPException) as exc:
-            raise APIError("Cannot reach the node over HTTPS: {}".format(type(exc).__name__)) from None
+            raise APIError(_transport_error(exc)) from None
 
     UPLOAD_CHUNK = 1024 * 1024
 
@@ -239,7 +299,7 @@ class Client:
             finally:
                 connection.close()
         except (OSError, http.client.HTTPException) as exc:
-            raise APIError("Cannot reach the node over HTTPS: {}".format(type(exc).__name__)) from None
+            raise APIError(_transport_error(exc)) from None
 
     @staticmethod
     def _multipart_prefix(boundary, fields, filename):
@@ -290,6 +350,9 @@ def human_bytes(value):
         value /= 1024
 
 
+GIB = 1024 ** 3
+
+
 class DemoClient:
     """Explicitly synthetic preview. Never connects to or changes a real host."""
     url = "Preview data — no live connection"
@@ -297,7 +360,7 @@ class DemoClient:
     ticket = None
 
     def __init__(self):
-        gib = 1024 ** 3
+        gib = GIB
         self.rows = [
             {"type": "node", "node": "atlas", "status": "online", "cpu": .23,
              "mem": 21 * gib, "maxmem": 64 * gib, "maxcpu": 16},
@@ -334,6 +397,26 @@ class DemoClient:
             return "Preview only: operation simulated"
         if path == "/cluster/nextid":
             return 103
+        # The cluster page asks before the guest-shaped /status and /log answers
+        # below, so these exact paths come first.
+        if path == "/cluster/status":
+            return [{"id": "cluster", "name": "preview", "nodes": 2, "quorate": 1,
+                     "type": "cluster", "version": 1},
+                    {"id": "node/atlas", "name": "atlas", "nodeid": 1, "ip": "10.0.2.15",
+                     "local": 1, "online": 1, "level": "", "type": "node"},
+                    {"id": "node/orbit", "name": "orbit", "nodeid": 2, "ip": "10.0.2.16",
+                     "local": 0, "online": 1, "level": "", "type": "node"}]
+        if path == "/cluster/log":
+            now = int(time.time())
+            return [{"id": "1:atlas", "node": "atlas", "pid": 1, "pri": 6, "tag": "pvedaemon",
+                     "uid": "1", "user": "root@pam", "time": now - 60,
+                     "msg": "successful auth for user 'root@pam'"},
+                    {"id": "2:orbit", "node": "orbit", "pid": 2, "pri": 3, "tag": "corosync",
+                     "uid": "2", "user": "root@pam", "time": now - 30,
+                     "msg": "node 'orbit' lost quorum"}]
+        if path == "/cluster/options":
+            return {"allowed-tags": [], "description": "Preview cluster",
+                    "mac_prefix": "00:16:3e"}
         if path.endswith("/storage"):
             return [{"storage": "local"}]
         if path.endswith("/network"):
@@ -343,14 +426,16 @@ class DemoClient:
                      "address": "10.0.0.1"}]
         if path.endswith("/disks/list"):
             return [{"devpath": "/dev/sda", "type": "hdd", "health": "OK",
-                     "model": "Sample disk", "size": 512 * gib, "used": 120 * gib,
+                     "model": "Sample disk", "size": 512 * GIB, "used": 120 * GIB,
                      "mounted": 0}]
         if path.endswith("/disks/smart"):
             return {"health": "OK"}
         if path.endswith("/disks/directory"):
             return [{"devpath": "/dev/sda1", "mountpoint": "/var/lib/pve-cluster",
-                     "fstype": "ext4", "size": 100 * gib, "used_on_mnt": 30 * gib,
+                     "fstype": "ext4", "size": 100 * GIB, "used_on_mnt": 30 * GIB,
                      "used_percent": 30}]
+        if path.endswith("/rrddata"):
+            return self.rrd_rows(path, (params or {}).get("timeframe", "hour"))
         if path.endswith("/content"):
             return [{"volid": "local:iso/ubuntu-24.04.iso"}]
         if path.endswith("/firewall/rules"):
@@ -370,3 +455,34 @@ class DemoClient:
         if path.endswith("/status"):
             return {"status": "stopped", "exitstatus": "OK"}
         return []
+
+    def rrd_rows(self, path, timeframe="hour"):
+        """Canned history for the preview, shaped like the real rrddata reply.
+
+        Steps match the real RRA resolutions: 1 minute for an hour window,
+        15 minutes for a day, and coarser beyond that.
+        """
+        step = {"hour": 60, "day": 900, "week": 3600, "month": 21600,
+                "year": 86400, "decade": 604800}.get(timeframe, 60)
+        guest = re.search(r"/(qemu|lxc)/(\d+)/", path)
+        storage = re.search(r"/storage/([^/]+)/", path)
+        end = int(time.time() / step) * step
+        rows = []
+        for index in range(120):
+            when = end - step * (119 - index)
+            wave = 0.5 + 0.5 * math.sin(index / 6.0)
+            if guest:
+                rows.append({"time": when, "cpu": 0.2 * wave, "maxcpu": 0.24,
+                             "mem": int(2.5 * GIB + wave * GIB), "maxmem": 4 * GIB,
+                             "disk": int(GIB + wave * GIB), "maxdisk": 8 * GIB,
+                             "netin": int(200 + 800 * wave), "netout": int(150 + 600 * wave),
+                             "diskread": int(500 * wave), "diskwrite": int(300 * wave)})
+            elif storage:
+                rows.append({"time": when, "total": 512 * GIB,
+                             "used": int(120 * GIB + 40 * GIB * wave)})
+            else:
+                rows.append({"time": when, "cpu": 0.3 * wave, "iowait": 0.01 * wave,
+                             "memtotal": 64 * GIB, "memused": int(20 * GIB + 10 * GIB * wave),
+                             "netin": int(100 + 900 * wave), "netout": int(90 + 700 * wave),
+                             "roottotal": 20 * GIB, "rootused": int(6 * GIB + 2 * GIB * wave)})
+        return rows

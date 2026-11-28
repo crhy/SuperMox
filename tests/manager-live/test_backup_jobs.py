@@ -15,13 +15,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
 from supermox_manager import api
 from supermox_manager.ops import jobs, storage, tasks
 
+import guestfixture
+
 LIVE_URL = os.environ.get("SUPERMOX_LIVE_URL")
 LIVE_PIN = os.environ.get("SUPERMOX_LIVE_PIN")
 LIVE_USER = os.environ.get("SUPERMOX_LIVE_USER", "root@pam")
 LIVE_PASS = os.environ.get("SUPERMOX_LIVE_PASS", "")
+LIVE_PASSWORD = os.environ.get("SUPERMOX_LIVE_PASSWORD", "supermox")
 
 JOB = "t75-job"
 VMID = 9950
+CTID = 9953
+NAME = "t-79-backup"
 NODE = "supermox"
 
 
@@ -85,16 +90,18 @@ class BackupJobsLive(unittest.TestCase):
             [])
 
     def test_run_now(self):
-        # A one-off backup run needs only the dump parameters. Prefer an LXC
+        # A one-off backup run needs a guest, so create one we own. Prefer a
         # container: snapshot mode needs no guest agent, so it is reliable on
         # a shared VM (the qemu here has no agent installed).
-        guests = [r for r in self.client.request("GET", "/cluster/resources")
-                  if r.get("type") in ("qemu", "lxc")]
-        guest = next((g for g in guests if g["type"] == "lxc"), None)
-        if not guest:
-            self.skipTest("no LXC guest to back up on this node")
-        vmid = int(guest["vmid"])
-        upid = jobs.run_now(self.client, NODE, {"vmid": vmid, "node": NODE,
+        guestfixture.destroy(self.client, NODE, "lxc", CTID)
+        try:
+            guestfixture.create_ct(self.client, NODE, CTID, NAME, LIVE_PASSWORD)
+            self._dump()
+        finally:
+            guestfixture.destroy(self.client, NODE, "lxc", CTID)
+
+    def _dump(self):
+        upid = jobs.run_now(self.client, NODE, {"vmid": CTID, "node": NODE,
                                                 "mode": "snapshot",
                                                 "compress": "gzip",
                                                 "storage": "local"})

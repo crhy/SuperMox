@@ -1,0 +1,67 @@
+diff -ruN orig/src/PVE/Firewall.pm new/src/PVE/Firewall.pm
+--- a/src/PVE/Firewall.pm	2026-11-06 02:11:38.762875732 -0800
++++ b/src/PVE/Firewall.pm	2026-11-06 02:11:46.576105596 -0800
+@@ -3029,7 +3029,16 @@
+     my $interface_mapping = PVE::Network::altname_mapping();
+ 
+     # corosync preparation
+-    my $corosync_rule = "-p udp --dport 5404:5405";
++    # knet - the transport SuperMox's cluster.conf asks for - binds mcastport
++    # (5405 in PVE's config) and the 7 ports above it, 5405..5412, not the
++    # single port the legacy net-socket transport used.
++    my $corosync_rule = "-p udp --dport 5404:5412";
++    # SuperMox cluster services: supermox-joind (TCP 8743) and the WireGuard
++    # control channel (UDP 51820). Members that only share the overlay subnet
++    # reach them through the tunnel, so the per-address-pair rules below carry
++    # the join daemon's port as well.
++    my $supermox_join_rule = "-p tcp --dport 8743";
++    my $supermox_wg_rule = "-p udp --dport 51820";
+     my $corosync_local_addresses = {};
+     my $multicast_enabled;
+     my $local_hostname = PVE::INotify::nodename();
+@@ -3110,6 +3119,8 @@
+     ruleset_addrule($ruleset, $chain, "$mngmntsrc -p tcp --dport 22", "-j $accept_action"); # SSH
+     ruleset_addrule($ruleset, $chain, "$mngmntsrc -p tcp --dport 60000:60050", "-j $accept_action")
+         ; # Migration
++    ruleset_addrule($ruleset, $chain, "$mngmntsrc $supermox_join_rule", "-j $accept_action"); # SuperMox join daemon
++    ruleset_addrule($ruleset, $chain, "$mngmntsrc $supermox_wg_rule", "-j $accept_action"); # WireGuard control channel
+ 
+     # corosync inbound rules
+     if (defined($corosync_conf)) {
+@@ -3135,6 +3146,13 @@
+                         "-d $destination -s $node_ip $corosync_rule",
+                         "-j $accept_action",
+                     );
++                    # the join daemon, reached over the overlay subnet
++                    ruleset_addrule(
++                        $ruleset,
++                        $chain,
++                        "-d $destination -s $node_ip $supermox_join_rule",
++                        "-j $accept_action",
++                    );
+                 }
+             },
+         );
+@@ -3213,6 +3231,8 @@
+         ); # PVE VNC Console
+         ruleset_addrule($ruleset, $chain, "-d $localnet -p tcp --dport 3128", "-j $accept_action")
+             ; # SPICE Proxy
++        ruleset_addrule($ruleset, $chain, "-d $localnet $supermox_join_rule", "-j $accept_action"); # SuperMox join daemon
++        ruleset_addrule($ruleset, $chain, "-d $localnet $supermox_wg_rule", "-j $accept_action"); # WireGuard control channel
+     }
+ 
+     # corosync outbound rules
+@@ -3239,6 +3259,13 @@
+                         "-s $source -d $node_ip $corosync_rule",
+                         "-j $accept_action",
+                     );
++                    # the join daemon, reached over the overlay subnet
++                    ruleset_addrule(
++                        $ruleset,
++                        $chain,
++                        "-s $source -d $node_ip $supermox_join_rule",
++                        "-j $accept_action",
++                    );
+                 }
+             },
+         );

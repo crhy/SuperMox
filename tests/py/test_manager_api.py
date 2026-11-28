@@ -5,6 +5,7 @@ import json
 import ssl
 import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -100,6 +101,29 @@ class ManagerAPI(unittest.TestCase):
         with self.assertRaisesRegex(api.APIError, 'No credentials were sent'):
             client.login('root@pam', 'never-send-this')
         self.assertEqual(self.server.requests, [])
+
+    def test_pin_mismatch_closes_the_tls_socket(self):
+        # A failed pin check must close the TLS socket it opened: the manager
+        # retries pins, and every leaked socket is a leak in a long-running
+        # process (this is product code in api.pinned_socket, not test plumbing).
+        created = []
+
+        class _Recording(ssl.SSLContext):
+            def wrap_socket(self, sock, **kw):
+                wrapped = super().wrap_socket(sock, **kw)
+                created.append(wrapped)
+                return wrapped
+
+        shim = mock.Mock(SSLContext=_Recording,
+                        PROTOCOL_TLS_CLIENT=ssl.PROTOCOL_TLS_CLIENT,
+                        CERT_NONE=ssl.CERT_NONE)
+        with mock.patch.object(api, 'ssl', shim):
+            client = api.Client(self.url, '0' * 64)
+            with self.assertRaisesRegex(api.APIError, 'No credentials were sent'):
+                client.login('root@pam', 'never-send-this')
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0].fileno(), -1,
+                        'pinned_socket leaked the TLS socket on a pin mismatch')
 
     def test_expired_session_is_cleared(self):
         self.login()

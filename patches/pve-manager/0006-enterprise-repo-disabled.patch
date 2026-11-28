@@ -1,0 +1,31 @@
+diff -ruN orig/configs/pve-sources.sources new/configs/pve-sources.sources
+--- a/configs/pve-sources.sources	2026-10-28 04:35:06.024167213 -0700
++++ b/configs/pve-sources.sources	2026-11-05 11:30:40.956071324 -0800
+@@ -1,3 +1,9 @@
++# SuperMox nodes have no Proxmox subscription, and an enabled source here makes
++# every apt update fail with 401 Unauthorized on enterprise.proxmox.com, so this
++# paid repository ships disabled. The file is kept only so an administrator who
++# does have a subscription can switch it on (Enabled: yes) instead of writing
++# the stanza from scratch.
++Enabled: no
+ Types: deb
+ URIs: https://enterprise.proxmox.com/debian/pve
+ Suites: trixie
+diff -ruN orig/debian/changelog new/debian/changelog
+--- a/debian/changelog	2026-11-04 15:01:37.227635705 -0800
++++ b/debian/changelog	2026-11-05 11:31:00.262978040 -0800
+@@ -1,3 +1,14 @@
++pve-manager (9.2.24+supermox2) trixie; urgency=medium
++
++  * packaging: apt: ship /etc/apt/sources.list.d/pve-enterprise.sources
++    with Enabled: no. That stanza is the paid Proxmox subscription repository,
++    which answers 401 Unauthorized for anyone without a subscription, so every
++    installed SuperMox node failed apt update and the ISO build died at live
++    build's final apt-get update. The conffile is kept, only disabled, so an
++    administrator who does have a subscription can switch it on with one line.
++
++ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 11:30:53 -0800
++
+ pve-manager (9.2.24) trixie; urgency=medium
+ 
+   * api: node shell: harden the console against crafted parameters by only

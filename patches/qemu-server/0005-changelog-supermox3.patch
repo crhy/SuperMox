@@ -1,0 +1,18 @@
+diff -ruN orig/debian/changelog new/debian/changelog
+--- a/debian/changelog	2026-11-06 17:30:00.000000000 -0800
++++ b/debian/changelog	2026-11-06 17:30:10.000000000 -0800
+@@ -1,3 +1,14 @@
++qemu-server (9.2.13+supermox3) trixie; urgency=medium
++
++  * cpu flags: the probe VM's stderr goes to /dev/null. With pve-qemu-kvm
++    11.1, -daemonize keeps the daemonized child's stderr open, so
++    run_command never saw EOF and both the tcg and the kvm probe hit the
++    30 second timeout on every try. pvestatd then stalled for 60 seconds
++    every 120 seconds, node updates arrived further apart than the RRD
++    heartbeat, and the node's history held no samples at all.
++
++ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 17:30:00 -0800
++
+ qemu-server (9.2.13+supermox2) trixie; urgency=medium
+ 
+   * cpu flags: bound the throwaway probe VM query_supported_cpu_flags starts

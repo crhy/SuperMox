@@ -14,8 +14,69 @@ override_dh_auto_install:
 	           debian/supermox-ve/usr/sbin/supermox-joind \
 	           debian/supermox-ve/usr/sbin/supermox-node-caps
 	chmod 0644 debian/supermox-ve/usr/lib/python3/dist-packages/supermox/*.py
+	# ZERO systemd: two apt pins ship with the package as conffiles under
+	# /etc/apt/preferences.d/. supermox-no-systemd pins the systemd names and the
+	# packages that depend on them out of the picture — under the same name
+	# scripts/build-rootfs.sh writes during the rootfs build, so installing the
+	# package replaces that copy instead of leaving a second one behind. supermox-origins
+	# makes locally built SuperMox packages win over every repository and pins
+	# every binary package we rebuild from patches/ to -1 from download.proxmox.com,
+	# so apt upgrade can never replace our sysvinit builds with Proxmox's systemd
+	# ones. A plain Devuan host that only installs supermox-ve gets both pins.
+	# debian/conffiles declares both paths: debhelper only auto-registers conffiles
+	# it installs itself (the init scripts), not files copied in here.
+	mkdir -p debian/supermox-ve/etc/apt/preferences.d
+	cp -a etc/apt/preferences.d/supermox-no-systemd debian/supermox-ve/etc/apt/preferences.d/supermox-no-systemd
+	cp -a etc/apt/preferences.d/supermox-origins debian/supermox-ve/etc/apt/preferences.d/supermox-origins
+	chmod 0644 debian/supermox-ve/etc/apt/preferences.d/supermox-no-systemd debian/supermox-ve/etc/apt/preferences.d/supermox-origins
+	# ZERO systemd: the package also ships a dpkg config file so packages a node
+	# installs later never unpack systemd unit files. dpkg reads every file in
+	# /etc/dpkg/dpkg.cfg.d, and path-exclude drops the three trees stock Devuan
+	# packages (ssh, lightdm, avahi, nfs-common, lvm2, lxc, wpa_supplicant ...) drop
+	# unit files into. The ISO build stages this very file before any package is
+	# installed, and scripts/build-rootfs.sh passes the same three excludes to
+	# mmdebstrap, so the ISO, the rootfs and the installed node agree by construction.
+	# Declared in debian/conffiles for the same reason as the apt pins: debhelper
+	# only auto-registers conffiles it installs itself.
+	mkdir -p debian/supermox-ve/etc/dpkg/dpkg.cfg.d
+	cp -a etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units debian/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units
+	chmod 0644 debian/supermox-ve/etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units
+	# The apt channel: an installed node must actually receive SuperMox updates.
+	# supermox-ve ships the source and the key that authenticates it. The deb822
+	# source points at our own `supermox` suite in SuperMox's own repository
+	# (https://crhy.github.io/supermox-apt), signed by the SuperMox archive key, whose
+	# public half ships as /usr/share/keyrings/supermox-archive-keyring.gpg; the
+	# .sources file's Signed-By names that keyring, so apt trusts only that key
+	# (never the whole system trust store). scripts/build-apt-repo.sh publishes
+	# the suite with the same key. The .sources file is a conffile (declared in
+	# debian/conffiles, same reason as the pins: debhelper does not auto-register
+	# files copied in here); the keyring under /usr/share is not a conffile.
+	mkdir -p debian/supermox-ve/etc/apt/sources.list.d debian/supermox-ve/usr/share/keyrings
+	cp -a etc/apt/sources.list.d/supermox.sources debian/supermox-ve/etc/apt/sources.list.d/supermox.sources
+	cp -a usr/share/keyrings/supermox-archive-keyring.gpg debian/supermox-ve/usr/share/keyrings/supermox-archive-keyring.gpg
+	chmod 0644 debian/supermox-ve/etc/apt/sources.list.d/supermox.sources debian/supermox-ve/usr/share/keyrings/supermox-archive-keyring.gpg
 
 override_dh_installinit:
 	dh_installinit --name=networking --no-start
+	dh_installinit --name=supermox-hosts
 	dh_installinit --name=supermox-binfmt
 	dh_installinit --name=supermox-sync
+	# rrdcached's sysvinit script belongs to the forked rrdtool package (see
+	# config/init-scripts.txt and patches/rrdtool/): supermox-ve only depends on
+	# rrdcached, it must not own /etc/init.d/rrdcached as well.
+	# The join daemon and the overlay bring-up both have to be enabled at boot
+	# for a joined node to be a joined node after a reboot: supermox-joind answers
+	# join and membership traffic, supermox-wg puts wg0 back up from the config
+	# that daemon wrote. Neither takes --no-start: unlike networking and binfmt,
+	# nothing else in the boot sequence starts them.
+	dh_installinit --name=supermox-joind
+	dh_installinit --name=supermox-wg
+	# cgroup2 at /sys/fs/cgroup has to be up before lxcfs and the PVE services in
+	# rc2.d, so this one is enabled too (its LSB header puts it in rcS.d, right
+	# after mountkernfs).
+	dh_installinit --name=supermox-cgroups
+	# /etc/corosync/corosync.conf has to name this node before corosync and
+	# pmxcfs start; the postinst that used to write it can no longer do so inside
+	# an image build (it would bake the build machine's identity into the ISO),
+	# so this script writes it at boot instead. Enabled, not --no-start.
+	dh_installinit --name=supermox-corosync

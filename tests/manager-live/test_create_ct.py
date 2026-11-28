@@ -54,10 +54,14 @@ class CreateCt(unittest.TestCase):
 
     def _template(self):
         """Return a downloaded template volid, downloading Alpine if needed."""
-        downloaded = ct_ops.templates(self.client, self.node)
+        arch = ct_ops.node_architecture(self.client, self.node)
+        # Template names end in _<arch>.tar.*; one for another architecture
+        # (the index is multi-arch) would never start here.
+        downloaded = [v for v in ct_ops.templates(self.client, self.node)
+                      if not arch or "_{}.".format(arch) in v]
         if downloaded:
             return sorted(downloaded)[0]
-        rows = [row for row in ct_ops.available_templates(self.client, self.node)
+        rows = [row for row in ct_ops.available_templates(self.client, self.node, arch)
                 if row["os"] == APPLIANCE_OS]
         if not rows:
             self.skipTest("no {} appliance in this node's index".format(APPLIANCE_OS))

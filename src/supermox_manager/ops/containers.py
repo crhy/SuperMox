@@ -41,12 +41,32 @@ def template_storages(client, node):
     return allowed
 
 
-def available_templates(client, node):
-    """GET /nodes/{node}/aplinfo: the appliance index pveam can download."""
+# Kernel machine names (uname -m, as /nodes/{node}/status reports them) to the
+# Debian architecture names the appliance index uses.
+_MACHINE_ARCH = {"x86_64": "amd64", "aarch64": "arm64", "armv7l": "armhf",
+                 "riscv64": "riscv64", "loongarch64": "loong64", "i686": "i386"}
+
+
+def node_architecture(client, node):
+    """The node's Debian architecture (amd64, arm64, ...), or "" if unknown."""
+    status = client.request("GET", "/nodes/{}/status".format(api.segment(node)))
+    machine = ((status or {}).get("current-kernel") or {}).get("machine", "")
+    return _MACHINE_ARCH.get(machine, "")
+
+
+def available_templates(client, node, arch=""):
+    """GET /nodes/{node}/aplinfo: the appliance index pveam can download.
+
+    The index is multi-architecture: with arch set, templates built for another
+    architecture are left out (an arm64 container can never start on an amd64
+    node). A template that names no architecture is kept.
+    """
     items = client.request("GET", "/nodes/{}/aplinfo".format(api.segment(node)))
     out = []
     for item in items:
         template = item.get("template")
+        if arch and item.get("architecture") not in ("", None, arch):
+            continue
         if template:
             out.append({
                 "template": template,

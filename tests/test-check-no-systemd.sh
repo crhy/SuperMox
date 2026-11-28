@@ -131,6 +131,33 @@ run --source "$s2"
 assert_rc 2
 unset SYSTEMD_ALLOWLIST_FILE
 
+# image allowlist: our own librust-proxmox-systemd-dev is ALLOWED, anything
+# else with "systemd" in its name still fails
+ g="$root/g"
+mkdir -p "$g/var/lib/dpkg" "$g/sbin"
+printf 'Package: librust-proxmox-systemd-dev\nStatus: install ok installed\n\n' > "$g/var/lib/dpkg/status"
+printf 'Package: libsystemd0\nStatus: install ok installed\n\n' >> "$g/var/lib/dpkg/status"
+printf 'Package: libsystemd0\nStatus: install ok installed\n\n' >> "$g/var/lib/dpkg/status"
+printf '#!/sbin/init\n' > "$g/sbin/init"
+printf 'librust-proxmox-systemd-dev  # stub crate\n' > "$root/image-allow.txt"
+export SYSTEMD_IMAGE_ALLOWLIST_FILE="$root/image-allow.txt"
+run --image "$g"
+assert_rc 1
+assert_has "ALLOWED: installed package matches systemd: librust-proxmox-systemd-dev (stub crate)"
+assert_has "FAIL: installed package matches systemd: libsystemd0"
+unset SYSTEMD_IMAGE_ALLOWLIST_FILE
+
+# the shipped config/systemd-image-allowlist.txt is picked up by default
+run --image "$g"
+assert_has "ALLOWED: installed package matches systemd: librust-proxmox-systemd-dev"
+
+# image allowlist line without a "# reason" exits 2
+printf 'librust-proxmox-systemd-dev\n' > "$root/image-allow.txt"
+export SYSTEMD_IMAGE_ALLOWLIST_FILE="$root/image-allow.txt"
+run --image "$g"
+assert_rc 2
+unset SYSTEMD_IMAGE_ALLOWLIST_FILE
+
 # script works when run from build/ (config/ and build/ resolve from repo root)
 # uses the raw (unpatched) upstream, which still has 74 references; pin a
 # fixture baseline so this check is independent of the repo ratchet baseline.

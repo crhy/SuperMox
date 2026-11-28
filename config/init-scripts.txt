@@ -22,8 +22,25 @@ pve-manager pve-manager pvestatd
 pve-manager pve-manager spiceproxy
 qemu-server qemu-server qmeventd
 supermox-ve supermox-ve networking
+# rrdcached: Debian ships only a systemd unit for it, and upstream pve-cluster
+# starts it through Wants=rrdcached.service; without a sysvinit script the RRD
+# archives pvestatd files stay empty, so the graphs page has no history. The
+# rrdtool Debian source package is forked (patches/rrdtool/), so this script
+# ships from the rrdcached package itself and not from supermox-ve: two packages
+# owning /etc/init.d/rrdcached would conflict.
+rrdtool rrdcached rrdcached
 supermox-ve supermox-ve supermox-binfmt
+supermox-ve supermox-ve supermox-hosts
+# cgroup2 at /sys/fs/cgroup: lxc-pve 7.x is built for cgroup v2 only and nothing
+# in the base image mounts it, so containers cannot start without this script.
+supermox-ve supermox-ve supermox-cgroups
+# /etc/corosync/corosync.conf names this node: the corosync package's own
+# placeholder cannot work for a single node, and an image can never carry the
+# identity of the node it will boot on, so the file is written at boot (before
+# corosync and pve-cluster) instead of at package install time.
+supermox-ve supermox-ve supermox-corosync
 supermox-tmpfiles supermox-tmpfiles supermox-tmpfiles
 supermox-ve supermox-ve supermox-joind
+supermox-ve supermox-ve supermox-wg
 supermox-ve supermox-ve supermox-sync
 supermox-android supermox-android waydroid-container

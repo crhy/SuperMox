@@ -1,3 +1,18 @@
+supermox-android (0.1.1) unstable; urgency=medium
+
+  * init.d/waydroid-container: manage the LXC container as well as waydroid's
+    container manager. `waydroid container start` only provides the D-Bus bus;
+    the Android userspace is the container itself, so the script now brings it
+    up headlessly through waydroid's own prepare_container/start_container
+    (waydroid0 veth bridge, loop-mounted images, `lxc-start -F -- /init`, pid
+    in /run/waydroid-container.lxc.pid) and stops both processes. The headless
+    path skips the session layer's Wayland/pulse bind mounts, which only a GUI
+    session needs.
+  * debian/copyright: spell the license out in full (AGPL-3.0-or-later) instead
+    of the bare "AGPLv3" tag.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 04 Nov 2026 19:05:00 -0800
+
 supermox-android (0.1.0) unstable; urgency=medium
 
   * Initial release: the Android layer of SuperMox. Waydroid runs a full

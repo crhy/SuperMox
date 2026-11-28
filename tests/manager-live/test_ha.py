@@ -15,6 +15,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
 from supermox_manager import api
 from supermox_manager.ops import ha
 
+import guestfixture
+
 LIVE_URL = os.environ.get("SUPERMOX_LIVE_URL")
 LIVE_PIN = os.environ.get("SUPERMOX_LIVE_PIN")
 LIVE_USER = os.environ.get("SUPERMOX_LIVE_USER", "root@pam")
@@ -22,6 +24,7 @@ LIVE_PASS = os.environ.get("SUPERMOX_LIVE_PASS", "")
 
 RID = "vm:9950"
 VMID = 9950
+NAME = "t-79-ha"
 RULE = "t75rule"
 NODE = "supermox"
 
@@ -65,6 +68,16 @@ class HaLive(unittest.TestCase):
 
     def test_resource_rule_lifecycle(self):
         self._cleanup(self.client)
+        # The server only accepts an HA resource for a guest that exists, so
+        # this test creates the guest it needs instead of borrowing one.
+        guestfixture.destroy(self.client, NODE, "qemu", VMID)
+        try:
+            guestfixture.create_vm(self.client, NODE, VMID, NAME)
+            self._lifecycle()
+        finally:
+            guestfixture.destroy(self.client, NODE, "qemu", VMID)
+
+    def _lifecycle(self):
         ha.add_resource(self.client, VMID, kind="vm", state="enabled")
         self.assertIn(RID, [r["sid"] for r in ha.resources(self.client)])
 

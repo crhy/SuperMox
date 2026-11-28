@@ -1,7 +1,7 @@
 diff -ruN orig/debian/rules new/debian/rules
---- a/debian/rules	2026-10-28 04:35:10.066727676 -0700
-+++ b/debian/rules	2026-10-28 08:31:52.345015861 -0700
-@@ -18,3 +18,8 @@
+--- a/debian/rules	2026-10-28 13:16:12.497279594 -0700
++++ b/debian/rules	2026-11-04 05:13:44.486637645 -0800
+@@ -11,3 +11,8 @@
  
  %:
  	dh $@
@@ -11,9 +11,9 @@ diff -ruN orig/debian/rules new/debian/rules
 +override_dh_installinit:
 +	dh_installinit -pqemu-server --name=qmeventd
 diff -ruN orig/src/qmeventd/Makefile new/src/qmeventd/Makefile
---- a/src/qmeventd/Makefile	2026-10-28 04:35:10.071378076 -0700
-+++ b/src/qmeventd/Makefile	2026-10-28 08:32:06.756928232 -0700
-@@ -19,8 +19,6 @@
+--- a/src/qmeventd/Makefile	2026-10-28 13:16:12.506129912 -0700
++++ b/src/qmeventd/Makefile	2026-11-04 05:13:44.486719264 -0800
+@@ -20,8 +20,6 @@
  install: qmeventd docs
  	install -d $(DESTDIR)/$(SBINDIR)
  	install -m 0755 qmeventd $(DESTDIR)/$(SBINDIR)
@@ -23,9 +23,9 @@ diff -ruN orig/src/qmeventd/Makefile new/src/qmeventd/Makefile
  	install -m 0644 qmeventd.8 $(DESTDIR)/$(MANDIR)/man8
  
 diff -ruN orig/src/query-machine-capabilities/Makefile new/src/query-machine-capabilities/Makefile
---- a/src/query-machine-capabilities/Makefile	2026-10-28 04:35:10.071378076 -0700
-+++ b/src/query-machine-capabilities/Makefile	2026-10-28 08:32:10.892903084 -0700
-@@ -12,8 +12,6 @@
+--- a/src/query-machine-capabilities/Makefile	2026-10-28 13:16:12.506129912 -0700
++++ b/src/query-machine-capabilities/Makefile	2026-11-04 05:13:44.486778004 -0800
+@@ -13,8 +13,6 @@
  install: query-machine-capabilities
  	install -d $(DESTDIR)/$(BINDIR)
  	install -m 0755 query-machine-capabilities $(DESTDIR)$(BINDIR)
@@ -35,9 +35,9 @@ diff -ruN orig/src/query-machine-capabilities/Makefile new/src/query-machine-cap
  .PHONY: clean
  clean:
 diff -ruN orig/src/usr/Makefile new/src/usr/Makefile
---- a/src/usr/Makefile	2026-10-28 04:35:10.078765856 -0700
-+++ b/src/usr/Makefile	2026-10-28 08:32:16.492869035 -0700
-@@ -21,8 +21,6 @@
+--- a/src/usr/Makefile	2026-10-28 13:16:12.507076697 -0700
++++ b/src/usr/Makefile	2026-11-04 05:13:44.486834853 -0800
+@@ -20,8 +20,6 @@
  	install -m 0755 pve-bridge-hotplug $(LIBEXECDIR)/pve-bridge-hotplug
  	install -m 0755 pve-bridgedown $(LIBEXECDIR)/pve-bridgedown
  	install -D -m 0755 dbus-vmstate $(LIBEXECDIR)/dbus-vmstate

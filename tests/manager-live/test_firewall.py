@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Live firewall test against the running SuperMox test VM.
 
-Runs against a real PVE node over the HTTPS API (https://127.0.0.1:18006/),
+Runs against a real PVE node over the HTTPS API (SUPERMOX_LIVE_URL, set by
+``tests/manager-live.sh``, which forwards the guest's 8006 through ssh),
 using the certificate fingerprint as the PIN, exactly like the other live
 tests. It exercises the firewall ops at all three scopes: a dedicated
 guest VM (9980) for rules and options, the node for a rule, and the
@@ -25,7 +26,8 @@ from supermox_manager.ops import create as create_ops  # noqa: E402
 from supermox_manager.ops import guests  # noqa: E402
 from supermox_manager.ops import tasks  # noqa: E402
 
-BASE_URL = "https://127.0.0.1:18006/"
+BASE_URL = os.environ.get("SUPERMOX_LIVE_URL",
+                          "https://127.0.0.1:18006/")
 PIN = os.environ.get("SUPERMOX_LIVE_PIN")
 USER = os.environ.get("SUPERMOX_LIVE_USER", "root@pam")
 PASSWORD = os.environ.get("SUPERMOX_LIVE_PASSWORD",

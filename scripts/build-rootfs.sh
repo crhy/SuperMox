@@ -4,15 +4,18 @@ set -euo pipefail
 # Architecture mapping: SUPERMOX_ARCH (Debian arch name) plus the kernel/QEMU/console
 # helpers. The build host's arch is only the first test target; this script works for any arch.
 source "$(dirname "$0")/arch.sh"
+# Paths: environment > config/local.env > build/ default (see docs/development.md).
+source "$(dirname "$0")/local-env.sh"
 
-VM_DIR="${SUPERMOX_VM_DIR:-/media/rhy/data/supermox-vm}"
+VM_DIR="$SUPERMOX_VM_DIR"
 MIRROR="${SUPERMOX_MIRROR:-http://deb.devuan.org/merged}"
 SUITE="${SUPERMOX_SUITE:-ceres}"
 IMAGE_SIZE="${SUPERMOX_IMAGE_SIZE:-20G}"
 
 # mmdebstrap builds in TMPDIR; /tmp is RAM on the build machine, so keep it on disk.
-# The unshared build user must be able to enter TMPDIR, so it lives in the repo, not under /media/rhy/data (mode 700).
-export TMPDIR="${SUPERMOX_TMPDIR:-$(cd "$(dirname "$0")/.." && pwd)/build/tmp}"
+# The unshared build user must be able to enter TMPDIR, so it lives in the repo, not on a
+# separate data disk that may be mode 700 (see config/local.env for where VM data lives).
+export TMPDIR="${SUPERMOX_TMPDIR:-$REPO/build/tmp}"
 
 KEYRING=/usr/share/keyrings/devuan-archive-keyring.gpg
 COMPONENTS=main,contrib,non-free-firmware
@@ -47,8 +50,10 @@ done
 # Do not install anything: tell the operator what is missing and stop. Skipped for --dry-run.
 if [ "$dry_run" -ne 1 ]; then
   host_arch="$(dpkg --print-architecture)"
-  if [ "$SUPERMOX_ARCH" != "$host_arch" ] && [ ! -e "/proc/sys/fs/binfmt_misc/qemu-$SUPERMOX_ARCH" ]; then
+  binfmt_name="$(supermox_binfmt_name)"
+  if [ "$SUPERMOX_ARCH" != "$host_arch" ] && [ ! -e "/proc/sys/fs/binfmt_misc/qemu-$binfmt_name" ]; then
     printf 'ERROR: building a %s rootfs on a %s host needs foreign-arch execution via binfmt_misc.\n' "$SUPERMOX_ARCH" "$host_arch" >&2
+    printf 'No /proc/sys/fs/binfmt_misc/qemu-%s (binfmt entries are named after the QEMU emulator, not the Debian arch).\n' "$binfmt_name" >&2
     printf 'Install the qemu-user-binfmt package on the build host (apt install qemu-user-binfmt), then re-run.\n' >&2
     exit 2
   fi
@@ -57,9 +62,19 @@ fi
 tarball="$VM_DIR/rootfs.tar"
 img="$VM_DIR/rootfs.img"
 
-setup_hook='printf "Package: systemd\nPin: version *\nPin-Priority: -1\n\nPackage: systemd-sysv\nPin: version *\nPin-Priority: -1\n\nPackage: libsystemd0\nPin: version *\nPin-Priority: -1\n\nPackage: libpam-systemd\nPin: version *\nPin-Priority: -1\n\nPackage: systemd-standalone-sysusers\nPin: version *\nPin-Priority: -1\n\nPackage: systemd-standalone-tmpfiles\nPin: version *\nPin-Priority: -1\n" > "$1/etc/apt/preferences.d/no-systemd"'
-
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+
+# ZERO systemd: the pin must exist before supermox-ve can be installed, so the
+# rootfs build writes it itself. It copies the very file the package ships
+# (packaging/supermox-ve/etc/apt/preferences.d/supermox-no-systemd) to the path
+# that file's conffile occupies, so installing the package replaces this copy
+# instead of leaving a second, drifting one behind.
+pin_src="$repo_root/packaging/supermox-ve/etc/apt/preferences.d/supermox-no-systemd"
+if [ ! -f "$pin_src" ]; then
+  printf 'ERROR: missing apt pin file %s\n' "$pin_src" >&2
+  exit 1
+fi
+setup_hook="$(printf 'mkdir -p "$1/etc/apt/preferences.d" && cp -f %q "$1/etc/apt/preferences.d/supermox-no-systemd"' "$pin_src")"
 
 customize_hooks=(
   'echo supermox > "$1/etc/hostname"'

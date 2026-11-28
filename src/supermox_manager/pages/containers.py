@@ -26,7 +26,8 @@ def _index(manager):
     node = _node(manager)
     return {"node": node,
             "downloaded": ct_ops.templates(manager.client, node),
-            "available": ct_ops.available_templates(manager.client, node),
+            "available": ct_ops.available_templates(
+                manager.client, node, ct_ops.node_architecture(manager.client, node)),
             "storages": ct_ops.template_storages(manager.client, node)}
 
 

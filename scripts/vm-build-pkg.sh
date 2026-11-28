@@ -3,7 +3,10 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 vm_ssh="$repo_root/scripts/vm-ssh.sh"
-VM_DIR="${SUPERMOX_VM_DIR:-/media/rhy/data/supermox-vm}"
+# Paths: environment > config/local.env > build/ default (see docs/development.md).
+source "$repo_root/scripts/local-env.sh"
+
+VM_DIR="$SUPERMOX_VM_DIR"
 VM_SSH_PORT="${SUPERMOX_VM_SSH_PORT:-2223}"
 INIT_SCRIPTS="${INIT_SCRIPTS:-$repo_root/config/init-scripts.txt}"
 SHIPPED_SCRIPTS="${SHIPPED_SCRIPTS:-$repo_root/config/shipped-scripts.txt}"
@@ -120,6 +123,7 @@ if [ "$dry_run" -eq 1 ]; then
     printf '  in VM /root/build/pkg-%s/%s: dpkg-buildpackage -b -us -uc\n' "$component" "$component"
     printf '  copy *.deb to /root/localrepo, dpkg-scanpackages . > Packages, apt-get update\n'
     printf '  scp new *.deb from /root/localrepo to %s/debs/\n' "$VM_DIR"
+    printf '  prune superseded debs in %s/debs/ (scripts/prune-debs.sh)\n' "$VM_DIR"
     printf '  log to build/logs/pkg-%s.log\n' "$component"
     exit 0
   fi
@@ -140,6 +144,7 @@ if [ "$dry_run" -eq 1 ]; then
     printf '  copy *.deb to /root/localrepo and run dpkg-scanpackages . > Packages\n'
   fi
   printf '  scp new *.deb from /root/localrepo to %s/debs/\n' "$VM_DIR"
+  printf '  prune superseded debs in %s/debs/ (scripts/prune-debs.sh)\n' "$VM_DIR"
   printf '  log to build/logs/%s.log\n' "$component"
   exit 0
 fi
@@ -233,14 +238,18 @@ for d in "${dirs[@]}"; do
     sed -e "s|@PERLAPI@|perlapi-$(perl -MConfig -e 'print $Config{debian_abi}//$Config{version};')|g" debian/control.in > debian/control
   fi
   mk-build-deps --build-profiles=nocheck --install --remove --tool 'apt-get -y --no-install-recommends' debian/control
+  # "make deb" can fail after the debs are built (lintian) or before (compile);
+  # a failed build must not pass on debs an earlier component left in the parent
+  # dir, so gate on a deb carrying this tree's version, which is removed first.
+  ver=$(dpkg-parsechangelog -l debian/changelog -S Version)
+  rm -f "./*_${ver}"*.deb "../*_${ver}"*.deb 2>/dev/null || true
   if grep -qE '^deb[[:space:]:]' Makefile; then
     make deb || true
   else
     dpkg-buildpackage -b -us -uc
   fi
-  # Debs land in this dir (make deb) or its parent (dpkg-buildpackage); ls fails if either glob is empty.
-  if ! ls ./*.deb ../*.deb 2>/dev/null | grep -q .; then
-    echo "ERROR: no .deb produced in $d" >&2
+  if ! ls ./*"_${ver}"*.deb ../*"_${ver}"*.deb 2>/dev/null | grep -q .; then
+    echo "ERROR: build failed in $d: no .deb for version $ver" >&2
     exit 1
   fi
   cp ./*.deb /root/localrepo/ 2>/dev/null || true
@@ -264,5 +273,9 @@ if ! copy_debs_back; then
   tail -n 30 "$log" >&2
   exit 1
 fi
+
+# Drop superseded debs so $VM_DIR/debs holds only the newest version of each
+# package/arch (see scripts/prune-debs.sh).
+bash "$repo_root/scripts/prune-debs.sh" "$VM_DIR/debs"
 
 printf 'OK: built %s; debs in %s/debs/ and /root/localrepo\n' "$component" "$VM_DIR"

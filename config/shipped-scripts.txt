@@ -10,9 +10,17 @@ supermox-ve bin/supermox-joind usr/sbin/supermox-joind
 # Forwards a sysvinit daemon's stderr to syslog (no journald). Used by the
 # init.d start lines of daemons whose stderr would otherwise be lost to /dev/null.
 supermox-ve scripts/supermox-logpipe usr/lib/supermox/supermox-logpipe
+# Reaps orphaned "<name> worker" processes (parent pid 1) left when a PVE forking
+# daemon's master dies, so a crashed service can be restarted without a reboot.
+# Called by the pveproxy/pvedaemon/spiceproxy init scripts on start and stop.
+supermox-ve scripts/supermox-reap-orphans usr/lib/supermox/supermox-reap-orphans
 # Home folder sync CLI (init.d/supermox-sync calls it at boot to apply the
 # membership list to each user's Syncthing instance).
 supermox-ve bin/supermox-sync usr/bin/supermox-sync
+# Tor onion service for the join daemon (rendezvous mechanism 2): configures
+# tor's HiddenServiceDir/Port over /etc/init.d/tor and prints this node's
+# onion address, which is stored in the membership entry as "onion".
+supermox-ve scripts/supermox-onion-setup.sh usr/sbin/supermox-onion-setup
 # Android layer: the setup tool is a repo script, installed under sbin.
 supermox-android scripts/supermox-android-setup.sh usr/sbin/supermox-android-setup
 # Python modules of the join protocol, installed into python3's system site-packages
@@ -25,6 +33,8 @@ supermox-ve src/supermox/joind.py usr/lib/python3/dist-packages/supermox/joind.p
 supermox-ve src/supermox/sync.py usr/lib/python3/dist-packages/supermox/sync.py
 supermox-ve src/supermox/secret.py usr/lib/python3/dist-packages/supermox/secret.py
 supermox-ve src/supermox/state.py usr/lib/python3/dist-packages/supermox/state.py
+supermox-ve src/supermox/onion.py usr/lib/python3/dist-packages/supermox/onion.py
+supermox-ve src/supermox/corosync_cluster.py usr/lib/python3/dist-packages/supermox/corosync_cluster.py
 # SuperMox Manager: the desktop app (GTK 3 + WebKitGTK) and its modules.
 supermox-manager bin/supermox-manager usr/bin/supermox-manager
 supermox-manager src/supermox_manager/__init__.py usr/lib/python3/dist-packages/supermox_manager/__init__.py
@@ -45,6 +55,8 @@ supermox-manager src/supermox_manager/pages/disks.py usr/lib/python3/dist-packag
 supermox-manager src/supermox_manager/pages/permissions.py usr/lib/python3/dist-packages/supermox_manager/pages/permissions.py
 supermox-manager src/supermox_manager/pages/node.py usr/lib/python3/dist-packages/supermox_manager/pages/node.py
 supermox-manager src/supermox_manager/pages/firewall.py usr/lib/python3/dist-packages/supermox_manager/pages/firewall.py
+supermox-manager src/supermox_manager/pages/cluster.py usr/lib/python3/dist-packages/supermox_manager/pages/cluster.py
+supermox-manager src/supermox_manager/pages/graphs.py usr/lib/python3/dist-packages/supermox_manager/pages/graphs.py
 # ops/: pure-Python API operations (no GTK); pages and live tests share them.
 supermox-manager src/supermox_manager/ops/__init__.py usr/lib/python3/dist-packages/supermox_manager/ops/__init__.py
 supermox-manager src/supermox_manager/ops/tasks.py usr/lib/python3/dist-packages/supermox_manager/ops/tasks.py
@@ -61,7 +73,9 @@ supermox-manager src/supermox_manager/ops/access.py usr/lib/python3/dist-package
 supermox-manager src/supermox_manager/ops/jobs.py usr/lib/python3/dist-packages/supermox_manager/ops/jobs.py
 supermox-manager src/supermox_manager/ops/pools.py usr/lib/python3/dist-packages/supermox_manager/ops/pools.py
 supermox-manager src/supermox_manager/ops/ha.py usr/lib/python3/dist-packages/supermox_manager/ops/ha.py
+supermox-manager src/supermox_manager/ops/cluster.py usr/lib/python3/dist-packages/supermox_manager/ops/cluster.py
 supermox-manager src/supermox_manager/ops/firewall.py usr/lib/python3/dist-packages/supermox_manager/ops/firewall.py
+supermox-manager src/supermox_manager/ops/metrics.py usr/lib/python3/dist-packages/supermox_manager/ops/metrics.py
 supermox-manager src/supermox_manager/COPYING usr/share/doc/supermox-manager/COPYING
 # Scalable app icon; debian/rules renders the PNG sizes from it.
 supermox-manager website/assets/supermox-symbol.svg usr/share/icons/hicolor/scalable/apps/supermox-manager.svg

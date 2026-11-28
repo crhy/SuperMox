@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 UPSTREAM_PACKAGES="${UPSTREAM_PACKAGES:-$repo_root/upstream/pxvirt/packages}"
+UPSTREAM_DEBIAN_SRC="${UPSTREAM_DEBIAN_SRC:-$repo_root/upstream/debian-src}"
 PATCHES_DIR="${PATCHES_DIR:-$repo_root/patches}"
 
 usage() {
@@ -15,7 +16,8 @@ if [ "$#" -ne 1 ]; then
 fi
 component="$1"
 
-src="$UPSTREAM_PACKAGES/$component/$component"
+src="$(UPSTREAM_PACKAGES="$UPSTREAM_PACKAGES" UPSTREAM_DEBIAN_SRC="$UPSTREAM_DEBIAN_SRC" \
+  bash "$repo_root/scripts/fetch-upstream.sh" --src-dir "$component")"
 if [ ! -d "$src" ]; then
   printf 'ERROR: component source not found: %s\n' "$src" >&2
   exit 2

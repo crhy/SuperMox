@@ -1,246 +1,386 @@
-#!/usr/bin/env python3
-"""supermox-sync: apply the membership list to Syncthing, and report on it.
+#!/usr/bin/python3
+"""supermox-sync — the operator's handle on the home sync layer.
 
-reconcile  turns this node's signed membership list into the configuration
-           of one user's Syncthing instance (devices over the overlay, the
-           home folders, discovery/relays/NAT off, .stignore).
-status     per folder: state, devices in sync, conflicts.
+  supermox-sync reconcile [--home DIR] [--url URL]
+      Read the cluster's signed membership list and make this node's
+      Syncthing instance match it: one device per other member, one folder
+      per member home, the built-in ignore list in each folder.  Idempotent;
+      safe to run at every boot.
 
-The instance is reached over its REST API on 127.0.0.1 only; the API key
-comes from that instance's config.xml in its state directory.
+  supermox-sync status [--home DIR] [--url URL]
+      What this instance has, and what it is doing.
+
+  supermox-sync wait [--home DIR] [--url URL] [--folder ID] [--timeout S]
+      Block until one folder reports idle with nothing left to transfer.
+      This is what a script that acts on a synced home uses instead of sleeping.
+
+  supermox-sync verify [--home DIR] [--url URL]
+      Check the instance is configured the way the membership list says.
+
+  supermox-sync shutdown [--home DIR] [--url URL]
+      Ask the instance to exit.  The service starts it again.
+
+  --state-dir picks the join state directory (default: $SUPERMOX_ETC).
+  SUPERMOX_SYNC_HOME_ROOT overrides the root the member homes live under;
+  it exists so a test can run two instances on one machine without touching
+  /home, and it is refused if it is not an absolute path.
+
+Nothing here talks to a peer directly: the membership list is the only
+input, and the instance's own REST API is the only thing written to.
+
+Syncthing 1.29.x speaks its REST API under /rest, authenticated with the
+instance's API key, which lives in its config.xml.  There is no /api/v1
+in this build, and the ignore list has no endpoint at all: it is the
+shared folder's .stignore file.  See src/supermox/sync.py.
+
+Part of supermox-ve (AGPLv3).
 """
 
 import argparse
+import http.client
 import json
+import logging
 import os
 import re
+import socket
 import sys
-import urllib.error
-import urllib.request
+import urllib.parse
 
-try:
-    from supermox import state as node_state
-    from supermox import sync as sync_mod
-except ImportError:  # repo checkout: bin/ sits next to src/
-    sys.path.insert(
-        0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
-    from supermox import state as node_state
-    from supermox import sync as sync_mod
+sys.path.insert(0, "/usr/lib/supermox")
 
-USERS_FILE = "/etc/supermox/sync-users"
-STATE_DIR = "/var/lib/supermox-sync"
-BASE_PORT = 8384
+from supermox import state, sync as sync_mod
+
+DEFAULT_TIMEOUT = 10.0
 
 
-def _users() -> list:
-    """Users with a Syncthing instance on this node, in order."""
-    try:
-        with open(USERS_FILE, "r") as f:
-            lines = f.read().splitlines()
-    except OSError:
-        return []
-    return [u for u in (line.split("#")[0].strip() for line in lines) if u]
-
-
-def _instance(user: str) -> tuple:
-    """(gui url, state dir) for one user's instance.
-
-    init.d/supermox-sync starts the users in sync-users order on
-    127.0.0.1:8384, :8385, ... and gives each its own state directory.
-    """
-    users = _users()
-    if user and user in users:
-        port = BASE_PORT + users.index(user)
-    else:
-        port = BASE_PORT
-    state = os.environ.get("SUPERMOX_SYNC_STATE")
-    if not state and user:
-        state = os.path.join(STATE_DIR, user)
-    if not state:
-        state = os.path.expanduser("~/.config/syncthing")
-    return "http://127.0.0.1:%d" % port, state
-
-
-def _config_xml(state_dir: str) -> str:
-    """Contents of the instance's config.xml, or '' if it is not there yet."""
-    try:
-        with open(os.path.join(state_dir, "config.xml"), "r") as f:
-            return f.read()
-    except OSError:
-        return ""
-
-
-def _xml_value(text: str, tag: str):
-    """Value of one <Tag>...</Tag> element in config.xml, or None."""
-    m = re.search(r"<%s>([^<]*)</%s>" % (tag, tag), text)
-    return m.group(1) if m else None
+class ApiError(Exception):
+    pass
 
 
 class HttpApi:
-    """Syncthing's REST API: get / put / post, JSON in and out."""
+    """Syncthing's REST API, as 1.29.x serves it.
 
-    def __init__(self, base: str, api_key: str):
-        self.base = base.rstrip("/")
+    Every request carries X-API-Key: the key is in the instance's config.xml,
+    and without it every call answers 401.  A non-2xx answer becomes an
+    ApiError carrying the body, because that body is where Syncthing says
+    what a rejected write actually objected to.
+    """
+
+    def __init__(self, base_url: str, api_key: str,
+                 timeout: float = DEFAULT_TIMEOUT):
+        parts = urllib.parse.urlsplit(base_url.rstrip("/"))
+        if parts.scheme not in ("http", "") or not parts.netloc:
+            raise ApiError(
+                "instance address must be http://host:port, got %r" % base_url)
+        self.host, self.port = parts.hostname, parts.port
         self.api_key = api_key
+        self.timeout = timeout
 
-    def _request(self, path: str, method: str, obj=None):
-        url = "%s%s" % (self.base, path)
-        data = None
+    def _request(self, method: str, path: str, obj=None):
+        body = None
+        headers = {"X-API-Key": self.api_key}
         if obj is not None:
-            data = json.dumps(obj).encode("utf-8")
-        req = urllib.request.Request(
-            url, data=data, method=method,
-            headers={"Authorization": "Bearer %s" % self.api_key,
-                     "Content-Type": "application/json"})
+            body = json.dumps(obj)
+            headers["Content-Type"] = "application/json"
+        conn = http.client.HTTPConnection(self.host, self.port,
+                                          timeout=self.timeout)
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                body = resp.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                return None
-            raise RuntimeError("GET %s: HTTP %d" % (path, exc.code))
-        except OSError as exc:
-            raise RuntimeError("%s %s: %s" % (method, path, exc))
-        if not body:
+            conn.request(method, path, body=body, headers=headers)
+            resp = conn.getresponse()
+            raw = resp.read().decode("utf-8", "replace")
+        finally:
+            conn.close()
+        if resp.status >= 400:
+            raise ApiError("%s %s: HTTP %d %s"
+                           % (method, path, resp.status, raw.strip()))
+        if not raw.strip():
             return None
         try:
-            return json.loads(body)
-        except json.JSONDecodeError:
-            return body
+            return json.loads(raw)
+        except ValueError:
+            return raw
 
     def get(self, path: str):
-        return self._request(path, "GET")
+        return self._request("GET", path)
 
-    def put(self, path: str, obj):
-        return self._request(path, "PUT", obj)
+    def put(self, path: str, obj) -> bool:
+        self._request("PUT", path, obj)
+        return True
 
-    def post(self, path: str, obj):
-        return self._request(path, "POST", obj)
+    def post(self, path: str, obj=None) -> bool:
+        self._request("POST", path, obj or {})
+        return True
 
+    def read_stignore(self, folder_path: str):
+        # Not an HTTP call: the ignore list is a file inside the shared folder.
+        return sync_mod.read_stignore(folder_path)
 
-def _target(args) -> tuple:
-    """(gui url, state dir) for the instance the user asked for."""
-    url, state = _instance(args.user)
-    return args.url or url, args.state or state
-
-
-def _api(args) -> HttpApi:
-    """Build the API client for the instance the user asked for."""
-    url, state = _target(args)
-    key = _xml_value(_config_xml(state), "APIKey")
-    if not key:
-        print("no APIKey in %s/config.xml: no Syncthing instance running for"
-              " user %s" % (state, args.user or "default"), file=sys.stderr)
-        return None
-    return HttpApi(url, key)
+    def write_stignore(self, folder_path: str, ignores) -> bool:
+        return sync_mod.write_stignore(folder_path, ignores)
 
 
-def cmd_reconcile(args) -> int:
-    api = _api(args)
-    if api is None:
-        return 1
-    st = node_state.NodeState()
-    if not st.load():
-        print("no cluster here: run supermox-join create first", file=sys.stderr)
-        return 1
-    local_node = st.my_name()
+def config_text(home: str) -> str:
+    """This instance's config.xml, as text.
 
-    # Enroll this node's own device id, so the other members get an entry
-    # for it too (docs/shared-home.md: no "accept host" clicking anywhere).
-    _url, state = _target(args)
-    device_id = _xml_value(_config_xml(state), "DeviceID")
-    if device_id:
-        mine = [m for m in st.membership if m.get("name") == local_node]
-        if mine and mine[0].get("syncthing_id") != device_id:
-            st.set_syncthing_id(local_node, device_id)
-            print("recorded device id %s for %s in the membership list; "
-                  "broadcast the list so the other nodes learn it too"
-                  % (device_id, local_node))
-    else:
-        print("no DeviceID in %s/config.xml: this node's own entry stays "
-              "unlisted until syncthing has started once" % state)
-
-    folders = sync_mod.home_folders(st.membership)
-    summary = sync_mod.reconcile(st.membership, local_node, folders, api)
-    print("devices: %s" % (", ".join(summary["devices"]) or "-"))
-    print("folders: %s" % (", ".join(summary["folders"]) or "-"))
-    if summary["skipped"]:
-        print("skipped (no syncthing_id): %s" % ", ".join(summary["skipped"]))
-    print("wrote: %s" % (", ".join(summary["wrote"]) or "nothing (already in sync)"))
-    return 0
+    Read rather than parsed: the file is XML with a doctype and an
+    <ignore> element that ElementTree's schema-free walk handles awkwardly,
+    and only three scalars are wanted out of it.
+    """
+    path = os.path.join(home, "config.xml")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError as exc:
+        raise ApiError("%s: %s" % (path, exc.strerror)) from exc
 
 
-def cmd_status(args) -> int:
-    api = _api(args)
-    if api is None:
-        return 1
-    folders = api.get("%s/config/folders" % sync_mod.API_ROOT) or []
-    status = api.get("%s/status/" % sync_mod.API_ROOT) or {}
-    per_folder = status.get("folders") or {}
-    peers = api.get("%s/peer-count" % sync_mod.API_ROOT)
-    peer_count = peers if isinstance(peers, int) else 0
+def api_key(home: str) -> str:
+    """The instance's API key, from inside its <gui> element.
 
-    if not folders:
-        print("no folders configured")
-        return 0
-    for folder in folders:
-        fid = folder.get("id", "?")
-        info = per_folder.get(fid) or {}
-        state = api.get("%s/state/%s" % (sync_mod.API_ROOT, fid))
-        if isinstance(state, dict):
-            state = state.get("state", "?")
-        need_sync = bool(info.get("need_sync"))
-        error = info.get("error") or ""
-        shared = folder.get("share_devices") or []
-        conflicts = _conflicts(folder.get("path") or "")
-        print("%s (%s)" % (fid, folder.get("path", "?")))
-        print("  state: %s%s" % (state or "?",
-                                 ", needs sync" if need_sync else ", in sync"))
-        print("  devices in sync: %d of %d connected (%d configured)"
-              % (peer_count, peer_count, len(shared)))
-        if error:
-            print("  error: %s" % error)
-        if conflicts:
-            print("  conflicts: %d file(s) marked %s"
-                  % (conflicts, sync_mod.CONFLICT_MARKER))
-    return 0
+    Syncthing generates it on first run and keeps it there; every REST call
+    needs it.  An instance that has never started has none, which is why
+    reconcile starts the daemon before asking it anything.
+    """
+    match = re.search(r"<gui[^>]*>.*?<apikey>([^<]+)</apikey>",
+                      config_text(home), re.S)
+    if not match:
+        raise ApiError("%s/config.xml: no <apikey> in <gui>" % home)
+    return match.group(1).strip()
 
 
-def _conflicts(path: str) -> int:
-    """Files under path whose name carries Syncthing's conflict marker."""
-    if not path or not os.path.isdir(path):
-        return 0
-    count = 0
-    for _root, _dirs, files in os.walk(path):
-        for name in files:
-            if sync_mod.CONFLICT_MARKER in name:
-                count += 1
-    return count
+def gui_address(home: str) -> str:
+    """Where this instance listens, from its own <gui><address>.
+
+    Read from the instance rather than assumed, so --home alone cannot end
+    up talking to a different Syncthing that happens to own the default
+    port.  The port is what the live test changes; this is how it follows.
+    """
+    match = re.search(r"<gui[^>]*>.*?<address>([^<]+)</address>",
+                      config_text(home), re.S)
+    addr = (match.group(1).strip() if match else "") or "127.0.0.1:8384"
+    if "://" not in addr:
+        addr = "http://" + addr
+    return addr
+
+
+def ensure_daemon(home: str) -> bool:
+    """Start the instance if the service has not yet (re)started it.
+
+    Reconcile needs the API, and the API only exists once syncthing serve
+    is running.  The service unit is the thing that normally owns this
+    process; starting it here is only for the operator's convenience, and
+    the instance is left running rather than killed, since it is the one
+    the service would start anyway.
+    """
+    import subprocess
+    try:
+        subprocess.run(["service", "supermox-sync", "start"],
+                       check=True, capture_output=True)
+        return True
+    except (subprocess.CalledProcessError, OSError) as exc:
+        logging.getLogger("supermox.sync").warning(
+            "supermox-sync service not started: %s", exc)
+        return False
 
 
 def main(argv=None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     ap = argparse.ArgumentParser(prog="supermox-sync")
-    ap.add_argument("--user", default=None,
-                    help="user whose Syncthing instance to talk to "
-                         "(default: the first in %s)" % USERS_FILE)
-    ap.add_argument("--url", default=None, metavar="http://host:port")
-    ap.add_argument("--state", default=None, metavar="DIR",
-                    help="Syncthing state directory (holds config.xml)")
-    sub = ap.add_subparsers(dest="command", required=True)
+    ap.add_argument("--home", default=None,
+                    help="Syncthing home (default: this node's sync home)")
+    ap.add_argument("--url", default=None,
+                    help="instance API base (default: from config.xml)")
+    ap.add_argument("--node", default=None,
+                    help="this node's name in the membership list")
+    ap.add_argument("--state-dir", default=None,
+                    help="join state directory (default: $SUPERMOX_ETC)")
+    sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("reconcile", help="apply the membership list")
-    p.set_defaults(func=cmd_reconcile)
+    for name in ("reconcile", "status", "verify", "shutdown"):
+        sp = sub.add_parser(name)
+        sp.add_argument("--home", default=argparse.SUPPRESS)
+        sp.add_argument("--url", default=argparse.SUPPRESS)
+        sp.add_argument("--node", default=argparse.SUPPRESS)
 
-    p = sub.add_parser("status", help="per-folder state, sync, conflicts")
-    p.set_defaults(func=cmd_status)
+    wp = sub.add_parser("wait")
+    for flag in ("--home", "--url", "--node"):
+        wp.add_argument(flag, default=argparse.SUPPRESS)
+    wp.add_argument("--folder", default=argparse.SUPPRESS)
+    wp.add_argument("--timeout", default=argparse.SUPPRESS, type=float)
 
     args = ap.parse_args(argv)
-    try:
-        return args.func(args)
-    except RuntimeError as exc:
-        print("supermox-sync: %s" % exc, file=sys.stderr)
+    st = state.NodeState(args.state_dir or state.base_dir())
+    st.load()
+    node_name = args.node or resolve_node_name(st)
+    if not node_name:
+        print("cannot tell which member this node is; pass --node")
         return 1
+    home = args.home or sync_mod.home_for(node_name)
+    url = args.url or gui_address(home)
+    api = HttpApi(url, api_key(home))
+
+    if args.cmd == "reconcile":
+        if api.get("%s/system/ping" % sync_mod.API_ROOT) is None:
+            ensure_daemon(home)
+        members = st.membership
+        if not members:
+            print("no membership list; nothing to configure")
+            return 0
+        summary = sync_mod.reconcile(
+            members, node_name, None, api,
+            record_device_id=lambda device_id:
+                record_device_id(st, node_name, device_id))
+        # Report only what changed, not the whole desired configuration:
+        # summary["devices"]/["folders"] are the membership list's intent and
+        # are always populated, so echoing them on every boot would make a
+        # no-op reconcile look like it had written something.  `status` is
+        # where the operator reads what is configured; reconcile says only
+        # what it wrote and which members it could not configure (no id).
+        for key in ("wrote", "skipped"):
+            if summary[key]:
+                print("%s: %s" % (key, ", ".join(summary[key])))
+        return 0
+
+    if args.cmd == "status":
+        return cmd_status(api, node_name)
+
+    if args.cmd == "verify":
+        return cmd_verify(api, st, node_name)
+
+    if args.cmd == "wait":
+        folder = getattr(args, "folder", None) or sync_mod.folder_id(node_name)
+        timeout = getattr(args, "timeout", None) or 60.0
+        if sync_mod.wait_until_synced(api, folder, timeout):
+            print("%s: idle, nothing to transfer" % folder)
+            return 0
+        print("%s: still transferring after %.0fs" % (folder, timeout))
+        return 1
+
+    if args.cmd == "shutdown":
+        api.post("%s/system/shutdown" % sync_mod.API_ROOT)
+        print("shutdown requested; the service will start it again")
+        return 0
+
+    return 2
+
+
+def cmd_status(api, node_name: str) -> int:
+    """What this instance has, and what it is doing.
+
+    The device list is read back from the instance, not from the membership
+    list: the point of ``status`` is to see what is actually configured,
+    which is where a stale entry or a half-applied reconcile shows up.
+    """
+    my_id = sync_mod.local_device_id(api)
+    devices = api.get("%s/config/devices" % sync_mod.API_ROOT) or []
+    folders = api.get("%s/config/folders" % sync_mod.API_ROOT) or []
+    print("node %s" % node_name)
+    print("  devices:")
+    for d in devices:
+        if d.get("deviceID") == my_id:
+            continue
+        print("    %s (%s) %s" % (d.get("deviceID"), d.get("name"),
+                                  ",".join(d.get("addresses") or [])))
+    print("  folders:")
+    for f in folders:
+        state_body = sync_mod.folder_state(api, f["id"])
+        conflicts = sync_mod.find_conflicts(f["path"])
+        print("    %s -> %s" % (f["id"], f["path"]))
+        print("      state %s, %d items to transfer, %d peers"
+              % (state_body.get("state", "?"),
+                 state_body.get("needTotalItems", 0),
+                 max(len(f.get("devices") or []) - 1, 0)))
+        if state_body.get("error"):
+            print("      error: %s" % state_body["error"])
+        if conflicts:
+            print("      %d conflict copies (resolve by hand):"
+                  % len(conflicts))
+            for name in conflicts[:10]:
+                print("        %s" % name)
+    return 0
+
+
+def resolve_node_name(st) -> str:
+    """Which membership entry this node is.
+
+    The entry whose Ed25519 public key matches this node's identity.  Without
+    an identity there is nothing to match against, and guessing would put
+    the wrong node's device id on the wrong member.
+    """
+    if st.identity is None or not st.membership:
+        return None
+    return st.my_name()
+
+
+def record_device_id(st, node_name: str, device_id: str) -> bool:
+    """Store this node's Syncthing device id in the signed membership list.
+
+    Re-signing the list is what broadcasts the id to the other nodes, so a
+    node that cannot sign (no identity) must say so rather than write a
+    list nobody will trust.
+    """
+    if st.identity is None or st.find_member(node_name) is None:
+        return False
+    if st.find_member(node_name).get("syncthing_id") == device_id:
+        return True
+    st.set_syncthing_id(node_name, device_id)
+    return True
+
+
+def cmd_verify(api, st, node_name: str) -> int:
+    """Compare the instance against the membership list, without writing.
+
+    A mismatch here is what a boot-time reconcile would fix; printing it
+    instead is for when the operator wants to look first.  The expectation
+    is built from the membership list directly, so this command cannot
+    write even by accident.
+    """
+    members = st.membership
+    if not members:
+        print("no membership list")
+        return 1
+    want_devices = sync_mod.desired_devices(members, node_name)
+    want_folders = sync_mod.desired_folders(members,
+                                            sync_mod.home_folders(members),
+                                            node_name)
+    my_id = sync_mod.local_device_id(api)
+    ok = True
+
+    have = api.get("%s/config/devices" % sync_mod.API_ROOT) or []
+    have_ids = sorted(d["deviceID"] for d in have if d["deviceID"] != my_id)
+    want_ids = sorted(d["deviceID"] for d in want_devices)
+    if want_ids != have_ids:
+        print("devices differ: expected %s, have %s"
+              % (", ".join(want_ids) or "none",
+                 ", ".join(have_ids) or "none"))
+        ok = False
+    for name in sorted(m["name"] for m in members if not m.get("syncthing_id")):
+        print("no device id for member %s" % name)
+        ok = False
+
+    have_folders = api.get("%s/config/folders" % sync_mod.API_ROOT) or []
+    want_ids = sorted(f["id"] for f in want_folders)
+    have_ids = sorted(f["id"] for f in have_folders)
+    if want_ids != have_ids:
+        print("folders differ: expected %s, have %s"
+              % (", ".join(want_ids), ", ".join(have_ids) or "none"))
+        ok = False
+    for folder in want_folders:
+        if api.read_stignore(folder["path"]) != folder["ignore_list"]:
+            print("%s: .stignore differs from the built-in list"
+                  % folder["path"])
+            ok = False
+    print("verify: %s" % ("ok" if ok else "differences found"))
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except ApiError as exc:
+        print("supermox-sync: %s" % exc, file=sys.stderr)
+        sys.exit(1)
+    except (ConnectionRefusedError, socket.timeout,
+            http.client.HTTPException, OSError) as exc:
+        print("supermox-sync: %s" % exc, file=sys.stderr)
+        sys.exit(1)

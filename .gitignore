@@ -4,3 +4,7 @@ build/
 .wrangler/
 __pycache__/
 *.pyc
+/config/local.env
+
+# Clone of crhy/supermox-apt, the default publish target of scripts/build-apt-repo.sh
+/supermox-apt/

@@ -36,7 +36,7 @@ Operate the amd64 KVM VM built by the scripts in `scripts/`. All paths default t
   own packages under `packaging/<name>/` (built directly, no patching, into `/root/build/pkg-<name>/<name>/`); a
   name that is both is an error. Debs land in `/root/localrepo` and are copied back to `$SUPERMOX_VM_DIR/debs/`.
 
-## M2 — PC edition 10.26
+## M2 — PC edition 11.26
 
 SuperMox PC edition: Spaced Linux desktop (MATE, Windows-XP style panel, Flatpak apps,
 Calamares installer) plus the SuperMox packages (supermox-ve and our rebuilt PVE stack,
@@ -50,7 +50,9 @@ Any SuperMox node can join a cluster and talk to other nodes over an encrypted,
 authenticated WireGuard link. Join by typing a 12-word BIP39 phrase or scanning a QR
 invite. Crypto (BIP39, HKDF, libsodium secretbox, WireGuard PSK) and the join daemon
 (`supermox-joind`) are built and unit-tested. A real WireGuard join of three nodes in the test VM
-(one by phrase, one by QR invite) passed on 2026-10-30 (t49d).
+(one by phrase, one by QR invite) passed on 2026-10-30 (t49d). On 2026-11-06 two separate VMs on one LAN
+formed a real corosync cluster through it (node B became a core member, `/etc/pve` shared, survives a reboot;
+`scripts/lan-cluster-e2e.sh`); see docs/cluster-core-join.md.
 See docs/node-join-architecture.md.
 
 ## M4 — arm64 and other architectures

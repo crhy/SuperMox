@@ -10,11 +10,19 @@
 
 # Sysvinit service script translated from
 # upstream/pxvirt/packages/pve-firewall/pve-firewall/debian/pve-firewall.service
-# ExecStartPre=-/usr/bin/update-alternatives --set ebtables /usr/sbin/ebtables-legacy
-# ExecStartPre=-/usr/bin/update-alternatives --set iptables /usr/sbin/iptables-legacy
-# ExecStartPre=-/usr/bin/update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
 # ExecStart=/usr/sbin/pve-firewall start  ExecStop=/usr/sbin/pve-firewall stop
 # ExecReload=/usr/sbin/pve-firewall restart  Type=forking  PIDFile=/run/pve-firewall.pid
+#
+# Upstream's three ExecStartPre lines pinned the iptables family to the legacy
+# backend; that translation is NOT copied here. SuperMox kernels carry no
+# legacy ebtables bridge module (no ebtables.ko anywhere under /lib/modules,
+# and `ebtables -L` answers "The kernel doesn't support the ebtables 'filter'
+# table"), and the iptables `filter` table pve-firewall writes its rules into
+# is that bridge table. So the legacy pin made every status update fail — one
+# "status update error: modprobe: FATAL: Module ebtables not found" line in
+# syslog every 10 seconds, firewall disabled or not (f10d-1). We release the
+# pin instead and let Debian's default (the nft backend, priority 20) apply,
+# which is the backend that works on our kernels.
 
 . /lib/lsb/init-functions
 export PVE_SYSV_INIT=1
@@ -26,9 +34,10 @@ NAME=pve-firewall
 case "$1" in
   start)
     log_begin_msg "Starting $NAME"
-    update-alternatives --set ebtables /usr/sbin/ebtables-legacy 2>/dev/null || true
-    update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null || true
-    update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null || true
+    # Undo upstream's legacy pinning rather than reproducing it (see above).
+    update-alternatives --auto ebtables 2>/dev/null || true
+    update-alternatives --auto iptables 2>/dev/null || true
+    update-alternatives --auto ip6tables 2>/dev/null || true
     /usr/lib/supermox/supermox-logpipe "$NAME" "$DAEMON" start
     log_end_msg $?
     ;;

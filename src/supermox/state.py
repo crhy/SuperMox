@@ -27,12 +27,18 @@ endpoint (its host at WG_LISTEN_PORT 51820). It is separate from
 "endpoints", which is where the member's join daemon (TCP 8743) can be
 reached: wg0.conf writes the wg_endpoint as each [Peer] Endpoint, because
 the kernel sends the encrypted UDP packet there, never to the join port.
+
+A membership entry may also carry "onion": that member's Tor onion address
+(supermox.onion, docs/node-join-architecture.md rendezvous mechanism 2), the
+IP-independent way to reach its join daemon. Optional and backwards
+compatible, like syncthing_id and wg_endpoint.
 """
 
 import base64
 import json
 import os
 import platform
+import time
 
 from supermox import identity as node_identity
 from supermox import invite as invite_mod
@@ -47,6 +53,7 @@ _FILES = {
     "membership": "membership.json",
     "invites": "invites.json",
     "pending": "pending.json",
+    "nonces": "nonces.json",
 }
 
 _BYTES_KEYS = ("cluster_id", "join_key", "invite_key", "wg_psk", "entropy")
@@ -98,6 +105,9 @@ class NodeState:
         self.open_invites = {}
         self.used_invites = set()
         self.pending = {}
+        # Nonces of join requests already accepted, kept only for the replay
+        # window so a daemon restart cannot re-accept the same request.
+        self.seen_nonces = {}
 
     def path(self, name: str) -> str:
         """Full path of one of the state files."""
@@ -107,12 +117,14 @@ class NodeState:
 
     def create_cluster(self, phrase: str, name: str, endpoints: list,
                       arch: str = None, caps: list = None,
-                      wg_endpoint: str = None) -> dict:
+                      wg_endpoint: str = None, onion: str = None) -> dict:
         """Create the cluster: this node becomes the only member.
 
         Returns this node's membership entry. wg_endpoint is this node's
         WireGuard endpoint (host:51820), kept separate from the join
-        daemon's endpoints so wg0.conf never points at the join port.
+        daemon's endpoints so wg0.conf never points at the join port. onion
+        is this node's Tor onion address, once supermox-onion-setup has
+        generated one (supermox.onion.read_onion_address).
         """
         secret.validate(phrase)
         self.derived = secret.derive(phrase)
@@ -134,6 +146,8 @@ class NodeState:
         }
         if wg_endpoint:
             member["wg_endpoint"] = wg_endpoint
+        if onion:
+            member["onion"] = onion
         self.membership = [member]
         self.save()
         return member
@@ -163,6 +177,9 @@ class NodeState:
         pending = _read_json(self.path("pending"))
         if pending is not None:
             self.pending = dict(pending.get("pending", {}))
+        nonces = _read_json(self.path("nonces"))
+        if nonces is not None:
+            self.seen_nonces = _load_nonces(nonces)
         return self.derived is not None
 
     def save(self) -> None:
@@ -181,6 +198,17 @@ class NodeState:
             "used": sorted(self.used_invites),
         })
         _write_json(self.path("pending"), {"pending": self.pending})
+        self.save_nonces()
+
+    def save_nonces(self) -> None:
+        """Persist the replay-protection nonces (atomic, mode 0600).
+
+        Only nonces inside the replay window are written; older ones cannot
+        be replayed anyway (joinproto rejects a request whose time is more
+        than _MAX_SKEW from now), so the file stays small across restarts.
+        """
+        os.makedirs(self.base, mode=0o700, exist_ok=True)
+        _write_json(self.path("nonces"), _dump_nonces(self.seen_nonces))
 
     # --- membership -----------------------------------------------
 
@@ -332,3 +360,38 @@ def _load_invite(data: dict) -> dict:
         "signer_fingerprint": _b64d(data["signer_fingerprint"]),
         "endpoints": list(data["endpoints"]),
     }
+
+
+def _dump_nonces(seen: dict, now: int = None) -> dict:
+    """Serialize the seen-nonce map for nonces.json (base64 nonce -> unix time).
+
+    Entries older than the replay window are dropped, so the file cannot grow
+    without bound. Keys are base64 because JSON object keys must be strings.
+    """
+    if now is None:
+        now = int(time.time())
+    cutoff = now - joinproto.NONCE_WINDOW
+    return {"v": 1, "nonces": {_b64(nonce): int(t)
+                               for nonce, t in seen.items() if t >= cutoff}}
+
+
+def _load_nonces(data: dict, now: int = None) -> dict:
+    """Inverse of _dump_nonces, pruned again on load.
+
+    A malformed or stale entry is skipped rather than raising: the daemon must
+    still start with a usable (smaller) nonce set.
+    """
+    if now is None:
+        now = int(time.time())
+    cutoff = now - joinproto.NONCE_WINDOW
+    seen = {}
+    for nonce_b64, t in (data.get("nonces") or {}).items():
+        try:
+            nonce = _b64d(nonce_b64)
+            t = int(t)
+        except (ValueError, TypeError):
+            continue
+        if t < cutoff:
+            continue
+        seen[nonce] = t
+    return seen

@@ -9,10 +9,12 @@ set -euo pipefail
 # exporting SUPERMOX_VM_DIR and SUPERMOX_VM_SSH_PORT, which those scripts already honour.
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+# Paths: environment > config/local.env > build/ default (see docs/development.md).
+source "$repo_root/scripts/local-env.sh"
 
-TEST_DIR="${SUPERMOX_TEST_DIR:-/media/rhy/data/supermox-test}"
+TEST_DIR="$SUPERMOX_TEST_DIR"
 SSH_PORT="${SUPERMOX_TEST_SSH_PORT:-2224}"
-DEBS_DIR="${SUPERMOX_DEBS_DIR:-/media/rhy/data/supermox-vm/debs}"
+DEBS_DIR="$SUPERMOX_DEBS_DIR"
 
 export SUPERMOX_VM_DIR="$TEST_DIR"
 export SUPERMOX_VM_SSH_PORT="$SSH_PORT"

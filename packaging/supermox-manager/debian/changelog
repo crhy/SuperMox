@@ -1,3 +1,63 @@
+supermox-manager (11.26.2) supermox; urgency=medium
+
+  * Connecting to a node retries a TLS handshake that the node answered in
+    plain text (seen through forwarding tunnels). Nothing is sent before the
+    certificate pin check, and a pin mismatch is never retried.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 11:00:00 -0800
+
+supermox-manager (11.26.1) supermox; urgency=medium
+
+  * Cluster page: create a cluster, invite a node, approve or deny join
+    requests, list members as core or edge, make a member a core
+    (corosync) member, and upgrade an older cluster to corosync. Each
+    action runs one supermox-join command in the node shell, so its
+    output is visible; the 12 words appear there once, at creation.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 10:00:00 -0800
+
+supermox-manager (11.26.0) supermox; urgency=medium
+
+  * Release line renamed to 11.26 (was 10.26); version follows the release line.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 09:00:00 -0800
+
+supermox-manager (10.26.5) supermox; urgency=medium
+
+  * Changing one DNS field no longer wipes the node's other name servers
+    (the server writes resolv.conf from exactly the fields it receives).
+  * Graphs: a node or guest with no history yet shows an empty graph
+    instead of an error.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 06:35:34 -0800
+
+supermox-manager (10.26.4) supermox; urgency=medium
+
+  * Create container offers only templates for the node's own architecture.
+    The appliance index is multi-architecture, and a container made from a
+    foreign template can never start (its /sbin/init cannot execute). ops.containers
+    maps the node's current-kernel.machine to the Debian architecture name and
+    available_templates() leaves out the other architectures; a template that
+    names no architecture is still offered.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 05:50:46 -0800
+
+supermox-manager (10.26.3) supermox; urgency=medium
+
+  * Fit every page in a small laptop screen: help text wraps, and the nav list
+    and page content scroll instead of growing the window.
+  * tests/gui-manager-size.py checks each page's minimum and allocated size.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 12:00:00 +0000
+
+supermox-manager (10.26.2) supermox; urgency=medium
+
+  * Add the native cluster management page and the live CPU/memory graphs.
+  * Fix a crash when an operation finished while no machine table was showing.
+  * Live API tests create and remove their own guests, so they repeat cleanly.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 01 Nov 2026 12:00:00 +0000
+
 supermox-manager (10.26.1) supermox; urgency=medium
 
   * Add a native GTK dashboard and direct API management actions.

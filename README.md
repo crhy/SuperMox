@@ -77,30 +77,58 @@ Everything about how SuperMox works and how to build it is in **[docs/](docs/REA
 start with the [architecture overview](docs/architecture.md) and the
 [development guide](docs/development.md).
 
-## Status (10.26)
+## Status (11.26)
 
-Verified on 2026-10-29:
+11.26 was held until LAN nodes form a real Proxmox cluster; as of 2026-11-06 they do. Everything below was run
+on amd64 and passes:
 
-- Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13, pve-container 6.1.15) built from source on Devuan Ceres.
-- Running under sysvinit with no systemd anywhere (checked by `scripts/check-no-systemd.sh` on the running system).
-- Web UI on port 8006, survives reboot.
-- Node join with a 12-word phrase or QR invite (`supermox-join`, `supermox-joind`) built and unit-tested.
-- amd64 first; all architectures planned.
+- **Release check** (`scripts/release-check.sh`, 2026-11-06): all 8 steps PASS on a clean install of today's
+  packages: the gate, VM boot, first history, SuperMox Manager against a live node (`tests/manager-live.sh`),
+  the namespace join test (`scripts/join-e2e.sh`), no systemd on the installed system, and every enabled service
+  running.
+- **Two-machine LAN cluster** (`scripts/lan-cluster-e2e.sh`, 2026-11-06): two separate VMs on one LAN. Node A runs
+  `supermox-join create`, node B joins with the 12 words and becomes a corosync **core member**; both report
+  `Nodes: 2, Quorate: Yes` over the encrypted WireGuard overlay (corosync `secauth: on`), `/etc/pve` is shared both
+  ways, PVE lists both nodes online, and both are quorate again after B reboots. The phrase never appears in `ps`
+  on B (about 30,000 samples) or in any log.
+- **PC-edition ISO** (`scripts/build-iso.sh`, `scripts/vm-boot-iso.sh`, 2026-11-06): `supermox-11.26-pc-amd64.iso`
+  (1.8 GB) builds, contains no systemd units, and boots to the live desktop under sysvinit with corosync and
+  pve-cluster up and `/etc/pve` writable. The GRUB menu says SuperMox.
+- Proxmox VE 9.2 (pve-manager 9.2.24, qemu-server 9.2.13, pve-container 6.1.15) built from source on Devuan Ceres;
+  every package we rebuild carries a `+supermoxN` version. Web UI on port 8006.
 
-Added since (2026-10-30/31, written by the local model and committed as "pending review"):
+Nodes closer than 5 ms over the overlay (normally the same LAN) become corosync core members and share `/etc/pve`;
+others stay edge nodes on the overlay ([docs/cluster-core-join.md](docs/cluster-core-join.md)). The Manager's
+Cluster page creates a cluster, invites nodes, approves joins and makes a member core. If a node fails after it was
+admitted to the corosync cluster but before it joined, the member now undoes its addnode: at once on `CORE_ABORT`, or
+after 180 s with no `CORE_DONE` from the joiner. Unit tests cover both paths; the live LAN test is pending.
 
-- Discovery: signed gossip of node endpoints and a DHT locator so nodes find each other
-  across networks.
-- Daemon stderr goes to syslog under sysvinit; an offline check keeps upstream overrides honest.
-- SuperMox Manager native pages: create VMs and containers, storage, node administration,
-  network, disks, permissions and API tokens, backup jobs, pools, HA and firewall, with live
-  tests against a running VM. Node shell and guest consoles are in progress.
+Not ready yet (open issues):
+
+- No LICENSE file; the fork's own licence terms are unsettled ([#5](https://github.com/crhy/SuperMox/issues/5)).
+- arm64 and other architectures unverified ([#6](https://github.com/crhy/SuperMox/issues/6)).
+- The Android GUI is not running on a phone yet ([#7](https://github.com/crhy/SuperMox/issues/7)).
+- The ISO is built and boot-tested in a VM but not yet installed to disk with its installer, nor published
+  ([#8](https://github.com/crhy/SuperMox/issues/8)).
+- Our DHCP fork tracks end-of-life upstream software ([#9](https://github.com/crhy/SuperMox/issues/9)).
+- The apt source and keyring now ship in supermox-ve, and publishing our packages to the signed `supermox`
+  suite of our own repository (`crhy/supermox-apt`, key `D7FA64A80A5D7ABA007C701AF0D2E8CFC76CE6CF`) uses
+  `scripts/build-apt-repo.sh`; the issue stays open until that suite is actually published
+  ([#10](https://github.com/crhy/SuperMox/issues/10)).
+- The discovery libraries (gossip, DHT locator, onion helper) have unit tests only: `supermox-joind` does not
+  consult them yet ([docs/node-join-architecture.md](docs/node-join-architecture.md)).
 
 ## Install (PC edition)
 
 1. Boot the SuperMox ISO on bare metal or a VM.
 2. Follow the installer (Calamares-based, Spaced Linux desktop).
 3. Open `https://<host>:8006` in a browser.
+
+**The ISO is not published yet** ([#8](https://github.com/crhy/SuperMox/issues/8)): as of 2026-11-06 it is built
+from this repo (`bash scripts/build-iso.sh`, needs root for the live-build step) and boot-tested in a VM
+(`bash scripts/vm-boot-iso.sh`), but installing it to disk with its installer has not been tested yet. What is
+proven end to end is installing the packages from this repo on a Devuan Ceres sysvinit host, which is how the
+release check's clean install is done.
 
 ## Build from source
 

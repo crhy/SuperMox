@@ -1,0 +1,86 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          rrdcached
+# Required-Start:    $local_fs
+# Required-Stop:     $local_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Data caching daemon for rrdtool
+### END INIT INFO
+
+# Sysvinit service script translated from the rrdcached unit file Debian ships,
+# which upstream pve-cluster pulls in with Wants=rrdcached (init.d/pve-cluster
+# declares Should-Start: rrdcached). ZERO of that service manager: its unit
+# files are stripped from the image, so this script is the only thing that
+# starts the daemon -- without it the RRD archives pvestatd files stay empty
+# and the graphs page has no history.
+#
+# The unit's ExecStart is /usr/bin/rrdcached -g -B -b $BASE_PATH -j $JOURNAL_PATH
+# (-g, stay in the foreground, is for a service manager that tracks the process
+# itself): here the daemon forks and writes -p $PIDFILE. -l is added because
+# PVE's PVE::RRD talks to unix:/var/run/rrdcached.sock and Debian gets that
+# socket from service-manager socket activation, which sysvinit does not provide.
+
+. /lib/lsb/init-functions
+
+DAEMON=/usr/bin/rrdcached
+PIDFILE=/run/rrdcached.pid
+SOCKET=/var/run/rrdcached.sock
+NAME=rrdcached
+
+[ -x "$DAEMON" ] || exit 0
+
+# The unit reads these through EnvironmentFile=-/etc/default/rrdcached; do the
+# same. BASE_PATH/JOURNAL_PATH fall back to what Debian documents if the file
+# is missing.
+BASE_PATH=/var/lib/rrdcached/db
+JOURNAL_PATH=/var/lib/rrdcached/journal
+if [ -r /etc/default/rrdcached ]; then
+  . /etc/default/rrdcached
+fi
+
+case "$1" in
+  start)
+    log_begin_msg "Starting $NAME"
+    # rrdcached refuses a base dir that does not exist; the package creates
+    # it, this only covers a first boot before any PVE service ran.
+    mkdir -p "$BASE_PATH"
+    start-stop-daemon --start --quiet --pidfile "$PIDFILE" \
+      --exec "$DAEMON" -- \
+      "$DAEMON" -B -b "$BASE_PATH" -j "$JOURNAL_PATH" \
+      -m 0660 -l "$SOCKET" -p "$PIDFILE"
+    log_end_msg $?
+    ;;
+  stop)
+    log_begin_msg "Stopping $NAME"
+    start-stop-daemon --stop --quiet --retry=TERM/3/KILL/3 --pidfile "$PIDFILE"
+    if [ -e "$SOCKET" ] && [ ! -e "$PIDFILE" ]; then
+      rm -f "$SOCKET"
+    fi
+    log_end_msg $?
+    ;;
+  restart)
+    "$0" stop
+    "$0" start
+    ;;
+  reload|force-reload)
+    # No reload in the unit upstream; a rrdcached restart is what it would do.
+    "$0" restart
+    ;;
+  status)
+    start-stop-daemon --status --quiet --pidfile "$PIDFILE"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      log_success_msg "$NAME is running"
+    else
+      log_failure_msg "$NAME is not running"
+    fi
+    exit "$rc"
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
+    exit 2
+    ;;
+esac
+
+exit 0

@@ -1,6 +1,6 @@
-diff -ruN orig/PVE/Service/pveproxy.pm new/PVE/Service/pveproxy.pm
+diff -ruN a/PVE/Service/pveproxy.pm b/PVE/Service/pveproxy.pm
 --- a/PVE/Service/pveproxy.pm	2026-10-28 13:16:12.760373444 -0700
-+++ b/PVE/Service/pveproxy.pm	2026-10-30 00:41:21.287253035 -0700
++++ b/PVE/Service/pveproxy.pm	2026-11-04 11:29:59.856870675 -0800
 @@ -91,6 +91,7 @@
      add_dirs($dirs, '/pwt/css/' => "$basedirs->{widgettoolkit}/css/");
      add_dirs($dirs, '/pwt/images/' => "$basedirs->{widgettoolkit}/images/");
@@ -19,9 +19,9 @@ diff -ruN orig/PVE/Service/pveproxy.pm new/PVE/Service/pveproxy.pm
  
      if (my $cookie = $r->header('Cookie')) {
          if (my $newlang = ($cookie =~ /(?:^|\s)PVELangCookie=([^;]*)/)[0]) {
-diff -ruN orig/www/index.html.tpl new/www/index.html.tpl
+diff -ruN a/www/index.html.tpl b/www/index.html.tpl
 --- a/www/index.html.tpl	2026-10-28 13:16:12.761278289 -0700
-+++ b/www/index.html.tpl	2026-10-30 00:41:08.816146730 -0700
++++ b/www/index.html.tpl	2026-11-04 11:29:59.856971514 -0800
 @@ -4,9 +4,9 @@
      <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
      <meta http-equiv="X-UA-Compatible" content="IE=edge">
@@ -35,9 +35,90 @@ diff -ruN orig/www/index.html.tpl new/www/index.html.tpl
      <link rel="stylesheet" type="text/css" href="/pve2/ext6/theme-crisp/resources/theme-crisp-all.css?ver=7.0.0" />
      <link rel="stylesheet" type="text/css" href="/pve2/ext6/crisp/resources/charts-all.css?ver=7.0.0" />
      <link rel="stylesheet" type="text/css" href="/pve2/fa/css/font-awesome.css" />
-diff -ruN orig/www/manager6/window/LoginWindow.js new/www/manager6/window/LoginWindow.js
+diff -ruN a/www/manager6/dc/Config.js b/www/manager6/dc/Config.js
+--- a/www/manager6/dc/Config.js	2026-10-28 13:16:12.765278269 -0700
++++ b/www/manager6/dc/Config.js	2026-11-04 11:30:29.195795671 -0800
+@@ -179,7 +179,7 @@
+             iconCls: 'fa fa-key',
+             itemId: 'tfa',
+             yubicoEnabled: true,
+-            issuerName: `Proxmox VE - ${PVE.ClusterName || Proxmox.NodeName}`,
++            issuerName: `SuperMox - ${PVE.ClusterName || Proxmox.NodeName}`,
+         });
+ 
+         if (caps.dc['Sys.Audit']) {
+diff -ruN a/www/manager6/node/StatusView.js b/www/manager6/node/StatusView.js
+--- a/www/manager6/node/StatusView.js	2026-10-28 13:16:12.765278269 -0700
++++ b/www/manager6/node/StatusView.js	2026-11-04 11:30:29.191795677 -0800
+@@ -160,7 +160,7 @@
+         me.items.push({
+             xtype: 'pmxNodeInfoRepoStatus',
+             itemId: 'repositoryStatus',
+-            product: 'Proxmox VE',
++            product: 'SuperMox',
+             repoLink: `#${repoLink}`,
+         });
+ 
+diff -ruN a/www/manager6/storage/CephFSEdit.js b/www/manager6/storage/CephFSEdit.js
+--- a/www/manager6/storage/CephFSEdit.js	2026-10-28 04:35:06.039011765 -0700
++++ b/www/manager6/storage/CephFSEdit.js	2026-11-04 11:30:29.195795671 -0800
+@@ -128,7 +128,7 @@
+                 uncheckedValue: 0,
+                 submitValue: false,
+                 hidden: !me.isCreate,
+-                boxLabel: gettext('Use Proxmox VE managed hyper-converged cephFS'),
++                boxLabel: gettext('Use SuperMox managed hyper-converged cephFS'),
+             },
+         ];
+ 
+diff -ruN a/www/manager6/storage/RBDEdit.js b/www/manager6/storage/RBDEdit.js
+--- a/www/manager6/storage/RBDEdit.js	2026-10-28 04:35:06.039011765 -0700
++++ b/www/manager6/storage/RBDEdit.js	2026-11-04 11:30:29.195795671 -0800
+@@ -228,7 +228,7 @@
+                 uncheckedValue: 0,
+                 submitValue: false,
+                 hidden: !me.isCreate,
+-                boxLabel: gettext('Use Proxmox VE managed hyper-converged ceph pool'),
++                boxLabel: gettext('Use SuperMox managed hyper-converged ceph pool'),
+             },
+         ];
+ 
+diff -ruN a/www/manager6/Utils.js b/www/manager6/Utils.js
+--- a/www/manager6/Utils.js	2026-10-28 13:16:12.761278289 -0700
++++ b/www/manager6/Utils.js	2026-11-04 11:30:29.191795677 -0800
+@@ -797,7 +797,7 @@
+                 pwchange: true,
+             },
+             pve: {
+-                name: 'Proxmox VE authentication server',
++                name: 'SuperMox authentication server',
+                 ipanel: 'pveAuthBasePanel',
+                 add: false,
+                 tfa: true,
+diff -ruN a/www/manager6/window/GuestImport.js b/www/manager6/window/GuestImport.js
+--- a/www/manager6/window/GuestImport.js	2026-10-28 13:16:12.774600362 -0700
++++ b/www/manager6/window/GuestImport.js	2026-11-04 11:30:29.195795671 -0800
+@@ -338,7 +338,7 @@
+                 get('isOva')
+                     ? gettext('Starts a VM and imports the disks in the background')
+                     : gettext(
+-                          'Starts a previously stopped VM on Proxmox VE and imports the disks in the background.',
++                          'Starts a previously stopped VM on SuperMox and imports the disks in the background.',
+                       ),
+         },
+     },
+diff -ruN a/www/manager6/window/LoginWindow.js b/www/manager6/window/LoginWindow.js
 --- a/www/manager6/window/LoginWindow.js	2026-10-28 13:16:12.774600362 -0700
-+++ b/www/manager6/window/LoginWindow.js	2026-10-30 00:41:29.219763698 -0700
++++ b/www/manager6/window/LoginWindow.js	2026-11-04 11:31:31.883702300 -0800
+@@ -169,7 +169,7 @@
+ 
+             if (resp.failureType === 'connect') {
+                 emsg = gettext(
+-                    'Connection failure. Network error or Proxmox VE services not running?',
++                    'Connection failure. Network error or SuperMox services not running?',
+                 );
+             }
+ 
 @@ -349,7 +349,7 @@
      resizable: false,
      layout: 'auto',
@@ -47,9 +128,9 @@ diff -ruN orig/www/manager6/window/LoginWindow.js new/www/manager6/window/LoginW
  
      defaultFocus: 'usernameField',
      defaultButton: 'loginButton',
-diff -ruN orig/www/manager6/Workspace.js new/www/manager6/Workspace.js
+diff -ruN a/www/manager6/Workspace.js b/www/manager6/Workspace.js
 --- a/www/manager6/Workspace.js	2026-10-28 13:16:12.761278289 -0700
-+++ b/www/manager6/Workspace.js	2026-10-30 00:41:27.258359410 -0700
++++ b/www/manager6/Workspace.js	2026-11-04 11:30:29.191795677 -0800
 @@ -9,7 +9,7 @@
  Ext.define('PVE.Workspace', {
      extend: 'Ext.container.Viewport',
@@ -71,7 +152,16 @@ diff -ruN orig/www/manager6/Workspace.js new/www/manager6/Workspace.js
          }
          ui.updateLayout();
      },
-@@ -345,7 +345,7 @@
+@@ -339,13 +339,14 @@
+                     margin: '2 0 2 5',
+                     items: [
+                         {
+-                            xtype: 'proxmoxLogoSvg',
+-                            prefix: 'pwt',
++                            xtype: 'img',
++                            src: '/supermox/logo.png',
++                            height: 30,
+                         },
                          {
                              minWidth: 150,
                              id: 'versioninfo',

@@ -1,3 +1,362 @@
+supermox-ve (0.1.26) unstable; urgency=medium
+
+  * apt channel: the source and the key now point at SuperMox's own repository.
+    etc/apt/sources.list.d/supermox.sources sets URIs to
+    https://crhy.github.io/supermox-apt, the GitHub Pages site of crhy/supermox-apt,
+    instead of another project's repository; Suites, Components and Signed-By are
+    unchanged. usr/share/keyrings/supermox-archive-keyring.gpg is now the public
+    half of SuperMox's own archive key, fingerprint
+    D7FA64A80A5D7ABA007C701AF0D2E8CFC76CE6CF, so a node trusts only SuperMox's
+    key for SuperMox packages. scripts/build-apt-repo.sh defaults its signing
+    key to that fingerprint and its repository directory to ./supermox-apt, refuses
+    a directory that is not a git clone of crhy/supermox-apt before writing
+    anything, and stages packages under pool/main/<first letter>/<package>/, the
+    Debian pool layout of a repository whose only component is main, instead of
+    a per-suite pool directory. tests/test-supermox-ve.sh checks the new URI and
+    the new keyring fingerprint; tests/test-apt-repo.sh keeps its throwaway key
+    and checks the new pool path and the not-a-clone refusal.
+
+ -- SuperMox <noreply@supermox.me>  Sat, 07 Nov 2026 14:00:00 -0800
+
+supermox-ve (0.1.25) unstable; urgency=medium
+
+  * apt channel: an installed node now receives SuperMox updates. supermox-ve
+    ships the source and the key that authenticates it. etc/apt/sources.list.d/
+    supermox.sources (deb822) enables our own `supermox` suite in the signed
+    apt repository (its dists/ and pool/ trees), and
+    usr/share/keyrings/supermox-archive-keyring.gpg carries the public half of
+    the archive key that signs it; the .sources file's Signed-By names
+    that keyring, so apt trusts only that key and not the whole system trust
+    store. debian/conffiles declares the .sources file (debhelper does not
+    auto-register files copied in by debian/rules). etc/apt/preferences.d/
+    supermox-origins gains a `Pin: release o=SuperMox` record at priority 990
+    so the hosted suite also wins over Proxmox's dependency repository, next
+    to the existing records (which are all kept). scripts/build-apt-repo.sh
+    publishes the suite: it picks the newest version of each package with the
+    same rules as the ISO staging loop, stages them under the pool,
+    writes amd64/arm64/all Packages with apt-ftparchive and a SuperMox Release,
+    and signs InRelease/Release.gpg with the same key, refusing a substituted
+    signing identity before writing anything and touching nothing outside the
+    pool and dists/supermox/ so other suites in the same clone stay
+    byte-identical. tests/test-apt-repo.sh proves this offline with a
+    throwaway key; tests/test-supermox-ve.sh checks the shipped source, keyring
+    fingerprint, rules install and the new pin record.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 21:30:00 -0800
+
+supermox-ve (0.1.24) unstable; urgency=medium
+
+  * supermox-join cluster-init: a new subcommand, and
+    src/supermox/corosync_cluster.py behind it. `supermox-join create` now
+    writes the cluster's own /etc/corosync/corosync.conf and corosync's
+    pre-shared authkey as part of creating the cluster, so pmxcfs and
+    corosync describe the cluster from the first boot instead of waiting for
+    a step that used to be nobody's job: a node created before this change
+    had a membership state file, an overlay subnet and a wg0 tunnel, and no
+    corosync nodelist naming its peers, which is what left /etc/pve
+    read-only and every join step after it failing. cluster-init is
+    idempotent and touches nothing but the nodelist, so it is also the
+    repair for a cluster whose corosync step failed halfway, and
+    init.d/supermox-wg runs it after regenerating wg0.conf. The config
+    create writes lists only this node (4049a76): peers arrive through
+    supermox-join core, so a half-joined cluster never carries a nodelist
+    entry for a node it has no key for. init.d/supermox-corosync only
+    rewrites a config carrying its own header and naming one node; a
+    multi-node config belongs to a cluster and is never touched.
+    config/shipped-scripts.txt ships the new module, and
+    tests/py/test_corosync_cluster.py, tests/py/test_join_cli.py,
+    tests/test-init-corosync.sh and tests/test-init-wg.sh cover the create
+    path, the repair, the single-node block and the boot script leaving a
+    cluster config alone.
+  * supermox-join core: makes this node a corosync core member. It asks a
+    member's daemon for this cluster's corosync.conf and authkey over the
+    new CORE_REQ -> CORE_ACK message pair (src/supermox/joinproto.py,
+    answered by src/supermox/joind.py) and hands both to upstream's
+    finish_join, which stops pve-cluster, backs up the pmxcfs database,
+    starts corosync and pve-cluster, waits for quorum and regenerates the
+    node certificate - so nothing in SuperMox duplicates that sequence, and
+    nothing is written before a member has actually agreed. The node's
+    previous single-node config is moved to corosync.conf.supermox-single
+    first, upstream's own rollback: a node that fails halfway through
+    becoming a core member must still be able to boot the cluster it had
+    before. A node carrying VMs or containers is refused, as upstream does.
+  * src/supermox/joind.py listens on the IPv6 address as well as the IPv4
+    one, and bin/supermox-join brackets overlay addresses when it builds an
+    endpoint (5bceb3a): an overlay address is IPv6, and an unbracketed
+    endpoint string lets the parser split the address itself on its last
+    colon, so every request to a member reached over the wg0 tunnel went to
+    the wrong host. init.d/supermox-joind passes both addresses.
+  * supermox-join pending --json and members --json: one JSON array each for
+    the Manager (id, name, arch, age_s; name, role, overlay_addr, arch,
+    caps, core). core is true exactly when that member appears in
+    /etc/pve/corosync.conf's nodelist, which is how the Manager tells a
+    corosync member from an overlay member, and an empty members array means
+    'this node has no cluster' rather than an error.
+  * A join request waiting for approval no longer blocks supermox-join core,
+    and joind no longer refuses a CORE_REQ while one is queued: the pending
+    request comes from a node that is not a member yet, while core only ever
+    asks a node already in the membership list, so the two never interact.
+    The guests check is the real precondition. tests/py/test_joind.py and
+    tests/py/test_join_cli.py now expect a CORE_ACK and a completed core
+    join while a join sits in the queue.
+  * Pairs with pve-firewall 6.0.6+supermox3
+    (patches/pve-firewall/0004-cluster-traffic.patch): with the host
+    firewall on, supermox-joind's TCP 8743, the wg0 tunnel's UDP 51820 and
+    corosync knet's UDP port range were all dropped by the default
+    policy_in, so a joined node stopped answering CORE_REQ and join traffic
+    and the cluster never converged. tests/test-firewall-rules.sh generates
+    the rules offline through upstream's own PVE::Firewall module and checks
+    the ports and the per-address pairing.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 02:03:46 -0800
+
+supermox-ve (0.1.23) unstable; urgency=medium
+
+  * init.d/pve-cluster: manage pmxcfs by executable instead of by pidfile. pmxcfs
+    daemonises itself, and the old stop ran
+      start-stop-daemon --stop --pidfile /run/pve-cluster.pid --retry TERM/10/KILL/5
+    with no --exec, so whenever that file was missing or stale stop killed nothing
+    and returned rc=1 while pmxcfs kept running. PVE::SysvService::stop dies on a
+    nonzero rc, so every join step that restarts pve-cluster aborted, and status
+    reported "not running" on a node whose /etc/pve was mounted and readable. stop
+    now matches --exec /usr/sbin/pmxcfs, and start refuses to launch a second
+    instance (pidof check first, and start-stop-daemon's own --start returns 1
+    when the executable is already running).
+  * start now waits for the pmxcfs FUSE mount of /etc/pve before seeding
+    /etc/pve/storage.cfg and writing the pidfile, and unmounts a /etc/pve left
+    mounted by a pmxcfs that died - the boot path used to write storage.cfg into
+    the empty mountpoint and then mount over it, so the seed was invisible and
+    `pct list` reported "cannot access '/etc/pve/.version': Read-Only Filesystem".
+  * status returns LSB 0 only when pmxcfs runs AND /etc/pve is mounted, and stop
+    unmounts /etc/pve only once no pmxcfs is alive, so a stopped node reports 3
+    instead of 0 and a wedged mount is cleared rather than shadowed.
+  * tests/test-init-pve-cluster.sh: stubbed pmxcfs, findmnt and start-stop-daemon
+    cover stop with a missing and a stale pidfile, stop clearing a dead pmxcfs's
+    mount, start not double-starting, start waiting for the mount, status 0/3,
+    restart, and that storage.cfg is seeded only inside the mount.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 11:10:42 -0800
+supermox-ve (0.1.22) unstable; urgency=medium
+
+  * init.d/supermox-corosync: a new boot script that writes the single node's
+    own /etc/corosync/corosync.conf before corosync starts, and rewrites it when
+    the hostname or the DHCP address moved. pve-cluster's postinst can no longer
+    own this: inside the ISO build chroot `hostname` and `hostname -I` are the
+    build machine's, and the PC ISO booted with
+      corosync: failed to parse bindnet address 'localhost.localdomain'
+    which left /etc/pve read-only and broke every PVE service after it. The
+    file is deliberately NOT a conffile of supermox-ve: the corosync package
+    already ships /etc/corosync/corosync.conf as its own conffile, and two
+    packages claiming one path is a hard install-time file conflict, so
+    rewriting it every boot needs no dpkg involvement at all. A config this
+    script did not write and that does not carry our own header line is a real
+    multi-node cluster config and is never touched.
+  * init.d/supermox-hosts now orders supermox-corosync before corosync, and
+    init.d/pve-cluster requires supermox-corosync, so pmxcfs only starts once
+    that file describes the node that is booting.
+  * tests/test-init-corosync.sh: the placeholder is replaced, re-running changes
+    nothing, a moved address or a renamed node rewrites the one node block,
+    a multi-node config is left alone, no non-loopback address exits 0 without
+    blocking the boot, status returns LSB 0/3 as appropriate, stop never deletes
+    the file, and the LSB headers keep the order the boot depends on.
+
+ -- SuperMox <noreply@supermox.me>  Fri, 06 Nov 2026 18:04:30 -0800
+
+supermox-ve (0.1.21) unstable; urgency=medium
+
+  * etc/dpkg/dpkg.cfg.d/supermox-no-systemd-units: a new conffile with three dpkg
+    path-excludes (/lib/systemd/*, /usr/lib/systemd/*, /etc/systemd/*). Stock Devuan
+    packages that ARE installed (ssh, lightdm, avahi, nfs-common, lvm2, lxc,
+    wpa_supplicant ...) unpack systemd unit files into those trees; the excludes drop
+    them at unpack time, so a node that installs one of those packages later never
+    carries systemd unit files. Declared in debian/conffiles for the same reason as
+    the apt pins (debhelper only auto-registers conffiles it installs itself). The
+    ISO build stages this very file through live-build's includes.chroot_before_packages
+    (before any package installs) and adds a chroot hook that removes the unit files
+    the debootstrap stage left under those three trees; scripts/build-rootfs.sh already
+    passes the same three excludes to mmdebstrap, so the installed node, the ISO and
+    the rootfs agree by construction.
+
+supermox-ve (0.1.20) unstable; urgency=medium
+
+  * etc/apt/preferences.d/supermox-origins: hold libpve-network-* at 1.6.7*
+    (Pin-Priority: 990). The pinned PXVIRT tree builds libpve-access-control
+    9.1.2+supermox1, while the newest libpve-network-perl in the Proxmox
+    repository (1.6.8) requires libpve-access-control (>= 9.2.0~), and pve-
+    manager pulls libpve-network-perl (>= 1.6.5). A fresh ISO install therefore
+    resolved to 1.6.8 and stopped with "Unable to satisfy dependencies", and an
+    installed node would have hit the same skew on apt upgrade. The hold keeps
+    every libpve-network-* package at the release the pinned tree was cut with,
+    so the install resolves and a node can never upgrade into the gap; re-derive
+    the version whenever the pinned upstream commit moves. The ISO carries the
+    same hold because scripts/build-iso.sh stages this conffile verbatim into
+    config/archives/supermox-origins.pref.chroot, so the pin lives in one file
+    for the ISO and for the installed node; tests/test-supermox-ve.sh asserts
+    the record and tests/test-build-iso.sh asserts the ISO stages the file that
+    holds it.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 11:02:38 -0800
+
+supermox-ve (0.1.19) unstable; urgency=medium
+
+  * init.d/supermox-cgroups: new service script. LXC containers could not start
+    on our nodes: lxc-pve 7.x is built for cgroup v2 only and nothing in the
+    sysvinit boot sequence mounts a cgroup hierarchy at /sys/fs/cgroup, so
+    `pct start` died with "Failed to receive the container state". The script
+    mounts the unified cgroup2 hierarchy, delegates the controllers LXC and
+    QEMU resource limits need, and is enabled so it runs in rcS.d right after
+    mountkernfs, before lxcfs and the PVE services.
+  * init.d/supermox-wg: `up` and `conf` now sync the routing table as well as
+    the keys. wg syncconf never touches routes, so a member added after the
+    interface came up was listed by `wg show` and unreachable in fact ("Network
+    is unreachable"); routes of members that left the cluster are removed too.
+  * Pairs with pve-cluster 9.1.7+supermox2, whose init script seeds
+    /etc/pve/storage.cfg: a clean node had no storage defined at all, so
+    `pct create` and the web UI's Create CT failed with
+    "volume 'local:...' does not exist".
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 05:50:46 -0800
+
+supermox-ve (0.1.18) unstable; urgency=medium
+
+  * init.d/supermox-joind: `start` on a node that has no cluster yet exits 0
+    with a "no cluster here; run supermox-join create" message instead of
+    failing. The daemon itself refuses to run without cluster state, so the
+    old start path made a fresh node's boot report a failed service and left
+    no pidfile; the service is now a no-op until a cluster exists. An unreadable
+    (present but corrupt) state file still starts the daemon, so a damaged
+    cluster is reported rather than silently ignored.
+  * supermox-join create: creating a cluster now writes /etc/wireguard/wg0.conf
+    and starts the WireGuard overlay, exactly like `join` and `conf` already
+    did. Before, a freshly created cluster had no tunnel until someone ran
+    `conf`, so the first node of a new cluster could not be reached.
+  * Pairs with pve-firewall 6.0.6+supermox2, whose init script no longer pins
+    the iptables family to the legacy backend (f10d-1: our kernels have no
+    legacy ebtables bridge module, so pve-firewall logged a status update
+    error every 10 seconds).
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 02:19:29 -0800
+
+supermox-ve (0.1.17) unstable; urgency=medium
+
+  * Ship /etc/apt/preferences.d/supermox-origins: our own packages win over
+    every repository (origin "" at 999), Proxmox's repository is only a
+    dependency source (100), swtpm comes from Proxmox (600), and every binary
+    package scripts/apply-patches.sh rebuilds is pinned out of Proxmox's
+    repository outright (-1), as are the rrdtool and isc-dhcp forks out of
+    Devuan, so `apt upgrade` can never replace a SuperMox sysvinit build with
+    Proxmox's or Devuan's systemd one. scripts/supermox-pin-packages.sh generates
+    the name list from the patched trees' debian/control files and tests/
+    test-supermox-ve.sh fails the gate if the stanza drifts. debian/rules now
+    installs that file and debian/conffiles lists it.
+  * Every rebuilt upstream component in this release carries a +supermox1
+    version suffix added by scripts/apply-patches.sh (for example pve-manager
+    9.2.24+supermox1), a version no repository can produce, so the -1 pins
+    above are belt-and-braces rather than the only protection.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 11 Nov 2026 13:05:00 +0000
+
+supermox-ve (0.1.16) unstable; urgency=medium
+
+  * Fix the postinst, which dpkg ran with dash and aborted at line 92 with
+    `Syntax error: ")" unexpected`, leaving supermox-ve unpacked but unconfigured
+    on a fresh node. The header comment described debhelper's substitution marker
+    by spelling it out; debhelper substitutes that token wherever it appears,
+    so its init enable/start snippet was injected into the middle of the comment
+    and the remainder of the comment line became bare shell text. The marker is
+    now referred to in prose only, and the one real marker line is untouched.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 11 Nov 2026 12:00:00 +0000
+
+supermox-ve (0.1.15) unstable; urgency=medium
+
+  * Depend on isc-dhcp-client (>= 4.4.3-P1-8+supermox1): pve-container pulls
+    isc-dhcp-client in for /sbin/dhclient (host-managed container networks),
+    but Devuan Ceres does not ship it, and the Debian build's client package
+    installs dhclient hooks that call the service manager to feed leases to
+    systemd-resolved. We fork isc-dhcp (patches/isc-dhcp) to drop those hooks
+    and disable the debhelper unit-install step, and this versioned dependency
+    makes apt pick our fork instead of any other copy. Only the client and its
+    isc-dhcp-common manpages are pulled in; the server, relay, keama, dev and
+    ddns packages built from the same source are not dependencies and stay out
+    of the ISO.
+
+ -- SuperMox <noreply@supermox.me>  Mon, 09 Nov 2026 12:00:00 +0000
+
+supermox-ve (0.1.14) unstable; urgency=medium
+
+  * Ship init.d/rrdcached and enable it at boot: Debian installs rrdcached with
+    only a systemd unit, and upstream pve-cluster.service pulls it in with
+    Wants=rrdcached.service, so under sysvinit nothing ever started it. PVE's
+    PVE::RRD talks to unix:/var/run/rrdcached.sock, which Debian gets from
+    systemd socket activation, so the script passes -l /var/run/rrdcached.sock
+    (and -p /run/rrdcached.pid) on top of the unit's -B -b/-j arguments from
+    /etc/default/rrdcached; -g is dropped because the daemon has to fork.
+    Without it the RRD archives pvestatd files stay empty and the graphs page
+    has no history. config/init-scripts.txt lists the new script, and rrdcached
+    is now an explicit dependency.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 18:00:00 +0000
+
+supermox-ve (0.1.13) unstable; urgency=medium
+
+  * Ship the apt pin that keeps systemd out of the picture as a conffile at
+    /etc/apt/preferences.d/supermox-no-systemd: systemd, systemd-sysv,
+    libsystemd0, libpam-systemd, systemd-standalone-sysusers and
+    systemd-standalone-tmpfiles at Pin-Priority: -1. A plain Devuan Ceres host
+    that installs supermox-ve now gets the pin as well; scripts/build-rootfs.sh
+    copies this same file to the same path during the bootstrap, so installing
+    the package replaces that copy instead of leaving a second one behind.
+    debian/conffiles declares the path, and scripts/build-iso.sh stages the
+    same file as config/archives/supermox-no-systemd.pref.chroot, with the
+    ISO-only systemd names in a separate supermox-iso-extra.pref.chroot.
+
+ -- SuperMox <noreply@supermox.me>  Thu, 05 Nov 2026 12:00:00 +0000
+
+supermox-ve (0.1.12) unstable; urgency=medium
+
+  * Ship /etc/init.d/supermox-hosts, which maps the node's hostname to the
+    node's own non-loopback IPv4 address in /etc/hosts before pve-cluster starts
+    (X-Start-Before: pve-cluster). A fresh install left the hostname on Debian's
+    default "127.0.1.1 <hostname>" line, which pmxcfs rejects: pve-cluster then
+    starts "not running ... failed", and only scripts/vm-test-install.sh, which
+    no install path runs, had ever written the mapping. It manages exactly one
+    line ending in "# supermox-managed", rewrites it on every boot because
+    DHCP moves the address, strips the hostname from a loopback line, leaves an
+    admin's own static mapping alone, and writes the file atomically with mode
+    0644. If no IPv4 address exists after 20 s it logs a warning and exits 0
+    rather than blocking the boot. "status" is LSB 0 when the hostname resolves
+    to a non-loopback address of this node and LSB 3 otherwise.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 04 Nov 2026 15:20:00 +0000
+
+supermox-ve (0.1.11) unstable; urgency=medium
+
+  * Fix /etc/init.d/supermox-sync so it can start an instance at all. It exec'd
+    "syncthing --port 127.0.0.1:<port> --state <dir>": syncthing has no such
+    flags (the daemon subcommand is serve, the state directory is --home and
+    the listen address is --gui-address), and it passed start-stop-daemon
+    --okstart, which is not an option either (--oknodo is). It now runs
+    "syncthing serve --no-browser --no-restart --no-default-folder --home
+    /var/lib/supermox-sync/<user> --gui-address http://127.0.0.1:<port>" under
+    start-stop-daemon --oknodo. --no-default-folder because serve otherwise
+    makes its own "default" share of the user's home on first launch, and
+    supermox-sync reconcile already manages that path as the home-<user> folder:
+    two Syncthing folders cannot share a path, so reconcile would have failed
+    on every fresh instance.
+  * The init script's last line is "exit $?" instead of "exit 0", so a user
+    whose instance could not start (deleted account, bad port) makes "service
+    supermox-sync start" exit 1 rather than lie success; an empty user list is
+    still success. Its empty-list message now says whether the file is missing
+    or simply lists no users.
+  * Ship debian/postinst creating /etc/supermox/sync-users when absent, with a
+    comment giving the format (one user per line, file order fixes the port).  Nothing
+    else created it, and both the init script and /usr/bin/supermox-sync read
+    it and fail without it. It never overwrites an existing file, and it does
+    not touch rc links or start services: debhelper's own snippet does that.
+
+ -- SuperMox <noreply@supermox.me>  Wed, 04 Nov 2026 14:21:25 +0000
+
 supermox-ve (0.1.10) unstable; urgency=medium
 
   * Depend on supermox-ui: the SuperMox dark theme, logo and favicon that

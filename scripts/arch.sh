@@ -32,6 +32,22 @@ supermox_kernel_pkg() {
   esac
 }
 
+# Debian arch -> the name binfmt_misc registers for that emulator's userspace helper.
+# The kernel names the entry after the QEMU emulator, not after the Debian arch: this
+# PC has qemu-aarch64 / qemu-arm / qemu-riscv64 / qemu-loongarch64 registered, and there
+# is no "qemu-arm64" or "qemu-armhf". Checking /proc/sys/fs/binfmt_misc/qemu-$SUPERMOX_ARCH
+# therefore fails for arm64 and armhf even though emulation works.
+supermox_binfmt_name() {
+  case "$SUPERMOX_ARCH" in
+    amd64)   printf 'x86_64\n' ;;
+    arm64)   printf 'aarch64\n' ;;
+    armhf)   printf 'arm\n' ;;
+    riscv64) printf 'riscv64\n' ;;
+    loong64) printf 'loongarch64\n' ;;
+    *) supermox_arch_known ;;
+  esac
+}
+
 # Debian arch -> QEMU emulator binary.
 supermox_qemu_bin() {
   case "$SUPERMOX_ARCH" in
@@ -70,4 +86,12 @@ supermox_machine_opts() {
     arm64 | armhf | riscv64 | loong64) printf -- '-M virt\n' ;;
     *) supermox_arch_known ;;
   esac
+}
+
+# The same options, one WORD per line, for callers that mapfile straight into an
+# argv array. QEMU takes -M and virt as two separate argv entries: passing "-M virt"
+# as one entry fails with "invalid option", so a line-based mapfile of supermox_machine_opts
+# cannot start a non-amd64 VM.
+supermox_machine_opts_words() {
+  supermox_machine_opts | tr ' ' '\n' | grep -v '^$'
 }
