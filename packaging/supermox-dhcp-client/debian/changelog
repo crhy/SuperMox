@@ -1,3 +1,19 @@
+supermox-dhcp-client (0.2.0) unstable; urgency=medium
+
+  * Thin alias (crhy/SuperMox#9): the two DHCP answers landed together -
+    this package's /usr/sbin/dhclient adapter and pve-container's
+    0003-maintained-dhcp-client patch - so they are now one path. The
+    patched pve-container path (the container image's own client, run
+    through /usr/share/lxc/hooks/pve-dhcp-client) is what pve-container
+    calls directly and it needs no host binary, so this package no longer
+    ships /usr/sbin/dhclient and instead depends on pve-container.
+  * Provides/Replaces/Conflicts: isc-dhcp-client dropped with the adapter:
+    the interim isc-dhcp fork stays the only package that can own
+    /usr/sbin/dhclient; removing that fork (and its apt pins) is a
+    separate decision for rhY, listed in the release notes.
+
+ -- SuperMox <noreply@supermox.me>  Sat, 28 Nov 2026 12:00:00 -0800
+
 supermox-dhcp-client (0.1.0) unstable; urgency=medium
 
   * Initial release: /usr/sbin/dhclient (which is /sbin/dhclient on Devuan,

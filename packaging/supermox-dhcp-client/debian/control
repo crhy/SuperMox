@@ -8,22 +8,20 @@ Rules-Requires-Root: no
 
 Package: supermox-dhcp-client
 Architecture: all
-Provides: isc-dhcp-client
-Replaces: isc-dhcp-client
-Conflicts: isc-dhcp-client
-Depends: dhcpcd-base | udhcpc | busybox-udhcpc,
+Depends: pve-container,
          ${misc:Depends}
-Description: DHCP client adapter implementing the ISC dhclient contract
-  SuperMox's answer to pve-container's dependency on isc-dhcp-client, which
-  Devuan Ceres no longer ships (ISC DHCP is end-of-life upstream). It installs
-  /sbin/dhclient as a POSIX sh adapter: it accepts the options pve-container's
-  PVE::LXC::manage_dhclient and ifupdown2's dhcp method pass (-pf, -lf, -sf,
-  -r, -s, -n, -q, -1, --timeout, --release, --renew, --request, interface
-  names), obtains the binding from a maintained client that Devuan does ship
-  (dhcpcd by default, udhcpc/udhcpc6 or a stand-in via SUPERMOX_DHCP_CLIENT),
-  and translates it into the ISC dhclient-script contract the LXC hook
-  consumes: reason, interface, new_ip_address, new_subnet_mask,
-  new_network_mask, router_count, router_1..router_N, new_domain_name,
-  new_domain_name_servers and pid, with every file written under $ROOTFS.
-  It satisfies the "isc-dhcp-client" dependency of pve-container without
-  copying any ISC source and without pulling in any systemd code.
+Description: thin alias for SuperMox's one DHCP path (transitional)
+  crhy/SuperMox#9 landed two answers to the missing isc-dhcp-client at once:
+  this package's /usr/sbin/dhclient adapter (f079) and pve-container's
+  0003-maintained-dhcp-client patch (f099). The patch won: for a
+  host-managed container NIC the patched PVE::LXC::manage_dhclient probes
+  the container image itself (dhclient, udhcpc6 or udhcpc) and runs that
+  client through the /usr/share/lxc/hooks/pve-dhcp-client adapter that
+  pve-container now ships, so the job needs no host binary at all.
+  This package therefore ships no files any more: no /usr/sbin/dhclient,
+  and no Provides/Replaces/Conflicts on isc-dhcp-client, so the interim
+  isc-dhcp fork stands as the only package that can own /usr/sbin/dhclient
+  (dropping that fork is rhY's decision, not this package's). It stays as
+  a thin alias that pulls in pve-container, which carries the adapter and
+  depends on the maintained client (udhcpc | dhcpcd-base), so anything
+  still referencing supermox-dhcp-client keeps working on one path.
