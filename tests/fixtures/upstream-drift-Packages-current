@@ -1,0 +1,80 @@
+# Snapshot of Proxmox's trixie pve-no-subscription Packages index for exactly the
+# components pinned in config/upstream-overrides.txt (the smx03 set), one Package:
+# stanza per BINARY package name at the version each pin's "# <version>" comment
+# records, with "-1" as the Debian revision (the pins carry none). Source-only
+# component names are resolved to the binary package names the index carries, per
+# config/upstream-source-binaries.txt. Newest stanza per component comes last, and
+# the older pve-container stanza is the version tests/test-drift-sync.sh's probe
+# down-bumps a pin to. This is the offline stand-in for the live drift fetch: the
+# drift check's --packages option takes this file instead of the fetched index.
+
+Package: libpve-rs-perl
+Version: 0.16.8-1
+Architecture: amd64
+Description: proxmox-perl-rs at the version the pin records
+
+Package: libpve-common-perl
+Version: 9.2.15-1
+Architecture: amd64
+Description: pve-common at the version the pin records
+
+Package: pve-cluster
+Version: 9.1.17-1
+Architecture: amd64
+Description: pve-cluster at the version the pin records
+
+Package: libpve-access-control
+Version: 9.2.3-1
+Architecture: amd64
+Description: pve-access-control at the version the pin records
+
+Package: libpve-guest-common-perl
+Version: 6.0.15-1
+Architecture: amd64
+Description: pve-guest-common at the version the pin records
+
+Package: libpve-storage-perl
+Version: 9.1.26-1
+Architecture: amd64
+Description: pve-storage at the version the pin records
+
+Package: pve-firewall
+Version: 6.0.9-1
+Architecture: amd64
+Description: pve-firewall at the version the pin records
+
+Package: pve-container
+Version: 6.1.27-1
+Architecture: all
+Description: older version below the pin, so the probe can down-bump to a version this snapshot holds
+
+Package: pve-container
+Version: 6.1.28-1
+Architecture: amd64
+Description: pve-container at the version the pin records
+
+Package: pve-ha-manager
+Version: 5.2.8-1
+Architecture: amd64
+Description: pve-ha-manager at the version the pin records
+
+Package: qemu-server
+Version: 9.2.24-1
+Architecture: amd64
+Description: qemu-server at the version the pin records
+
+Package: pve-manager
+Version: 9.3.1-1
+Architecture: amd64
+Description: pve-manager at the version the pin records
+
+Package: proxmox-ve
+Version: 9.3.0-1
+Architecture: amd64
+Description: proxmox-ve at the version the pin records
+
+Package: librados2-perl
+Version: 1.5.1-1
+Architecture: amd64
+Description: librados2-perl at the version the pin records
+
